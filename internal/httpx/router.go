@@ -22,11 +22,21 @@ import (
 func NewRouter(ver, commit string) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Order matters. RequestID first so everything downstream can log it; Recover
-	// before Log so a panic still produces one request line with its 500.
+	// Order matters, and it is the opposite of what it first looks like.
+	//
+	// RequestID is outermost so everything downstream can log the id.
+	//
+	// Log then wraps Recover, NOT the other way round. With Recover outside, a panic
+	// unwinds PAST Log before Log can record anything, so a panicking request produces
+	// no access line at all -- the one request you most want in the log is the one that
+	// vanishes from it. With Recover inside, the panic is caught within Log's call, Log
+	// resumes, and the request is logged with its real status of 500.
+	//
+	// This was measured, not reasoned: verify round 1 of AOC-002 captured slog output
+	// under both orders. The original order, and the comment defending it, were wrong.
 	r.Use(RequestID)
-	r.Use(Recover)
 	r.Use(Log)
+	r.Use(Recover)
 
 	// chi's defaults write text/plain. Route them through the central mapper so that
 	// every response from this service, success or failure, is the same JSON shape.
