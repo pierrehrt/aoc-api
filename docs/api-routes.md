@@ -7,7 +7,9 @@
 
 - **Everything product-facing lives under `/v1/`.** A breaking change ships as `/v2/` beside it and
   the old version is marked deprecated here, never changed in place (CLAUDE.md rule 5c).
-- **Every response is JSON**, success or failure, including 404 and 500.
+- **Every response is JSON**, success or failure, including 404, 405 and 500. The one exception is
+  outside our reach: `net/http` rejects a malformed request line or illegal header bytes with a
+  `400 text/plain` before any of our code runs.
 - **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
 - **Errors share one body shape**: `{"error": "...", "request_id": "..."}`.
 - Every list endpoint will be paginated (none exist yet).
@@ -37,6 +39,7 @@ First real routes arrive with **AOC-012** (public item reads).
 | `ErrForbidden` | 403 | `forbidden` |
 | `ErrNotFound` | 404 | `not found` |
 | `ErrConflict` | 409 | `conflict` |
+| `ErrMethodNotAllowed` | 405 | `method not allowed` |
 | *(anything unmapped)* | 500 | `internal error` |
 
 A 500's body is always that flat string. The detail goes to the log with the request id — a wrapped

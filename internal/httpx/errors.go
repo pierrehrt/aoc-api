@@ -1,6 +1,3 @@
-// Package httpx holds everything that is about HTTP rather than about the domain:
-// middleware, the central error mapping, and cache headers. Domain packages under
-// internal/<domain>/ must not import net/http concerns beyond their handlers.
 package httpx
 
 import (
@@ -23,6 +20,10 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrForbidden    = errors.New("forbidden")
 	ErrConflict     = errors.New("conflict")
+
+	// ErrMethodNotAllowed exists so chi's 405 can go through Fail like every other
+	// rejection, rather than being the one status that writes its own body.
+	ErrMethodNotAllowed = errors.New("method not allowed")
 )
 
 // ErrorBody is the single shape of every error response. Clients can rely on it.
@@ -65,6 +66,8 @@ func statusFor(err error) int {
 		return http.StatusForbidden
 	case errors.Is(err, ErrConflict):
 		return http.StatusConflict
+	case errors.Is(err, ErrMethodNotAllowed):
+		return http.StatusMethodNotAllowed
 	default:
 		return http.StatusInternalServerError
 	}
@@ -77,7 +80,8 @@ func publicMessage(err error, status int) string {
 	if status >= 500 {
 		return "internal error"
 	}
-	for _, sentinel := range []error{ErrNotFound, ErrInvalid, ErrUnauthorized, ErrForbidden, ErrConflict} {
+	for _, sentinel := range []error{ErrNotFound, ErrInvalid, ErrUnauthorized, ErrForbidden,
+		ErrConflict, ErrMethodNotAllowed} {
 		if errors.Is(err, sentinel) {
 			return sentinel.Error()
 		}

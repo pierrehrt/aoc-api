@@ -9,8 +9,8 @@
 ## What this service is
 
 The backend for the Age of Conan Codex: a public read API over a preserved item database, and later
-an authenticated write path for community suggestions with moderation. Go 1.23+, chi, pgx, sqlc,
-goose, Postgres, deployed on Railway.
+an authenticated write path for community suggestions with moderation. Go 1.23+ (`go.mod` declares `go 1.23` as the language floor; the local toolchain is
+newer), chi, pgx, sqlc, goose, Postgres, deployed on Railway.
 
 ## Package layout
 
@@ -67,18 +67,42 @@ unmapped. A wrapped error routinely carries a table name, a column or a query fr
 exactly what must not appear in a public response body. There are tests for both directions.
 
 `http.Error` writes `text/plain`, skips the request id and spreads status decisions across every
-handler until no two 404s look alike. `bin/gate api` greps for it.
+handler until no two 404s look alike. **`bin/gate api` greps for it** — outside `internal/httpx` and
+outside tests, any `http.Error(` fails the gate. That grep was added by AOC-002 verify round 1,
+which found the rule claimed in two places and enforced in none.
+
+chi's 404 **and 405** both route through `Fail`, so there is genuinely one path to an error
+response. The 405 used to write its own body, which made that claim untrue and made a 405 the only
+rejection that never appeared in the log.
 
 ## Middleware, in order
 
-`RequestID` → `Recover` → `Log`.
+`RequestID` → `Log` → `Recover`.
 
-The order is load-bearing: `RequestID` first so everything downstream can log it, and `Recover`
-before `Log` so a panic still produces one request line carrying its 500. `Recover` routes the panic
-through the central mapper — chi's default writes a stack trace into the response body.
+The order is load-bearing, and it is the opposite of what it first looks like. `RequestID` is
+outermost so everything downstream can log the id. **`Log` then wraps `Recover`, not the other way
+round:** with `Recover` outside, a panic unwinds *past* `Log` before it can record anything, so a
+panicking request produces **no access line at all** — the one request you most want in the log is
+the one that vanishes from it. With `Recover` inside, the panic is caught within `Log`'s call, `Log`
+resumes, and the request is logged with its real status of 500.
+
+This was **measured, not reasoned**: AOC-002 verify round 1 captured slog output under both orders
+and found the original order — and the comment defending it — backwards. There is now a test that
+fails under the old order.
+
+`Recover` routes the panic through the central mapper; chi's default writes a stack trace into the
+response body. If the handler had **already started writing**, `Recover` logs and stops rather than
+appending an error document: the status line is spent, and a second JSON object concatenated onto a
+partial body parses as neither.
 
 An inbound `X-Request-Id` is echoed for correlation but replaced if it is over 64 characters: it is
-attacker-controlled and ends up in our logs.
+attacker-controlled and ends up in our logs. Header splitting is not a concern here — `net/http`
+rejects control characters in a header value with a 400 before any middleware runs — and the id is
+JSON-escaped in both the response body and the log.
+
+The `Log` middleware wraps the `ResponseWriter` to record the status. It implements `Unwrap`, so
+`http.ResponseController` still reaches `Flush`, `Hijack` and the deadline setters: wrapping a
+writer must not quietly remove capabilities from everything downstream.
 
 ## Server lifecycle
 

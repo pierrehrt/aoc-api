@@ -52,12 +52,24 @@ func newID() string {
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			if rec := recover(); rec != nil {
-				slog.ErrorContext(r.Context(), "panic in handler",
-					"panic", rec, "request_id", RequestIDFrom(r.Context()),
-					"method", r.Method, "path", r.URL.Path)
-				Fail(w, r, errPanic)
+			rec := recover()
+			if rec == nil {
+				return
 			}
+			slog.ErrorContext(r.Context(), "panic in handler",
+				"panic", rec, "request_id", RequestIDFrom(r.Context()),
+				"method", r.Method, "path", r.URL.Path)
+
+			// If the handler already started writing, the status line is spent and the
+			// client holds a partial body. Appending an error document would produce a
+			// 200 followed by two concatenated JSON objects -- worse than the truncation,
+			// because it parses as neither. Log it and let the connection end short.
+			if sw, ok := w.(interface{ Wrote() bool }); ok && sw.Wrote() {
+				slog.ErrorContext(r.Context(), "panic after the response began; body is truncated",
+					"request_id", RequestIDFrom(r.Context()))
+				return
+			}
+			Fail(w, r, errPanic)
 		}()
 		next.ServeHTTP(w, r)
 	})
@@ -71,16 +83,34 @@ type errPanicType struct{}
 
 func (errPanicType) Error() string { return "panic recovered" }
 
-// statusWriter records the status so Log can report it.
+// statusWriter records the status so Log can report it, and whether anything has been
+// written yet so Recover knows whether a body is still possible.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	wrote  bool
 }
 
 func (w *statusWriter) WriteHeader(code int) {
-	w.status = code
+	if w.wrote {
+		return
+	}
+	w.status, w.wrote = code, true
 	w.ResponseWriter.WriteHeader(code)
 }
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer, so wrapping does not
+// silently remove Flush, Hijack or SetWriteDeadline from anything downstream.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// Wrote reports whether the response has already begun. Once it has, the status line is
+// gone and nothing can turn the response into a clean error.
+func (w *statusWriter) Wrote() bool { return w.wrote }
 
 // Log emits one structured line per request.
 func Log(next http.Handler) http.Handler {
@@ -99,8 +129,7 @@ func Log(next http.Handler) http.Handler {
 // returns the same JSON shape as every other error rather than chi's plain text.
 func NotFound(w http.ResponseWriter, r *http.Request) { Fail(w, r, ErrNotFound) }
 
-// MethodNotAllowed does the same for a known path with the wrong verb.
-func MethodNotAllowed(w http.ResponseWriter, r *http.Request) {
-	Respond(w, r, http.StatusMethodNotAllowed,
-		ErrorBody{Error: "method not allowed", RequestID: RequestIDFrom(r.Context())})
-}
+// MethodNotAllowed does the same for a known path with the wrong verb. It goes through
+// Fail like everything else -- writing the body directly here made AC4's "one path to an
+// error response" untrue, and meant a 405 was the only rejection that never got logged.
+func MethodNotAllowed(w http.ResponseWriter, r *http.Request) { Fail(w, r, ErrMethodNotAllowed) }

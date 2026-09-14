@@ -51,7 +51,13 @@ Architecture is different — there you are the expert and should have opinions.
 10. **Every production deploy is a release**: semver bump, a `CHANGELOG.md` section (one line per
     ticket, ending with its AOC id), a git tag, and a GitHub release on that tag.
 11. **No goroutine without a clear lifetime**, and every `context.Context` propagated to the query.
-12. **Branch per ticket, `AOC-NNN-slug`.** (The pm repo is the exception — it works on `main`.)
+12. **Branch per ticket, `AOC-NNN-slug`**, then a PR. (The pm repo is the exception — it works on
+    `main`.) The single exception here was this repo's initial commit, which had no branch to
+    diverge from; everything since is on a branch.
+
+⚠️ **`bin/docs-check api` is vacuous on a repo with one commit** — it diffs against `origin/main`,
+and when the only commit *is* `origin/main` it compares zero files and asserts nothing. It becomes
+real from the second commit onward. Do not read an early PASS as evidence.
 
 ## Layout
 
