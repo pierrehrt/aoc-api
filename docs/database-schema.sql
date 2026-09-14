@@ -1,0 +1,18 @@
+-- aoc_api — the CURRENT database schema, as a living document.
+--
+-- Updated in the same commit as any goose migration (bin/docs-check api enforces it).
+-- This file is documentation, not a migration: it describes where the database IS, so a
+-- reviewer can read the schema without replaying migrations/ in their head.
+--
+-- Created by AOC-002. There is no schema yet.
+--   AOC-005  brings in goose + sqlc and the first migration
+--   AOC-009  taxonomy tables and place entities
+--   AOC-010  item schema  -- items, stats, sources, sets
+--
+-- NOTE for AOC-010, carried from AOC-016 and AOC-017:
+--   * `spell_effect` is its own column, separate from an item's `stats`. A build or
+--     armour calculator sums `stats` and must never sum `spell_effect`.
+--   * `vendor` is its own column, separate from `boss_or_npc`.
+--   * `binding` is a 3-row lookup table, not a free-text column.
+--   * `coords` is overloaded in the source data: on a quest row it is where the
+--     quest-giver stands, not a dungeon entrance. Label which it is.

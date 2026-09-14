@@ -1,0 +1,10 @@
+# build output
+/bin/
+/aoc-api
+
+# local env — never commit a connection string
+.env
+.env.*
+!.env.example
+
+.DS_Store
