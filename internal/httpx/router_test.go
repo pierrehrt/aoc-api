@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +70,7 @@ func TestProductionRouterRecoversPanics(t *testing.T) {
 	r.Mount("/verify-probe", boom)
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/verify-probe/boom", nil))
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/verify-probe/boom", nil))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 — the production router is not recovering panics", rr.Code)
@@ -109,7 +110,7 @@ func TestErrorResponsesAreJSONContentType(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
-			httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, nil))
+			httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, nil))
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d", rr.Code, tc.want)
 			}
@@ -130,7 +131,7 @@ func TestErrorResponsesAreJSONContentType(t *testing.T) {
 // An attacker-supplied request id is echoed and logged verbatim; confirm it cannot break
 // out of the JSON body it is written into.
 func TestHostileRequestIDCannotBreakTheJSONBody(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/v1/nope", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/nope", nil)
 	req.Header.Set(httpx.HeaderRequestID, `a","error":"forged`)
 	rr := httptest.NewRecorder()
 	httpx.NewRouter("dev", "none").ServeHTTP(rr, req)

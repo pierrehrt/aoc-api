@@ -2,6 +2,7 @@ package httpx_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -28,7 +29,7 @@ func TestPanicStillProducesAnAccessLine(t *testing.T) {
 		func(http.ResponseWriter, *http.Request) { panic("boom") }))))
 
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/boom", nil))
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rr.Code)
@@ -64,7 +65,7 @@ func TestPanicAfterWriteDoesNotAppendASecondBody(t *testing.T) {
 		}))))
 
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/x", nil))
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", nil))
 
 	if n := strings.Count(rr.Body.String(), `{`); n != 1 {
 		t.Errorf("body has %d JSON documents, want 1: %s", n, rr.Body.String())
@@ -83,7 +84,7 @@ func TestResponseWriterWrappingPreservesFlush(t *testing.T) {
 			flushed = true
 		}
 	}))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", nil))
 	if !flushed {
 		t.Error("Flush is unreachable through the wrapper — Unwrap is missing or wrong")
 	}
@@ -92,7 +93,7 @@ func TestResponseWriterWrappingPreservesFlush(t *testing.T) {
 // 405 must go through the same mapper as everything else.
 func TestMethodNotAllowedGoesThroughTheMapper(t *testing.T) {
 	rr := httptest.NewRecorder()
-	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/health", nil))
+	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/health", nil))
 
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rr.Code)

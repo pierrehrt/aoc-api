@@ -1,0 +1,31 @@
+# Linters for aoc_api. Required in CI (AOC-003); bin/gate api skips it locally when absent.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose      # an unclosed response body leaks a connection per request
+    - errcheck       # an ignored error is how a 500 becomes a silent 200
+    - errorlint      # %w and errors.Is/As, so the central error mapper can classify
+    - gosec          # the write path arrives with EP-06; start clean
+    - noctx          # every outbound call carries a context, per docs/architecture.md
+    - revive
+    - sqlclosecheck  # pgx rows left open hold a pool connection
+    - unconvert
+    - unparam
+
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+
+  exclusions:
+    rules:
+      # Tests may ignore errors on obvious helpers; production code may not.
+      - path: _test\.go
+        linters: [errcheck, gosec]
+
+formatters:
+  enable:
+    - gofmt

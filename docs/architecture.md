@@ -30,6 +30,42 @@ cheapest defence against the layout eroding into a pile of helpers, and it costs
 **A domain package owns its handlers, its service and its tests.** It does not own HTTP concerns
 beyond a thin handler (those are `httpx`) or raw SQL (that is `internal/db/queries`).
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on every push to `main`. A red build
+blocks the **merge**, not the release (AOC-003).
+
+Two jobs:
+
+| job | steps | why |
+|---|---|---|
+| `check` | `make fmt-check`, `make lint`, `go build ./...`, `make test` | the same **make targets** a person runs, and the same ones `bin/gate api` runs in the `product_management` repo |
+| `lint` | `go install golangci-lint@v2.13.2`, `golangci-lint config verify`, `golangci-lint run ./...` | required, not advisory |
+
+**The contract: CI never duplicates a command list.** It calls `make`, because a copied list of
+commands is how CI and the local gate drift until one of them is lying. Adding a check means adding
+it to the `Makefile`; both callers get it for free.
+
+**The Go version is read from `go.mod`** (`go-version-file`), never pinned twice.
+
+**`golangci-lint` is installed with `go install` at a pinned version, not via a third-party action.**
+The config schema is version-specific — `.golangci.yml` declares `version: "2"` — so the binary that
+runs in CI must be the one the config was verified against. An action whose default version moves is
+how a config becomes wrong without anyone editing it. `golangci-lint config verify` runs before
+`run`, so a malformed config fails as a config error rather than as a lint result.
+
+**Why the linter is required when `bin/gate api` only warns.** Locally the binary is often absent and
+forcing every contributor to install it to run the gate is a worse trade than catching the problem
+one step later. But it is the **only** thing that catches an aliased import evading the `http.Error`
+ban — `nh "net/http"` then `nh.Error(...)` — which the gate's grep for the literal `http.Error(`
+cannot see. So: the grep catches the honest mistake locally and instantly; the linter catches the
+rest, in CI, where it is free.
+
+**Enabled beyond the defaults:** `bodyclose`, `errcheck`, `errorlint`, `gosec`, `noctx`,
+`sqlclosecheck`, `unconvert`, `unparam` — chosen for what this service will actually do: hold a pgx
+pool, write JSON errors through one mapper, and grow an authenticated write path in EP-06. Tests are
+excluded from `errcheck` and `gosec` only.
+
 ## Three structural decisions every later ticket inherits
 
 ### 1. `/v1` is a mounted sub-router, not a path prefix
