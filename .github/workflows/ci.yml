@@ -1,0 +1,71 @@
+name: CI
+
+# A gate that only runs when someone remembers to run it is not a gate (AOC-003).
+# A red build blocks the MERGE, not the release.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same PR cancels the first: the only run that matters is the latest.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned FROM go.mod, never duplicated here: one source of truth for the Go version,
+      # so a toolchain bump is a one-line change in the file that already declares it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # CI calls the SAME make targets a person calls, and the same ones `bin/gate api` calls
+      # in the product_management repo. A duplicated command list here is how CI and the local
+      # gate drift until one of them is lying.
+      - name: gofmt
+        run: make fmt-check
+
+      - name: go vet
+        run: make lint
+
+      - name: go build
+        run: make compile
+
+      - name: go test
+        run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # REQUIRED, not advisory (AOC-003). golangci-lint is the only thing that catches an ALIASED
+      # import evading the http.Error ban -- `nh "net/http"` then `nh.Error(...)` -- which
+      # bin/gate's grep for the literal `http.Error(` can never see. bin/gate still warns and skips
+      # when the binary is absent locally; CI is the authority.
+      #
+      # Installed with `go install` at a PINNED version rather than through a third-party action:
+      # the config schema is version-specific (v2 here), so the binary that runs in CI must be the
+      # same one .golangci.yml was verified against locally. An action whose default version moves
+      # is how a config becomes wrong without anyone editing it.
+      - name: install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+
+      - name: config is valid
+        run: golangci-lint config verify
+
+      - name: golangci-lint
+        run: golangci-lint run ./...

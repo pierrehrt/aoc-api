@@ -98,7 +98,9 @@ func Respond(w http.ResponseWriter, r *http.Request, status int, v any) {
 		slog.ErrorContext(r.Context(), "encoding response failed", "error", err)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"error":"internal error"}`)
+		// The response is already committed at this point; there is nowhere left to
+		// report a write failure to, and errcheck is right to want that said out loud.
+		_, _ = fmt.Fprint(w, `{"error":"internal error"}`)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -89,7 +90,7 @@ func TestPanicBecomes500WithNoStackTrace(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/boom", nil))
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rr.Code)
@@ -112,6 +113,6 @@ func failWith(err error) *httptest.ResponseRecorder {
 	r.Use(httpx.RequestID)
 	r.Get("/x", func(w http.ResponseWriter, req *http.Request) { httpx.Fail(w, req, err) })
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/x", nil))
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", nil))
 	return rr
 }

@@ -2,6 +2,7 @@ package httpx_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -32,7 +33,7 @@ func TestProductionRouterLogsAPanickingRequest(t *testing.T) {
 	r.Mount("/verify-order-probe", boom)
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/verify-order-probe/boom", nil))
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/verify-order-probe/boom", nil))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rr.Code)
@@ -66,7 +67,7 @@ func TestProductionRouterLogsEveryRequest(t *testing.T) {
 	defer slog.SetDefault(restore)
 
 	rr := httptest.NewRecorder()
-	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil))
 
 	n := 0
 	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {

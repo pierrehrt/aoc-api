@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +77,7 @@ func TestEveryResponseCarriesARequestID(t *testing.T) {
 func TestInboundRequestIDIsEchoedButCapped(t *testing.T) {
 	r := httpx.NewRouter("dev", "none")
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	req.Header.Set(httpx.HeaderRequestID, "trace-from-the-edge")
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
@@ -88,7 +89,7 @@ func TestInboundRequestIDIsEchoedButCapped(t *testing.T) {
 	for i := range long {
 		long[i] = 'x'
 	}
-	req = httptest.NewRequest(http.MethodGet, "/health", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	req.Header.Set(httpx.HeaderRequestID, string(long))
 	rr = httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
@@ -100,6 +101,6 @@ func TestInboundRequestIDIsEchoedButCapped(t *testing.T) {
 func do(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(method, path, nil))
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), method, path, nil))
 	return rr
 }
