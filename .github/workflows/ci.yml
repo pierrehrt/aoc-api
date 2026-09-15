@@ -38,7 +38,7 @@ jobs:
         run: make lint
 
       - name: go build
-        run: go build ./...
+        run: make compile
 
       - name: go test
         run: make test

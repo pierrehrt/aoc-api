@@ -7,6 +7,7 @@ linters:
     - bodyclose      # an unclosed response body leaks a connection per request
     - errcheck       # an ignored error is how a 500 becomes a silent 200
     - errorlint      # %w and errors.Is/As, so the central error mapper can classify
+    - forbidigo      # the http.Error ban, actually enforced — see settings below
     - gosec          # the write path arrives with EP-06; start clean
     - noctx          # every outbound call carries a context, per docs/architecture.md
     - revive
@@ -15,6 +16,21 @@ linters:
     - unparam
 
   settings:
+    # ⭐ THE http.Error BAN, ENFORCED RATHER THAN ASSERTED (AOC-003 verify round 1).
+    #
+    # docs/architecture.md claimed golangci-lint was "the only thing that catches an aliased import
+    # evading the ban" — `nh "net/http"` then `nh.Error(...)`. Verify planted exactly that and the
+    # whole gate passed: nothing in the enabled set can ban an identifier. The sentence was true
+    # about what a linter CAN do and false about this configuration.
+    #
+    # analyze-types resolves the import, so the alias is caught by what it IS, not what it is
+    # spelled. bin/gate's grep for the literal `http.Error(` still runs and still catches the
+    # honest mistake instantly; this catches the rest.
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^http\.Error$'
+          msg: "use httpx.Fail — one error mapper, one JSON shape, the request id attached (docs/architecture.md)"
     revive:
       rules:
         - name: package-comments
@@ -22,6 +38,9 @@ linters:
 
   exclusions:
     rules:
+      # internal/httpx IS the error mapper; it is the one place allowed to write a raw error.
+      - path: internal/httpx/
+        linters: [forbidigo]
       # Tests may ignore errors on obvious helpers; production code may not.
       - path: _test\.go
         linters: [errcheck, gosec]

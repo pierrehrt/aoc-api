@@ -39,12 +39,20 @@ Two jobs:
 
 | job | steps | why |
 |---|---|---|
-| `check` | `make fmt-check`, `make lint`, `go build ./...`, `make test` | the same **make targets** a person runs, and the same ones `bin/gate api` runs in the `product_management` repo |
+| `check` | `make fmt-check`, `make lint`, `make compile`, `make test` | **only** make targets — the same ones a person runs |
 | `lint` | `go install golangci-lint@v2.13.2`, `golangci-lint config verify`, `golangci-lint run ./...` | required, not advisory |
 
-**The contract: CI never duplicates a command list.** It calls `make`, because a copied list of
-commands is how CI and the local gate drift until one of them is lying. Adding a check means adding
-it to the `Makefile`; both callers get it for free.
+**The contract: CI never spells a command out.** Every step in `check` is a `make` target, because a
+copied command list is how CI and a local run drift until one of them is lying. `make check` is the
+canonical list; adding a check means adding it there, once.
+
+⚠️ **`bin/gate api` in the `product_management` repo does NOT call `make`** — it runs the equivalent
+checks directly, so that it works against a repo whose shape it does not control and can report each
+step's own ✅/❌. So there are two lists, and they can drift. The mitigation is that `make check` is
+the declared canonical one and `bin/gate`'s steps mirror it; the thing that catches drift in
+practice is that both run on the same code and a check missing from one still fails in the other.
+An earlier version of this file claimed CI and `bin/gate` ran the same targets. They do not, and
+saying so was worse than the duplication.
 
 **The Go version is read from `go.mod`** (`go-version-file`), never pinned twice.
 
@@ -56,12 +64,18 @@ how a config becomes wrong without anyone editing it. `golangci-lint config veri
 
 **Why the linter is required when `bin/gate api` only warns.** Locally the binary is often absent and
 forcing every contributor to install it to run the gate is a worse trade than catching the problem
-one step later. But it is the **only** thing that catches an aliased import evading the `http.Error`
-ban — `nh "net/http"` then `nh.Error(...)` — which the gate's grep for the literal `http.Error(`
-cannot see. So: the grep catches the honest mistake locally and instantly; the linter catches the
-rest, in CI, where it is free.
+one step later. And it is what catches an aliased import evading the `http.Error` ban — `nh "net/http"`
+then `nh.Error(...)` — which the gate's grep for the literal `http.Error(` cannot see. So: the grep
+catches the honest mistake locally and instantly; the linter catches the rest, in CI, where it is free.
 
-**Enabled beyond the defaults:** `bodyclose`, `errcheck`, `errorlint`, `gosec`, `noctx`,
+⚠️ **That is only true because `forbidigo` is configured to make it true**, with
+`analyze-types: true` so the alias is judged by the package it resolves to rather than by its
+spelling. AOC-003 verify round 1 planted exactly that evasion and **the entire gate passed** — the
+sentence above had been written as fact while nothing in the enabled linter set could ban an
+identifier at all. Proved after the fix: `use of nh.Error forbidden`. `internal/httpx/` is excluded
+from the rule, because it *is* the error mapper.
+
+**Enabled beyond the defaults:** `bodyclose`, `errcheck`, `errorlint`, `forbidigo`, `gosec`, `noctx`,
 `sqlclosecheck`, `unconvert`, `unparam` — chosen for what this service will actually do: hold a pgx
 pool, write JSON errors through one mapper, and grow an authenticated write path in EP-06. Tests are
 excluded from `errcheck` and `gosec` only.

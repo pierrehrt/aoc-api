@@ -6,13 +6,18 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 PKG     := github.com/pierrehrt/aoc-api/internal/version
 LDFLAGS := -X '$(PKG).Version=$(VERSION)' -X '$(PKG).Commit=$(COMMIT)'
 
-.PHONY: run build test lint fmt tidy check
+.PHONY: run build compile test lint fmt tidy check
 
 run:
 	go run -ldflags "$(LDFLAGS)" ./cmd/api
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/aoc-api ./cmd/api
+
+# Compiles every package, including ones with no test file. `go test` compiles what it lists,
+# but a package with no tests still deserves to be known to build.
+compile:
+	go build ./...
 
 test:
 	go test ./...
@@ -26,8 +31,9 @@ fmt:
 tidy:
 	go mod tidy
 
-# What CI and bin/gate run. Deliberately the same command a person runs locally.
-check: fmt-check lint test
+# THE CANONICAL LIST. CI calls these targets one by one so each is its own step; a person runs
+# `make check`. Adding a check means adding it here, once.
+check: fmt-check lint compile test
 
 .PHONY: fmt-check
 fmt-check:
