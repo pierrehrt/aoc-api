@@ -28,8 +28,12 @@ services:
       - "5433:5432"
     volumes:
       - aoc-pgdata:/var/lib/postgresql/data
-      # Dumps are mounted rather than copied, so `make db-restore` never rebuilds the image.
-      - ./tmp/dumps:/dumps:ro
+      # ⚠️ NO bind mount for dumps. `make db-restore` streams the file over stdin instead.
+      # A bind mount would need the container runtime's VM to share this path, and it does
+      # not: this repo lives on an external volume (/Volumes/SSD_pierre), which Colima does
+      # not mount by default. The VM showed the directory structure but no contents, so the
+      # mount silently resolved to an EMPTY directory — measured, not assumed. Streaming
+      # over stdin works wherever the repo lives and on anyone's machine.
     healthcheck:
       # `make db-restore` waits on this. Postgres accepts connections briefly during init and
       # then restarts, so a plain "is the port open" check can connect to a server that is about
