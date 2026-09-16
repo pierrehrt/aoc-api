@@ -32,12 +32,57 @@ const migrationsDir = "../../migrations"
 func adminURL(t *testing.T) string {
 	t.Helper()
 	for _, k := range []string{"TEST_DATABASE_URL", "DATABASE_URL"} {
-		if v := os.Getenv(k); v != "" {
-			return v
+		v := os.Getenv(k)
+		if v == "" {
+			continue
 		}
+		// ⭐ THE GUARD RAIL APPLIES HERE TOO. These tests issue CREATE DATABASE and
+		// DROP DATABASE … WITH (FORCE) — five throwaway databases per run. The Makefile
+		// tells you to export a production DATABASE_URL to run a migration, and that is
+		// the same shell `make test`, `make check` and `bin/gate api` run in, with the
+		// environment inherited unchanged. Nothing stopped a `go test` from creating
+		// databases on production's instance. It would not corrupt data, but "hitting
+		// production takes effort" was not true of this path.
+		// (AOC-005 verify round 1.)
+		if h := hostOf(v); !isLocalHost(h) {
+			t.Fatalf("%s points at %q, which is not local.\n"+
+				"These tests CREATE and DROP databases; they will not do that on a remote server.\n"+
+				"Use the local compose database (make db-up), or set TEST_DATABASE_URL to it.", k, h)
+		}
+		return v
 	}
 	t.Skip("no TEST_DATABASE_URL or DATABASE_URL — run `make db-up` and export DATABASE_URL, or let CI run this")
 	return ""
+}
+
+// hostOf pulls the host[:port] out of a postgres URL without parsing credentials, so a
+// password can never reach a log line or a test failure message.
+func hostOf(url string) string {
+	if i := strings.Index(url, "://"); i >= 0 {
+		url = url[i+3:]
+	}
+	if i := strings.LastIndex(url, "@"); i >= 0 {
+		url = url[i+1:]
+	}
+	if i := strings.IndexAny(url, "/?"); i >= 0 {
+		url = url[:i]
+	}
+	return url
+}
+
+// isLocalHost accepts only what a developer machine or a CI service container looks like.
+// Deliberately an allowlist: a denylist of "known production hostnames" is a list someone
+// forgets to update exactly once.
+func isLocalHost(hostPort string) bool {
+	host := hostPort
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "[::1]", "postgres", "db", "host.docker.internal":
+		return true
+	}
+	return false
 }
 
 // freshDatabase creates a throwaway database and drops it afterwards, so a test can never
@@ -52,6 +97,12 @@ func freshDatabase(t *testing.T) string {
 		t.Fatalf("connecting to Postgres: %v", err)
 	}
 	defer sqlDB.Close()
+
+	// Reap anything a previous run left behind. t.Cleanup covers Fatal and panic but NOT a
+	// timeout or Ctrl-C: `go test -timeout 50ms` leaves an aoc_test_% database orphaned
+	// (measured, AOC-005 verify round 1). Nothing else ever cleans these up, so they would
+	// accumulate silently on a developer machine.
+	reapOrphans(t, sqlDB, ctx)
 
 	name := fmt.Sprintf("aoc_test_%d_%d", time.Now().UnixNano(), rand.Intn(1000)) //nolint:gosec // test fixture naming, not security
 	if _, err := sqlDB.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
@@ -149,14 +200,11 @@ func TestSeedsAreIdempotent(t *testing.T) {
 		t.Errorf("after down+up, %d seed rows, want 1 — the seed is not idempotent", got)
 	}
 
-	// And re-running the seed statement directly must also be safe, since a seed may be
-	// re-applied by a repair rather than by goose.
-	if _, err := d.ExecContext(context.Background(), `INSERT INTO schema_probe (id, note) VALUES (1, 'again') ON CONFLICT (id) DO NOTHING`); err != nil {
-		t.Fatalf("re-running the seed: %v", err)
-	}
-	if got := countProbes(t, d); got != 1 {
-		t.Errorf("re-running the seed gave %d rows, want 1", got)
-	}
+	// ⚠️ This test does NOT pin the migration's own ON CONFLICT clause and must not be
+	// described as if it did. `down` drops the table, so `up` can never meet a duplicate —
+	// delete the clause from the migration and this stays green. The clause is pinned by
+	// TestTheMigrationsOwnSeedIsIdempotent, which lifts the statement out of the file.
+	// (AOC-005 verify round 1; docs/architecture.md named the wrong test.)
 }
 
 // The sqlc chain: generated Go, against a real migrated database.
@@ -284,7 +332,7 @@ func TestEverySeedInsertIsIdempotent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", e.Name(), err)
 		}
-		body := string(b)
+		body := stripSQLComments(string(b))
 		up := body
 		if i := strings.Index(body, "-- +goose Down"); i >= 0 {
 			up = body[:i] // only the Up section seeds
@@ -363,4 +411,131 @@ func countProbes(t *testing.T, d *sql.DB) int {
 		t.Fatalf("counting probes: %v", err)
 	}
 	return n
+}
+
+// stripSQLComments removes `-- …` line comments and /* … */ blocks.
+//
+// ⭐ WHY. The static check below used to search the raw file, and every migration in this
+// project explains its own ON CONFLICT clause in a comment directly above the INSERT. That
+// comment lands in the same `;`-delimited chunk as the statement, so deleting the REAL
+// clause left the check green — it was matching prose. Proved by deleting the clause: the
+// check still passed, still logging "checked 1 INSERT statement(s)".
+//
+// It matters beyond this one file: the convention document tells the next author to copy
+// this migration, comment and all, and EP-02 seeds a dozen taxonomy tables.
+// (AOC-005 verify round 1.)
+func stripSQLComments(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "--"):
+			j := strings.IndexByte(s[i:], '\n')
+			if j < 0 {
+				return out.String()
+			}
+			out.WriteByte('\n') // keep line structure so `;` splitting is unchanged
+			i += j + 1
+		case strings.HasPrefix(s[i:], "/*"):
+			j := strings.Index(s[i+2:], "*/")
+			if j < 0 {
+				return out.String()
+			}
+			i += 2 + j + 2
+		default:
+			out.WriteByte(s[i])
+			i++
+		}
+	}
+	return out.String()
+}
+
+// The stripper is itself load-bearing, so it is pinned: if it stopped removing comments the
+// static check would go back to matching prose, silently.
+func TestStripSQLCommentsRemovesProse(t *testing.T) {
+	cases := []struct{ name, in, wantGone, wantKept string }{
+		{"line comment", "-- ON CONFLICT DO NOTHING\nINSERT INTO t VALUES (1);", "ON CONFLICT", "INSERT INTO t"},
+		{"trailing comment", "INSERT INTO t VALUES (1); -- ON CONFLICT\n", "ON CONFLICT", "INSERT INTO t"},
+		{"block comment", "/* ON CONFLICT */ INSERT INTO t VALUES (1);", "ON CONFLICT", "INSERT INTO t"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := stripSQLComments(c.in)
+			if strings.Contains(got, c.wantGone) {
+				t.Errorf("comment text survived: %q", got)
+			}
+			if !strings.Contains(got, c.wantKept) {
+				t.Errorf("statement text was removed: %q", got)
+			}
+		})
+	}
+	// And a real clause must survive.
+	if !strings.Contains(stripSQLComments("INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING;"), "ON CONFLICT") {
+		t.Error("the stripper removed a real ON CONFLICT clause")
+	}
+}
+
+// The guard is only worth having if it actually refuses. Pinned in both directions.
+func TestOnlyLocalHostsAreAccepted(t *testing.T) {
+	local := []string{
+		"postgres://aoc:aoc@localhost:5433/aoc_dev?sslmode=disable",
+		"postgres://aoc:aoc@127.0.0.1:5432/aoc_dev",
+		"postgres://aoc:aoc@postgres:5432/aoc_dev", // the CI service container
+		"postgres://aoc:aoc@db:5432/aoc_dev",       // a compose service name
+	}
+	remote := []string{
+		"postgres://u:p@monorail.proxy.rlwy.net:37421/railway",
+		"postgres://u:p@postgres.railway.internal:5432/railway",
+		"postgres://u:p@db.example.com:5432/x",
+		"postgres://u:p@10.0.0.5:5432/x",
+	}
+	for _, u := range local {
+		if !isLocalHost(hostOf(u)) {
+			t.Errorf("%s was rejected; it is local", hostOf(u))
+		}
+	}
+	for _, u := range remote {
+		if isLocalHost(hostOf(u)) {
+			t.Errorf("%s was ACCEPTED — these tests create and drop databases", hostOf(u))
+		}
+	}
+	// hostOf must never leak the password into a message.
+	if h := hostOf("postgres://user:sup3rsecret@localhost:5433/db"); strings.Contains(h, "sup3rsecret") {
+		t.Errorf("hostOf leaked credentials: %q", h)
+	}
+}
+
+// reapOrphans drops leftover throwaway databases. Best effort: a failure here must never
+// fail a test, because it says nothing about the code under test.
+func reapOrphans(t *testing.T, d *sql.DB, ctx context.Context) {
+	t.Helper()
+	names, err := orphanNames(ctx, d)
+	if err != nil {
+		return
+	}
+	for _, n := range names {
+		if _, err := d.ExecContext(ctx, "DROP DATABASE IF EXISTS "+n+" WITH (FORCE)"); err == nil {
+			t.Logf("reaped an orphaned test database: %s", n)
+		}
+	}
+}
+
+// orphanNames is split out so the rows are closed by defer on every path — sqlclosecheck
+// rightly refuses a bare Close() that a mid-loop return could skip.
+func orphanNames(ctx context.Context, d *sql.DB) ([]string, error) {
+	rows, err := d.QueryContext(ctx, `SELECT datname FROM pg_database WHERE datname LIKE 'aoc_test_%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
 }

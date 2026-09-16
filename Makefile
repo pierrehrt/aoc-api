@@ -191,8 +191,21 @@ assets: $(TAILWIND)
 	@echo "assets built:"; ls -l internal/assets/built/ | tail -n +2 | awk '{printf "  %-22s %s bytes\n", $$9, $$5}'
 
 # ---- migrations and generated SQL ------------------------------------------
-# goose for migrations, sqlc for typed queries. Both pinned in tools.go so go.mod records
-# the versions; installed on PATH so `bin/gate api` can see them.
+# goose for migrations, sqlc for typed queries. Both pinned in tools.go, so go.mod and go.sum
+# record the versions, and both run through `go run` — the version that RUNS is the version
+# that is recorded.
+#
+# ⚠️ Not `goose` / `sqlc` from PATH. That is what this said, and it was false: there was no
+# tools.go at all. Measured (AOC-005 verify round 1): PATH goose was Homebrew v3.28.0 against
+# a go.mod library pin of v3.24.1 — two versions of goose applying the same migrations — and
+# sqlc was not in go.mod, so `bin/gate api`'s `sqlc diff` judged committed code against
+# whatever `brew upgrade` last installed.
+#
+# `bin/gate api` still shells out to a PATH `sqlc` for its staleness check, so keep one
+# installed for the gate; `make sqlc` is the authority.
+
+GOOSE := go run github.com/pressly/goose/v3/cmd/goose
+SQLC  := go run github.com/sqlc-dev/sqlc/cmd/sqlc
 #
 # ⭐ THE GUARD RAIL. There is ONE hosted environment, so nothing here may quietly default
 # to a database. Every target below requires DATABASE_URL to be set explicitly and ECHOES
@@ -220,29 +233,29 @@ endef
 
 migrate-up:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" up
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" up
 
 migrate-down:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" down
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" down
 
 migrate-status:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" status
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" status
 
 # Round-trips the newest migration: down, then up. A Down nobody has run is a Down that
 # does not work, and it is needed exactly when things are already going wrong.
 migrate-redo:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" redo
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" redo
 
 # make migrate-create NAME=add_item_tables
 migrate-create:
 	@if [ -z "$(NAME)" ]; then echo "usage: make migrate-create NAME=snake_case_name"; exit 1; fi
-	@goose -dir $(MIGRATIONS_DIR) create $(NAME) sql
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) create $(NAME) sql
 
 sqlc:
-	@sqlc generate
+	@$(SQLC) generate
 	@echo "sqlc: regenerated internal/db/sqlcgen/ — commit it, the gate checks it is current"
 
 # Regenerates the living schema document from the migrated LOCAL database.
@@ -251,14 +264,18 @@ sqlc:
 # That is the state CI and every new clone are in, so it is the state the committed artifact must
 # match. A restored database produces the same file, but fresh is the reference if they diverge.
 #
-# ⚠️ The \restrict / \unrestrict lines are stripped. pg_dump 17 emits them with a RANDOM
+# ⚠️ The \restrict / \unrestrict lines are stripped. pg_dump emits them with a RANDOM
 # token, so an unfiltered dump differs on every run — the file would show a diff after a
 # no-op regeneration, and a doc that changes when nothing changed is a doc people stop
 # reading. Measured by dumping twice and comparing.
 # docs/database-schema.sql describes where the schema IS, so a reviewer never has to
 # replay migrations/ in their head (bin/docs-check api enforces that it moves with them).
+# ⚠️ Deliberately does NOT call $(require_db). This target dumps the LOCAL compose container
+# and ignores DATABASE_URL entirely, so echoing "target: <prod host> ⚠️ NOT LOCAL" named a
+# database it never touches. Safe direction, false message — and the criterion is that it must
+# never be possible to mistake which database was hit. (AOC-005 verify round 1.)
 schema-dump:
-	$(require_db)
+	@echo "▶ target: the local compose database (this target ignores DATABASE_URL)"
 	@{ \
 	  echo "-- aoc_api — the CURRENT database schema, as a living document."; \
 	  echo "--"; \

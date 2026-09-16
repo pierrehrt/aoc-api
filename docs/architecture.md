@@ -348,7 +348,7 @@ only ever need it to run a Postgres container.
 ```sh
 brew install colima docker docker-compose
 colima start --cpu 2 --memory 4 --disk 20      # once; `colima stop` to reclaim the RAM
-make db-up                                      # Postgres 17 on localhost:5433
+make db-up                                      # Postgres 18 on localhost:5433
 ```
 
 ⚠️ **Colima does not share this repo's path with the VM.** The working tree lives on an
