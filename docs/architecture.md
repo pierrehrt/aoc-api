@@ -302,8 +302,8 @@ exhausting it presents as the site being down.
 
 `internal/db` tests are **integration** tests against a real Postgres — SQL that has never met
 a database is not tested. Each creates a **throwaway database** and drops it, so they cannot
-disturb the developer's data or collide with each other. CI runs a `postgres:17-alpine`
-service and then **asserts the tests did not skip**, because a suite that skips its only
+disturb the developer's data or collide with each other. CI runs a `postgres:18-alpine`
+service — the same major as production and as `docker-compose.yml`, because **every Postgres in this project tracks production's major** — and then **asserts the tests did not skip**, because a suite that skips its only
 integration tests while reporting success is the failure shape this project keeps finding.
 
 ## Deploy

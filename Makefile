@@ -56,7 +56,31 @@ POSTGRES_MAJOR ?= 18
 db-up:
 	$(COMPOSE) up -d db
 	@echo "waiting for postgres to accept connections..."
-	@until $(COMPOSE) exec -T db pg_isready -U aoc -d aoc_dev >/dev/null 2>&1; do sleep 1; done
+	@# ⚠️ BOUNDED, and it checks whether the container is still alive.
+	@# An unbounded `until pg_isready` cannot tell "not ready yet" from "dead", so it resolves
+	@# that by waiting forever — which is exactly what happened on the 17→18 bump, where the
+	@# container exits immediately on a stale volume and the version guard below (written to
+	@# explain precisely that) sat AFTER the loop and could never run. The container's own log
+	@# says what is wrong; this surfaces it instead of hanging. (AOC-004 verify round 2.)
+	@i=0; \
+	until $(COMPOSE) exec -T db pg_isready -U aoc -d aoc_dev >/dev/null 2>&1; do \
+	  if [ "$$($(COMPOSE) ps -q db 2>/dev/null)" = "" ] || \
+	     [ "$$(docker inspect -f '{{.State.Running}}' $$($(COMPOSE) ps -q db) 2>/dev/null)" != "true" ]; then \
+	    echo ""; echo "postgres exited instead of starting. Its own log says why:"; echo ""; \
+	    $(COMPOSE) logs --no-log-prefix --tail 15 db 2>/dev/null | sed 's/^/    /'; \
+	    echo ""; \
+	    echo "If this mentions a data directory or an unused mount, the volume was written by a"; \
+	    echo "different major version. That is expected on a version bump:  make db-reset"; \
+	    exit 1; \
+	  fi; \
+	  i=$$((i+1)); \
+	  if [ $$i -ge 60 ]; then \
+	    echo "postgres did not accept connections within 60s and is still running. Last log lines:"; \
+	    $(COMPOSE) logs --no-log-prefix --tail 15 db 2>/dev/null | sed 's/^/    /'; \
+	    exit 1; \
+	  fi; \
+	  sleep 1; \
+	done
 	@got="$$($(COMPOSE) exec -T db psql -U aoc -d aoc_dev -tAc 'SHOW server_version' | cut -d. -f1 | tr -d ' \r')"; \
 	if [ "$$got" != "$(POSTGRES_MAJOR)" ]; then \
 	  echo "local Postgres is major $$got but production runs $(POSTGRES_MAJOR)."; \
@@ -93,7 +117,7 @@ db-restore: db-up
 	echo "  wiping the local schema first — a restore onto a populated database is ambiguous,"; \
 	echo "  and the point of this loop is that local IS production's data"; \
 	$(COMPOSE) exec -T db psql -U aoc -d aoc_dev -q -v ON_ERROR_STOP=1 \
-	  -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' >/dev/null || exit $$?; \
+	  -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; COMMENT ON SCHEMA public IS 'standard public schema';" >/dev/null || exit $$?; \
 	case "$$dump" in \
 	  *.sql) $(COMPOSE) exec -T db psql -U aoc -d aoc_dev -v ON_ERROR_STOP=1 < "$$dump" ;; \
 	  *)     $(COMPOSE) exec -T db pg_restore -U aoc -d aoc_dev --clean --if-exists --no-owner < "$$dump" ;; \
