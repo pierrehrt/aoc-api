@@ -327,7 +327,7 @@ Set in Railway's variables and nowhere else. `.env.example` lists every name wit
 | Variable | Notes |
 |---|---|
 | `PORT` | assigned by Railway; the server reads it, 8080 locally |
-| `ENV` | `production` on Railway, `local` otherwise |
+| `ENV` | `production` on Railway, `local` otherwise — **reported by `/health` as `env`**. Defaults to `local` when unset, so nothing ever claims to be production by accident |
 | `DATABASE_URL` | ⚠️ Railway's **private** hostname. The public proxy URL bills egress and adds latency for nothing |
 | `VERSION` | build arg → `/health` |
 | `COMMIT` | ⚠️ **not** a build arg. `${{RAILWAY_GIT_COMMIT_SHA}}` resolves to an empty string at build time — Railway injects its git variables into the deployed **container**, not into the set `${{…}}` references resolve against. `version.Resolve()` reads it at runtime instead (PR #4) |

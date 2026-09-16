@@ -22,7 +22,7 @@ func TestPanicStillProducesAnAccessLine(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	defer slog.SetDefault(restore)
 
-	r := httpx.NewRouter("dev", "none")
+	r := httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"})
 	// The router has no panicking route of its own, so drive the middleware chain the
 	// way the router builds it, around a handler that panics.
 	h := httpx.RequestID(httpx.Log(httpx.Recover(http.HandlerFunc(
@@ -93,7 +93,7 @@ func TestResponseWriterWrappingPreservesFlush(t *testing.T) {
 // 405 must go through the same mapper as everything else.
 func TestMethodNotAllowedGoesThroughTheMapper(t *testing.T) {
 	rr := httptest.NewRecorder()
-	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/health", nil))
+	httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/health", nil))
 
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rr.Code)

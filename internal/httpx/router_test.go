@@ -25,7 +25,7 @@ import (
 // mounted sub-router — which is the property CLAUDE.md rule 5c depends on.
 func TestV1IsAMountedSubRouter(t *testing.T) {
 	var v1 *chi.Route
-	for _, rt := range httpx.NewRouter("dev", "none").Routes() {
+	for _, rt := range httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).Routes() {
 		if strings.HasPrefix(rt.Pattern, "/v1") {
 			r := rt
 			v1 = &r
@@ -45,7 +45,7 @@ func TestV1IsAMountedSubRouter(t *testing.T) {
 // 404 on /v1/health does not prove this either — an unmounted /v1 gives the same 404.
 func TestHealthIsRegisteredOnTheRootMux(t *testing.T) {
 	found := false
-	for _, rt := range httpx.NewRouter("dev", "none").Routes() {
+	for _, rt := range httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).Routes() {
 		if rt.Pattern == "/health" {
 			found = true
 			if _, ok := rt.Handlers[http.MethodGet]; !ok {
@@ -62,7 +62,7 @@ func TestHealthIsRegisteredOnTheRootMux(t *testing.T) {
 // passes even if NewRouter stops using Recover at all. This exercises the router the
 // binary actually serves.
 func TestProductionRouterRecoversPanics(t *testing.T) {
-	r := httpx.NewRouter("dev", "none")
+	r := httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"})
 	boom := chi.NewRouter()
 	boom.Get("/boom", func(http.ResponseWriter, *http.Request) {
 		panic("secret in the panic value: items_private")
@@ -110,7 +110,7 @@ func TestErrorResponsesAreJSONContentType(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
-			httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, nil))
+			httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, nil))
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d", rr.Code, tc.want)
 			}
@@ -134,7 +134,7 @@ func TestHostileRequestIDCannotBreakTheJSONBody(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/nope", nil)
 	req.Header.Set(httpx.HeaderRequestID, `a","error":"forged`)
 	rr := httptest.NewRecorder()
-	httpx.NewRouter("dev", "none").ServeHTTP(rr, req)
+	httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).ServeHTTP(rr, req)
 
 	var b httpx.ErrorBody
 	if err := json.Unmarshal(rr.Body.Bytes(), &b); err != nil {

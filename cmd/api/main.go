@@ -62,6 +62,14 @@ func run() error {
 		return fmt.Errorf("parsing templates: %w", err)
 	}
 
+	// ENV is a plain label: it names which environment answered on /health. Defaulting to
+	// "local" means an unset value never claims to be production.
+	build := httpx.Build{
+		Version: version.Version,
+		Commit:  version.Commit,
+		Env:     envOr("ENV", "local"),
+	}
+
 	// The database pool: built ONCE here and passed down, never a package-level global
 	// (a global cannot be swapped in a test and hides who depends on it).
 	//
@@ -82,7 +90,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: httpx.NewRouterWithSite(version.Version, version.Commit, site.Routes, assetSet.Handler()),
+		Handler: httpx.NewRouterWithSite(build, site.Routes, assetSet.Handler()),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that
 		// net/http leaves unset by default.

@@ -11,7 +11,7 @@ import (
 )
 
 func TestHealthReportsTheBuild(t *testing.T) {
-	rr := do(t, httpx.NewRouter("1.2.3", "abc1234"), http.MethodGet, "/health")
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}), http.MethodGet, "/health")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
@@ -27,12 +27,18 @@ func TestHealthReportsTheBuild(t *testing.T) {
 	if body.Status != "ok" || body.Version != "1.2.3" || body.Commit != "abc1234" {
 		t.Errorf("body = %+v, want the version and commit it was built with", body)
 	}
+	// ⭐ env. Before AOC-004 verify round 4, ENV was documented in three places and read by
+	// nothing — .env.example even claimed /health reported it. Asserted here so the claim
+	// cannot quietly become false again.
+	if body.Env != "test" {
+		t.Errorf("env = %q, want the environment the router was built with", body.Env)
+	}
 }
 
 // /health must stay OFF /v1: it is operational surface, not the API contract, and it
 // must not fork when /v2 arrives.
 func TestHealthIsNotVersioned(t *testing.T) {
-	rr := do(t, httpx.NewRouter("dev", "none"), http.MethodGet, "/v1/health")
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}), http.MethodGet, "/v1/health")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("GET /v1/health = %d, want 404 — health must not live under /v1", rr.Code)
 	}
@@ -41,7 +47,7 @@ func TestHealthIsNotVersioned(t *testing.T) {
 // The /v1 mount must EXIST even while empty, so an unknown path under it is a 404 from
 // our mapper rather than a 500 or chi's plain text.
 func TestUnknownPathUnderV1Is404JSON(t *testing.T) {
-	rr := do(t, httpx.NewRouter("dev", "none"), http.MethodGet, "/v1/nope")
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}), http.MethodGet, "/v1/nope")
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
@@ -59,14 +65,14 @@ func TestUnknownPathUnderV1Is404JSON(t *testing.T) {
 }
 
 func TestWrongMethodIs405(t *testing.T) {
-	rr := do(t, httpx.NewRouter("dev", "none"), http.MethodPost, "/health")
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}), http.MethodPost, "/health")
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /health = %d, want 405", rr.Code)
 	}
 }
 
 func TestEveryResponseCarriesARequestID(t *testing.T) {
-	rr := do(t, httpx.NewRouter("dev", "none"), http.MethodGet, "/health")
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}), http.MethodGet, "/health")
 	if rr.Header().Get(httpx.HeaderRequestID) == "" {
 		t.Error("no X-Request-Id on a successful response")
 	}
@@ -75,7 +81,7 @@ func TestEveryResponseCarriesARequestID(t *testing.T) {
 // An inbound id is echoed for correlation, but an absurd one is replaced rather than
 // written into our logs at whatever length the caller chose.
 func TestInboundRequestIDIsEchoedButCapped(t *testing.T) {
-	r := httpx.NewRouter("dev", "none")
+	r := httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	req.Header.Set(httpx.HeaderRequestID, "trace-from-the-edge")
@@ -103,4 +109,36 @@ func do(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRec
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), method, path, nil))
 	return rr
+}
+
+// Each field must come from its OWN Build field. Three same-typed strings in a struct are
+// still swappable by a careless edit, and /health is the one endpoint whose entire job is
+// telling you what is running — a wrong answer there is worse than no answer.
+func TestHealthDoesNotSwapItsFields(t *testing.T) {
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "V", Commit: "C", Env: "E"}), http.MethodGet, "/health")
+	var body httpx.HealthBody
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	for _, c := range []struct{ field, got, want string }{
+		{"version", body.Version, "V"},
+		{"commit", body.Commit, "C"},
+		{"env", body.Env, "E"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q — the Build fields are crossed", c.field, c.got, c.want)
+		}
+	}
+}
+
+// An unset ENV must never read as production.
+func TestHealthNeverClaimsProductionByDefault(t *testing.T) {
+	rr := do(t, httpx.NewRouter(httpx.Build{Version: "v", Commit: "c", Env: "local"}), http.MethodGet, "/health")
+	var body httpx.HealthBody
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Env == "production" {
+		t.Error("a non-production build reported env=production")
+	}
 }
