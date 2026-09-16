@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1 class="text-2xl font-semibold text-amber-200">Rendering smoke page</h1>
+<p class="mt-4 text-stone-400">
+  This page exists to prove the rendering pipeline, not to be read. It is
+  <code class="text-amber-300">noindex</code> and a later ticket deletes it.
+</p>
+
+<p class="mt-6 text-stone-300">Server-rendered marker: <strong>{{.Data.Marker}}</strong></p>
+
+<form class="mt-8" method="post" action="/_smoke/echo">
+  <label class="block text-sm text-stone-400" for="say">Say something</label>
+  <input id="say" name="say" value="hello"
+         class="mt-1 w-64 rounded border border-stone-700 bg-stone-900 px-2 py-1">
+  <button type="submit"
+          hx-post="/_smoke/echo" hx-target="#echo" hx-swap="innerHTML"
+          class="ml-2 rounded bg-amber-700 px-3 py-1 text-stone-50">Echo</button>
+</form>
+
+<div id="echo" class="mt-4">{{template "echo" .Data}}</div>
+{{end}}

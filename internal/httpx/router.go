@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -19,7 +20,27 @@ import (
 //     at once, which is the only way to change a response shape without breaking a
 //     browser holding a cached bundle. Domain routers mount INSIDE v1
 //     (v1.Mount("/items", items.Routes(...))), never on the root.
-func NewRouter(ver, commit string) *chi.Mux {
+//
+// SiteRoutes mounts the HTML surface. Nil means "JSON only", which is what the tests
+// of the API surface use and what the service did before AOC-024.
+type SiteRoutes func(chi.Router)
+
+// NewRouter keeps the JSON-only shape every existing caller expects.
+func NewRouter(ver, commit string) *chi.Mux { return NewRouterWithSite(ver, commit, nil, nil) }
+
+// NewRouterWithSite additionally mounts the server-rendered site and its assets.
+//
+// ⭐ THE 404 PROBLEM, and why it is solved here rather than in a handler.
+//
+// This service now answers two audiences on one origin. chi has ONE NotFound handler, so
+// before this ticket every miss returned JSON — meaning a person who mistyped a URL got
+// `{"error":"not found"}` in their browser. Which shape is right depends on who asked:
+// anything under /v1 is API surface and must stay JSON forever (a client parses it),
+// everything else is the website and should be a readable page.
+//
+// The test is the PATH, not the Accept header. Accept is a negotiation a bot or a proxy
+// can get wrong, while the path is a fact about which contract was addressed.
+func NewRouterWithSite(ver, commit string, site SiteRoutes, assets http.Handler) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Order matters, and it is the opposite of what it first looks like.
@@ -40,7 +61,7 @@ func NewRouter(ver, commit string) *chi.Mux {
 
 	// chi's defaults write text/plain. Route them through the central mapper so that
 	// every response from this service, success or failure, is the same JSON shape.
-	r.NotFound(NotFound)
+	r.NotFound(notFoundFor(site != nil))
 	r.MethodNotAllowed(MethodNotAllowed)
 
 	r.Get("/health", Health(ver, commit))
@@ -50,8 +71,50 @@ func NewRouter(ver, commit string) *chi.Mux {
 	// moderation, users. Nothing else goes on the root router.
 	r.Mount("/v1", v1)
 
+	if assets != nil {
+		r.Handle("/assets/*", assets)
+	}
+	if site != nil {
+		site(r)
+	}
+
 	return r
 }
+
+// notFoundFor returns the 404 handler appropriate to what this process serves.
+//
+// hasSite is false in JSON-only tests and in any deployment without the HTML surface;
+// there, every miss is JSON, exactly as before.
+func notFoundFor(hasSite bool) http.HandlerFunc {
+	if !hasSite {
+		return NotFound
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/v1" ||
+			strings.HasPrefix(r.URL.Path, "/assets/") {
+			NotFound(w, r)
+			return
+		}
+		// A person mistyped a URL. Give them something readable, and do NOT render a
+		// template for it: the 404 page must work even when the template engine is the
+		// thing that is broken.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(notFoundHTML))
+	}
+}
+
+// Deliberately dependency-free: no template, no asset, no layout. If this page needed
+// the renderer, a broken renderer would have no way to say so.
+const notFoundHTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — AoC Codex</title><meta name="robots" content="noindex">
+<style>body{background:#0c0a09;color:#e7e5e4;font:16px/1.6 system-ui,sans-serif;
+margin:0;display:grid;place-items:center;min-height:100vh}a{color:#fcd34d}</style>
+</head><body><main><h1>Not found</h1>
+<p>That page does not exist. <a href="/">Back to the start</a>.</p></main></body></html>
+`
 
 // compile-time assurance that the router satisfies http.Handler.
 var _ http.Handler = (*chi.Mux)(nil)
