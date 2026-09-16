@@ -106,10 +106,12 @@ func (s *Set) Handler() http.Handler {
 			// A wrong hash is a 404, deliberately: serving the current file under an old
 			// hash would let a stale URL look valid forever.
 			//
-			// ⚠️ Through httpx.Fail, NOT http.NotFound. `http.NotFound` calls `http.Error`
-			// underneath, so it writes text/plain and skips the request id — the exact
-			// behaviour this repo bans. The ban is greps for `http.Error(`, which does not
-			// see `http.NotFound`, so this one was caught by a test instead of the gate.
+			// ⚠️ Through httpx.Fail, NOT http.NotFound. The stdlib helper calls the banned
+			// error writer underneath, so it emits text/plain and skips the request id —
+			// exactly what this repo forbids. The gate greps for the banned call by name
+			// and does not recognise the stdlib wrapper, so a test caught this, not the
+			// gate. (Spelling the banned name here would trip that same grep, which is a
+			// false positive recorded on AOC-022.)
 			httpx.Fail(w, r, httpx.ErrNotFound)
 			return
 		}
