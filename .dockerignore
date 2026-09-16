@@ -1,0 +1,13 @@
+# Keep the build context small and the image clean. Anything not needed to compile the binary.
+.git
+.github
+bin/
+docs/
+*.md
+.env
+.env.*
+!.env.example
+docker-compose.yml
+Dockerfile
+.dockerignore
+.DS_Store

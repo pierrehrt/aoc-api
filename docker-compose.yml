@@ -1,0 +1,43 @@
+# LOCAL POSTGRES ONLY. This file never runs in production.
+#
+# There is exactly one hosted environment (DECISIONS.md, 2026-09-16 — no revenue, so no second
+# Postgres to pay for). The rule that a second environment used to protect is kept and made
+# stricter: a migration's first execution is against THIS database, loaded from a real production
+# dump, so it meets the actual data rather than an empty schema.
+#
+#   make db-up        start it
+#   make db-restore   load the newest dump from ./tmp/dumps into it
+#   make db-reset     throw it away and start clean
+#
+# ⚠️ POSTGRES_VERSION must be >= the major version Railway runs. pg_dump output from a newer
+# server does not restore into an older one, and that failure arrives at the worst moment: while
+# rehearsing a migration you are about to run on the only copy of the armory data. Reconcile this
+# pin with Railway's actual major version when the project is created (AOC-004, infra half).
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: aoc-postgres
+    environment:
+      POSTGRES_USER: aoc
+      POSTGRES_PASSWORD: aoc
+      POSTGRES_DB: aoc_dev
+    ports:
+      # 5433, not 5432: a Postgres already installed on the host owns 5432, and silently talking
+      # to the wrong database is the kind of mistake this whole setup exists to prevent.
+      - "5433:5432"
+    volumes:
+      - aoc-pgdata:/var/lib/postgresql/data
+      # Dumps are mounted rather than copied, so `make db-restore` never rebuilds the image.
+      - ./tmp/dumps:/dumps:ro
+    healthcheck:
+      # `make db-restore` waits on this. Postgres accepts connections briefly during init and
+      # then restarts, so a plain "is the port open" check can connect to a server that is about
+      # to go away.
+      test: ["CMD-SHELL", "pg_isready -U aoc -d aoc_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  aoc-pgdata:

@@ -169,6 +169,74 @@ deploy**, so without this every deploy cuts off whatever was mid-request.
 write to a var). The `Makefile` injects them from `git describe` and `git rev-parse`, and `/health`
 reports them, so a running container can always be traced to a commit.
 
+## Deploy
+
+**One hosted environment.** No `dev`, no `staging` — Pierre's call, 2026-09-16: no revenue, so no
+second Postgres to pay for (`product_management/DECISIONS.md`). The safety that a second
+environment used to provide is replaced by the loop below, which costs nothing and tests more.
+
+| | |
+|---|---|
+| Host | Railway, one project, one service, one Postgres, **private networking** between them |
+| Build | this repo's `Dockerfile` (not Railway's Go buildpack — it picks its own Go version) |
+| Trigger | push to `main` → Railway builds → health check |
+| URL | `aoc-codex.app` (AOC-014) |
+| Local DB | `docker-compose.yml`, Postgres on **localhost:5433** |
+
+### Configuration
+
+Set in Railway's variables and nowhere else. `.env.example` lists every name with dummy values.
+
+| Variable | Notes |
+|---|---|
+| `PORT` | assigned by Railway; the server reads it, 8080 locally |
+| `ENV` | `production` on Railway, `local` otherwise |
+| `DATABASE_URL` | ⚠️ Railway's **private** hostname. The public proxy URL bills egress and adds latency for nothing |
+| `VERSION`, `COMMIT` | build args → `/health`, so a running container traces to a commit |
+
+⛔ **No secret is ever committed.** `.env` is gitignored; `.env.example` holds names and dummies.
+
+### Migrations — the loop that replaces a second environment
+
+**A migration's first execution is never against production data.** With one hosted environment
+that is not a slogan, it is these four steps, in order:
+
+```
+1.  pg_dump production      →  tmp/dumps/     (gitignored — see below)
+2.  make db-restore                            restore it into local Postgres
+3.  run the migration locally                  against the REAL data, not an empty schema
+4.  back up production, then deploy            forward-only, one migration per deploy
+```
+
+Step 2 is the point. An empty hosted dev database never meets the row that breaks the migration;
+a restored production dump does. **Step 4's backup is not optional** — AOC-006 automates it.
+A failed migration is fixed **forward** from a known backup, never by hand-editing production.
+
+⛔ **Dumps are never committed.** `tmp/dumps/` is gitignored. A dump is the entire researched
+dataset — and after EP-06, real accounts. Committed once, it is in every clone forever.
+⚠️ Most of that data is **unre-derivable** after the AoC>TV host lapses ~Feb 2027.
+
+⚠️ **`docker-compose.yml` pins Postgres 17; production's major version must be ≤ that.** `pg_dump`
+output from a newer server will not restore into an older one, and that failure would land midway
+through rehearsing a migration against the only copy of the armory. Reconcile the pin with
+Railway's actual version when the project is created.
+
+### Rollback
+
+A failed **build** never replaces the running deploy — Railway keeps serving the previous one.
+A build that succeeds and is *wrong* is rolled back from the Railway dashboard by redeploying the
+previous deployment. **A deployment row is not a deployment:** check its newest state, and confirm
+`/health` reports the expected commit on the live URL before calling anything done.
+
+⚠️ **Rolling back code does not roll back a migration.** That is why they are forward-only and one
+per deploy: the previous binary must still work against the new schema, so any schema change that
+the old code cannot tolerate ships in two deploys, not one.
+
+### Logs
+
+`railway logs` from the CLI, or the service's Observability tab. Output is JSON on stdout
+(`log/slog`), one object per line, carrying the request id echoed in `X-Request-Id`.
+
 ## Not here yet, and which ticket brings it
 
 | Thing | Ticket |
