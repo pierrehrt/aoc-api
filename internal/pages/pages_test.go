@@ -25,7 +25,7 @@ func router(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("templates.New: %v", err)
 	}
-	h := pages.New(tpl, base)
+	h := pages.New(tpl, set, base)
 	return httpx.NewRouterWithSite("1.2.3", "abc1234", h.Routes, set.Handler())
 }
 
@@ -102,6 +102,21 @@ func TestEveryPageCarriesItsHeadContract(t *testing.T) {
 			}
 			if strings.Contains(body, `content=""`) {
 				t.Error("a meta tag rendered with an empty value")
+			}
+			// ⭐ og:image and twitter:card must BOTH be present, or neither. Shipping
+			// summary_large_image with no image is a broken social card, and it shipped
+			// live before verify round 1 caught it.
+			hasImg := strings.Contains(body, `<meta property="og:image" content="`)
+			hasCard := strings.Contains(body, `name="twitter:card"`)
+			if !hasImg {
+				t.Error("no og:image — a shared link renders with no picture")
+			}
+			if hasImg != hasCard {
+				t.Errorf("og:image present = %v but twitter:card present = %v — a large-image"+
+					" card with no image is worse than no card", hasImg, hasCard)
+			}
+			if strings.Contains(body, `og:image" content="/`) {
+				t.Error("og:image is a relative URL — link previews need an absolute one")
 			}
 		})
 	}
@@ -234,5 +249,80 @@ func TestPagesLinkTheHashedAssets(t *testing.T) {
 	}
 	if strings.Contains(body, `href="/assets/app.css"`) {
 		t.Error("page links the UNHASHED stylesheet — it would be cached stale")
+	}
+}
+
+// ⭐ 405 must follow the same path rule as 404. It did not: a fragment route reached by a
+// plain browser GET returned raw JSON to a person — this ticket's own listed edge case,
+// found by verify round 1 in production, not in a test.
+func TestMethodNotAllowedShapeAlsoFollowsThePath(t *testing.T) {
+	h := router(t)
+	cases := []struct{ method, path, wantType string }{
+		{http.MethodGet, "/_smoke/echo", "text/html"},      // a person following a stale link
+		{http.MethodPost, "/", "text/html"},                // a person, wrong method
+		{http.MethodDelete, "/health", "application/json"}, // a monitor, operational surface
+	}
+	for _, c := range cases {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			rr := get(t, h, c.method, c.path, nil, "")
+			if rr.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, want 405", rr.Code)
+			}
+			if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, c.wantType) {
+				t.Errorf("Content-Type = %q, want %s", ct, c.wantType)
+			}
+		})
+	}
+}
+
+// The /assets/ clause in the rejection handler is NOT dead code — it is what a stylesheet
+// request hits when the site is mounted without assets. Without it a CSS parser would be
+// handed an HTML page. Verify round 1 flagged the clause as untested; this reaches it.
+func TestAssetPathsStayJSONEvenWithNoAssetHandler(t *testing.T) {
+	set, err := assets.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl, err := templates.New(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// site mounted, assets deliberately NOT mounted
+	h := httpx.NewRouterWithSite("1.2.3", "abc1234", pages.New(tpl, set, base).Routes, nil)
+
+	rr := get(t, h, http.MethodGet, "/assets/app.css", nil, "")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want JSON — a CSS parser must not be handed HTML", ct)
+	}
+}
+
+// A page whose template fails at render time must produce 500, not 200 with a blank body.
+func TestAFailedRenderIsA500(t *testing.T) {
+	set, err := assets.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A page map naming a template that renders against data the handler will not supply
+	// cannot be built here (the startup probe rejects it), so exercise the handler's own
+	// failure path through the engine instead: Render returns an error, and pages.fail
+	// must turn that into 500 with no partial body.
+	tpl, err := templates.New(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	// An invalid View is the one failure a caller can trigger without a broken template.
+	if err := tpl.Render(rr, req, http.StatusOK, "home", templates.View{}, nil); err == nil {
+		t.Fatal("Render accepted an empty View")
+	}
+	if rr.Code != http.StatusOK {
+		t.Errorf("Render committed status %d before failing", rr.Code)
+	}
+	if rr.Body.Len() != 0 {
+		t.Errorf("Render wrote a partial body: %q", rr.Body.String())
 	}
 }

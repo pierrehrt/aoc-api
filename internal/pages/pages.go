@@ -16,7 +16,8 @@ import (
 
 // Handler renders the public site.
 type Handler struct {
-	tpl *templates.Engine
+	tpl    *templates.Engine
+	assets templates.AssetResolver
 	// baseURL is the origin canonical URLs are built from, e.g. "https://aoc-codex.app".
 	//
 	// ⚠️ Deliberately NOT derived from the request. Behind Railway the request host is
@@ -26,11 +27,33 @@ type Handler struct {
 	baseURL string
 }
 
-func New(tpl *templates.Engine, baseURL string) *Handler {
-	return &Handler{tpl: tpl, baseURL: strings.TrimRight(baseURL, "/")}
+func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string) *Handler {
+	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (h *Handler) canonical(path string) string { return h.baseURL + path }
+
+// view builds a View with the site-wide defaults already applied.
+//
+// ⭐ Every page gets an og:image through here. Before this, OGImage was a field nothing
+// ever set, so the guard in base.html never fired and pages shipped a
+// `twitter:card: summary_large_image` with no image — a broken social card on the very
+// ticket whose point is that link previews work (AOC-024 verify round 1).
+//
+// ⚠️ The image is the built stylesheet's sibling in internal/assets/built/, so it is
+// content-hashed and embedded like everything else. A later ticket can replace the
+// artwork without touching a handler.
+func (h *Handler) view(title, description, path string) templates.View {
+	v := templates.NewView(title, description, h.canonical(path))
+	if p, err := h.assets.Path(ogImageAsset); err == nil {
+		v.OGImage = h.baseURL + p
+	}
+	return v
+}
+
+// ogImageAsset is the social-card image. Kept as a constant so a missing one is a single
+// obvious edit rather than a string repeated across handlers.
+const ogImageAsset = "og-card.png"
 
 // Routes mounts the HTML surface on the root router.
 func (h *Handler) Routes(r chi.Router) {
@@ -40,10 +63,10 @@ func (h *Handler) Routes(r chi.Router) {
 }
 
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
-	v := templates.NewView(
+	v := h.view(
 		"AoC Codex — Age of Conan reference",
 		"Boss mechanics, loot and builds for Age of Conan: Hyborian Adventures, written to be read in the three minutes before a pull.",
-		h.canonical("/"),
+		"/",
 	)
 	h.render(w, r, http.StatusOK, "home", v, nil)
 }
@@ -56,10 +79,10 @@ type smokeData struct {
 }
 
 func (h *Handler) smoke(w http.ResponseWriter, r *http.Request) {
-	v := templates.NewView(
+	v := h.view(
 		"Rendering smoke page",
 		"Internal page proving the rendering pipeline. Not content, not indexed, deleted by a later ticket.",
-		h.canonical("/_smoke"),
+		"/_smoke",
 	)
 	// noindex because this is machinery, not content. An internal page in a search index
 	// is a small embarrassment that is very hard to get back out again.
@@ -87,10 +110,10 @@ func (h *Handler) echo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v := templates.NewView(
+	v := h.view(
 		"Rendering smoke page",
 		"Internal page proving the rendering pipeline. Not content, not indexed, deleted by a later ticket.",
-		h.canonical("/_smoke"),
+		"/_smoke",
 	)
 	v.NoIndex = true
 	// Vary even on the full-page branch: this URL's body depends on the header, so a

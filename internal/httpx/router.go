@@ -61,8 +61,12 @@ func NewRouterWithSite(ver, commit string, site SiteRoutes, assets http.Handler)
 
 	// chi's defaults write text/plain. Route them through the central mapper so that
 	// every response from this service, success or failure, is the same JSON shape.
-	r.NotFound(notFoundFor(site != nil))
-	r.MethodNotAllowed(MethodNotAllowed)
+	r.NotFound(htmlAwareFor(site != nil, NotFound, http.StatusNotFound, notFoundHTML))
+	// ⚠️ 405 follows the SAME path rule as 404. It did not, and that was this ticket's own
+	// listed edge case: a fragment route reached by a plain browser GET returned raw JSON
+	// to a person (AOC-024 verify round 1). Whichever rejection it is, the shape must be
+	// chosen by who asked, not by which chi hook happened to fire.
+	r.MethodNotAllowed(htmlAwareFor(site != nil, MethodNotAllowed, http.StatusMethodNotAllowed, methodNotAllowedHTML))
 
 	r.Get("/health", Health(ver, commit))
 
@@ -81,31 +85,59 @@ func NewRouterWithSite(ver, commit string, site SiteRoutes, assets http.Handler)
 	return r
 }
 
-// notFoundFor returns the 404 handler appropriate to what this process serves.
+// htmlAwareFor returns a rejection handler whose SHAPE follows the request path.
 //
 // hasSite is false in JSON-only tests and in any deployment without the HTML surface;
-// there, every miss is JSON, exactly as before.
-func notFoundFor(hasSite bool) http.HandlerFunc {
+// there every rejection is JSON, exactly as before.
+//
+// The test is the PATH, not the Accept header: a path is a fact about which contract was
+// addressed, where Accept is a negotiation a bot or a proxy can get wrong.
+func htmlAwareFor(hasSite bool, jsonHandler http.HandlerFunc, status int, body string) http.HandlerFunc {
 	if !hasSite {
-		return NotFound
+		return jsonHandler
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/v1" ||
-			strings.HasPrefix(r.URL.Path, "/assets/") {
-			NotFound(w, r)
+		if isMachineSurface(r.URL.Path) {
+			jsonHandler(w, r)
 			return
 		}
-		// A person mistyped a URL. Give them something readable, and do NOT render a
-		// template for it: the 404 page must work even when the template engine is the
+		// A person is in a browser. Give them something readable, and do NOT render a
+		// template for it: these pages must work even when the template engine is the
 		// thing that is broken.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(notFoundHTML))
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
 	}
+}
+
+// isMachineSurface reports whether a path belongs to a contract something parses.
+//
+//   - /v1/…    the API contract. A client parses it; it must never become HTML.
+//   - /assets/ included even though the asset handler normally answers first: when the
+//     site is mounted WITHOUT assets, a stylesheet request must still fail as JSON
+//     rather than hand a CSS parser an HTML page.
+//   - /health  operational surface, read by Railway and by uptime checks — never by a
+//     person in a browser. Adding it was prompted by a 405 test (AOC-024 verify round 1):
+//     a rejection there was about to be dressed up as a web page for a monitor.
+func isMachineSurface(path string) bool {
+	return path == "/health" ||
+		path == "/v1" || strings.HasPrefix(path, "/v1/") ||
+		strings.HasPrefix(path, "/assets/")
 }
 
 // Deliberately dependency-free: no template, no asset, no layout. If this page needed
 // the renderer, a broken renderer would have no way to say so.
+const methodNotAllowedHTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not allowed — AoC Codex</title><meta name="robots" content="noindex">
+<style>body{background:#0c0a09;color:#e7e5e4;font:16px/1.6 system-ui,sans-serif;
+margin:0;display:grid;place-items:center;min-height:100vh}a{color:#fcd34d}</style>
+</head><body><main><h1>Not allowed</h1>
+<p>That address does not accept this kind of request. <a href="/">Back to the start</a>.</p>
+</main></body></html>
+`
+
 const notFoundHTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
