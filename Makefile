@@ -106,6 +106,26 @@ db-psql:
 # ⚠️ Deliberately refuses rather than guesses. An empty tmp/dumps/ used to mean "restore nothing,
 # report success", and a rehearsal against an empty database is not a rehearsal — it is the exact
 # "I could not look reads as an answer" shape bin/gate spent three tickets removing.
+#
+# ⚠️ It WIPES the local schema first: a restore onto a populated database fails on the first
+# CREATE TABLE under ON_ERROR_STOP, so the loop could not be run twice. Local exists to BE a copy
+# of production, so anything already in it is by definition stale.
+#
+# ⭐ The wipe reproduces what initdb made — COMMENT, OWNER and the PUBLIC grant. Miss any one and
+# `make schema-dump` produces a different file after a restore than after a fresh start, which is
+# a trap in a repo that commits generated schema artifacts.
+#
+# Round 2 fixed only the comment, and I recorded that as "byte-identical, measured". It was not:
+# I had compared a restored database against a restored database. The OWNER is the other half —
+# DROP/CREATE SCHEMA leaves `aoc` where initdb leaves `pg_database_owner`, so pg_dump still
+# emitted a 7-line TOC entry. Worse, the committed artifact had by then been regenerated from a
+# WIPED database, so a FRESH one — the state of CI and of every new clone — produced a phantom
+# 7-line deletion. The finding was sign-flipped, not fixed.
+#
+# ⭐ FRESH IS CANONICAL: docs/database-schema.sql is generated from `db-reset && migrate-up`,
+# because that is what CI and a new clone have. With all four statements a restored database now
+# produces the identical 95-line file — measured in BOTH directions this time.
+# (AOC-004 verify rounds 2 and 3.)
 db-restore: db-up
 	@dump="$$(ls -t tmp/dumps/*.dump tmp/dumps/*.sql 2>/dev/null | head -1)"; \
 	if [ -z "$$dump" ]; then \
@@ -117,7 +137,10 @@ db-restore: db-up
 	echo "  wiping the local schema first — a restore onto a populated database is ambiguous,"; \
 	echo "  and the point of this loop is that local IS production's data"; \
 	$(COMPOSE) exec -T db psql -U aoc -d aoc_dev -q -v ON_ERROR_STOP=1 \
-	  -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; COMMENT ON SCHEMA public IS 'standard public schema';" >/dev/null || exit $$?; \
+	  -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; \
+	      COMMENT ON SCHEMA public IS 'standard public schema'; \
+	      ALTER SCHEMA public OWNER TO pg_database_owner; \
+	      GRANT USAGE ON SCHEMA public TO PUBLIC;" >/dev/null || exit $$?; \
 	case "$$dump" in \
 	  *.sql) $(COMPOSE) exec -T db psql -U aoc -d aoc_dev -v ON_ERROR_STOP=1 < "$$dump" ;; \
 	  *)     $(COMPOSE) exec -T db pg_restore -U aoc -d aoc_dev --clean --if-exists --no-owner < "$$dump" ;; \
@@ -223,6 +246,10 @@ sqlc:
 	@echo "sqlc: regenerated internal/db/sqlcgen/ — commit it, the gate checks it is current"
 
 # Regenerates the living schema document from the migrated LOCAL database.
+#
+# ⭐ Generate it from a FRESH database: `make db-reset && make migrate-up && make schema-dump`.
+# That is the state CI and every new clone are in, so it is the state the committed artifact must
+# match. A restored database produces the same file, but fresh is the reference if they diverge.
 #
 # ⚠️ The \restrict / \unrestrict lines are stripped. pg_dump 17 emits them with a RANDOM
 # token, so an unfiltered dump differs on every run — the file would show a diff after a

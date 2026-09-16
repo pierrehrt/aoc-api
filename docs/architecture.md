@@ -270,7 +270,7 @@ only structured copy of the armory data.
 | `make migrate-redo` | down then up — rehearses the round trip |
 | `make migrate-create NAME=add_item_tables` | new timestamped migration |
 | `make sqlc` | regenerate `internal/db/sqlcgen/` |
-| `make schema-dump` | regenerate `docs/database-schema.sql` from the migrated local DB |
+| `make schema-dump` | regenerate `docs/database-schema.sql` — ⭐ **from a FRESH database** (`make db-reset && make migrate-up && make schema-dump`). That is the state CI and every new clone are in, so it is what the committed artifact must match. A restored database now produces the identical file, but fresh is the reference |
 
 ### Conventions every later migration copies
 
