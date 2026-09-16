@@ -70,7 +70,24 @@ db-psql:
 # report success", and a rehearsal against an empty database is not a rehearsal — it is the exact
 # "I could not look reads as an answer" shape bin/gate spent three tickets removing.
 db-restore: db-up
-	@dump="$$(ls -t tmp/dumps/*.dump tmp/dumps/*.sql 2>/dev/null | head -1)"; 	if [ -z "$$dump" ]; then 	  echo "no dump in tmp/dumps/ — nothing was restored."; 	  echo "Pull one from production first; rehearsing against an empty database proves nothing."; 	  exit 1; 	fi; 	echo "restoring $$dump"; 	base="$$(basename "$$dump")"; 	case "$$base" in 	  *.sql) $(COMPOSE) exec -T db psql -U aoc -d aoc_dev -v ON_ERROR_STOP=1 -f "/dumps/$$base" ;; 	  *)     $(COMPOSE) exec -T db pg_restore -U aoc -d aoc_dev --clean --if-exists --no-owner "/dumps/$$base" ;; 	esac; 	echo "restored $$base"
+	@dump="$$(ls -t tmp/dumps/*.dump tmp/dumps/*.sql 2>/dev/null | head -1)"; \
+	if [ -z "$$dump" ]; then \
+	  echo "no dump in tmp/dumps/ — nothing was restored."; \
+	  echo "Pull one from production first; rehearsing against an empty database proves nothing."; \
+	  exit 1; \
+	fi; \
+	echo "restoring $$dump"; \
+	case "$$dump" in \
+	  *.sql) $(COMPOSE) exec -T db psql -U aoc -d aoc_dev -v ON_ERROR_STOP=1 < "$$dump" ;; \
+	  *)     $(COMPOSE) exec -T db pg_restore -U aoc -d aoc_dev --clean --if-exists --no-owner < "$$dump" ;; \
+	esac; \
+	rc=$$?; \
+	if [ $$rc -ne 0 ]; then \
+	  echo "RESTORE FAILED (exit $$rc) — the database is NOT a copy of that dump."; \
+	  echo "Do not rehearse a migration against it."; \
+	  exit $$rc; \
+	fi; \
+	echo "restored $$(basename "$$dump")"
 
 # ---- front-end assets ------------------------------------------------------
 # Built here, COMMITTED to internal/assets/built/, embedded by the binary. Railway never

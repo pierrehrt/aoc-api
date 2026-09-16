@@ -253,6 +253,29 @@ Set in Railway's variables and nowhere else. `.env.example` lists every name wit
 
 ⛔ **No secret is ever committed.** `.env` is gitignored; `.env.example` holds names and dummies.
 
+### The local container runtime
+
+**Colima, not Docker Desktop** (installed 2026-09-16). Same `docker` and `docker compose`
+commands; a headless Linux VM instead of a GUI app.
+
+Chosen because Docker Desktop needs **administrator rights on first launch** to install a
+privileged helper, which would make the one blocking step in this project a thing only Pierre
+can do. Colima installs from Homebrew with no admin, no GUI and no licensing question, and we
+only ever need it to run a Postgres container.
+
+```sh
+brew install colima docker docker-compose
+colima start --cpu 2 --memory 4 --disk 20      # once; `colima stop` to reclaim the RAM
+make db-up                                      # Postgres 17 on localhost:5433
+```
+
+⚠️ **Colima does not share this repo's path with the VM.** The working tree lives on an
+external volume (`/Volumes/SSD_pierre`), and Colima mounts `$HOME` by default. The VM shows
+the directory structure but **no contents**, so any bind mount of a repo path silently
+resolves to an empty directory — a failure that looks like a missing file, not a missing
+mount. This is why `make db-restore` **streams the dump over stdin** rather than mounting
+`tmp/dumps/`. Do not add repo bind mounts to `docker-compose.yml` without checking this.
+
 ### Migrations — the loop that replaces a second environment
 
 **A migration's first execution is never against production data.** With one hosted environment
