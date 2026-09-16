@@ -305,3 +305,6 @@ the old code cannot tolerate ships in two deploys, not one.
 | item schema — ⚠️ needs `vendor` and `spell_effect` as their own columns, and a label on what `coords` means (AOC-016/017) | AOC-010 |
 | the importer | AOC-011 |
 | public read endpoints for items | AOC-012 |
+
+<!-- rollback test 2026-09-16: this commit exists to force a real image build while
+     the builder is deliberately pointed at a missing Dockerfile (AOC-004). -->
