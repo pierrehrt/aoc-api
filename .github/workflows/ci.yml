@@ -24,11 +24,17 @@ jobs:
     # SKIP here — and a suite that skips its only integration tests while reporting
     # success is the exact shape this project has spent four tickets removing.
     #
-    # Version matches docker-compose.yml, which in turn must be >= Railway's. A migration
-    # that passes CI on 17 and fails production on 16 is the failure this pin prevents.
+    # ⭐ ONE RULE FOR EVERY POSTGRES IN THIS PROJECT: they all track PRODUCTION's major.
+    # Railway runs 18.6, so production, docker-compose.yml, Makefile's POSTGRES_MAJOR and this
+    # pin are all 18. Bump production and you bump all four in the same commit.
+    #
+    # ⚠️ This pin was left at 17 when the others moved to 18 (AOC-004 verify round 2), which put
+    # CI a major BEHIND production — the worst of the three to get wrong: it runs on every PR,
+    # it holds the only real SQL tests, and nobody looks at it while it is green. The comment
+    # that used to live here also had the danger inverted, warning about production being OLDER.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: aoc
           POSTGRES_PASSWORD: aoc
