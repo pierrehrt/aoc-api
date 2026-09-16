@@ -78,7 +78,7 @@ func run() error {
 
 	// The origin canonical URLs are built from. Configured, never taken from the request:
 	// see the comment on pages.Handler.baseURL.
-	site := pages.New(tpl, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")))
+	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")))
 
 	srv := &http.Server{
 		Addr:    addr,

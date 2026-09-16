@@ -87,6 +87,19 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 			return nil, fmt.Errorf("templates: page %q parses but does not execute: %w", name, err)
 		}
 	}
+	// Fragments too. They are reached only by an HTMX request, so a fragment that parses
+	// but cannot execute would otherwise wait in production until someone clicked the
+	// one control that renders it — the least-tested path failing in front of a user.
+	// (AOC-024 verify round 1: this was missing.)
+	for _, t := range e.fragments.Templates() {
+		name := t.Name()
+		if name == "" || name == "fragments" {
+			continue
+		}
+		if err := e.fragments.ExecuteTemplate(&bytes.Buffer{}, name, probeData); err != nil {
+			return nil, fmt.Errorf("templates: fragment %q parses but does not execute: %w", name, err)
+		}
+	}
 	return e, nil
 }
 

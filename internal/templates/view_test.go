@@ -18,7 +18,15 @@ func TestTruncateCutsOnAWordBoundary(t *testing.T) {
 		{"short strings are untouched", "Vistrix", 60, "Vistrix"},
 		{"exactly at the cap is untouched", "abcde", 5, "abcde"},
 		{"one over the cap cuts at the space", "alpha bravo", 10, "alpha…"},
-		{"cuts at the LAST space, not the first", "one two three four", 14, "one two three…"},
+		// ⚠️ This case does NOT reach the walk-back loop: r[13] is a space, so the early
+		// boundary branch returns first. It was named for a property it never exercised,
+		// and a mutant reversing the walk survived because of it (verify round 1).
+		{"cut lands exactly on a boundary", "one two three four", 14, "one two three…"},
+		// These DO reach the walk-back loop — the cut falls mid-word with more than one
+		// space behind it, so walking to the first space instead of the last is visible.
+		{"walks back to the LAST space, not the first", "one two three four", 12, "one two…"},
+		{"walks back past several words", "alpha bravo charlie delta", 20, "alpha bravo charlie…"},
+		{"a long title keeps everything that fits", "AoC Codex the Age of Conan Hyborian Adventures reference guide", 40, "AoC Codex the Age of Conan Hyborian…"},
 		{"a single unbreakable word is cut hard", strings.Repeat("x", 30), 10, strings.Repeat("x", 9) + "…"},
 		{"runs of whitespace collapse", "a    b", 60, "a b"},
 		{"newlines collapse", "a\nb", 60, "a b"},
@@ -46,6 +54,39 @@ func TestTruncateNeverSplitsARune(t *testing.T) {
 	}
 	if utf8.RuneCountInString(got) > 10 {
 		t.Fatalf("got %d runes, want <= 10", utf8.RuneCountInString(got))
+	}
+}
+
+// ⭐ The caps the acceptance criteria NAME, pinned as literals.
+//
+// Every other assertion is written against MaxTitle/MaxDescription, so setting
+// MaxTitle = 600 left the whole suite green — the 60 and 155 were pinned by nothing
+// (verify round 1). A test that reads the constant it is checking asserts only that the
+// code equals itself.
+func TestTheCapsAreTheNumbersTheCriteriaName(t *testing.T) {
+	if templates.MaxTitle != 60 {
+		t.Errorf("MaxTitle = %d, want 60 — the length Google renders before truncating", templates.MaxTitle)
+	}
+	if templates.MaxDescription != 155 {
+		t.Errorf("MaxDescription = %d, want 155", templates.MaxDescription)
+	}
+	// And prove the literal actually bites, not just that the constant reads 60.
+	long := strings.Repeat("word ", 40)
+	if n := utf8.RuneCountInString(templates.Truncate(long, 60)); n > 60 {
+		t.Errorf("a 200-character title truncated to %d runes, want <= 60", n)
+	}
+}
+
+// Truncate used to panic on a max of 0 (slice bounds [:-1]). No caller passes 0 today;
+// a future one must get an empty string, not a panic inside a meta tag.
+func TestTruncateHandlesDegenerateCaps(t *testing.T) {
+	for _, c := range []struct {
+		max  int
+		want string
+	}{{0, ""}, {-1, ""}, {1, "…"}, {2, "a…"}} {
+		if got := templates.Truncate("abcdef", c.max); got != c.want {
+			t.Errorf("Truncate(\"abcdef\", %d) = %q, want %q", c.max, got, c.want)
+		}
 	}
 }
 

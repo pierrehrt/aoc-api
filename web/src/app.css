@@ -4,19 +4,29 @@
    @source tells Tailwind where class names live. Without it v4 scans from this file's
    directory and would find nothing but this file — producing a stylesheet with no
    utilities in it, which builds cleanly and renders an unstyled site. */
-/* ⭐ source(none) turns OFF Tailwind's automatic project scan, and the @source below is
-   then the ONLY thing scanned. Both hazards this closes were measured, not guessed:
+/* ⭐ source(none) turns OFF Tailwind's automatic project scan, so the @source below is the
+   ONLY thing scanned. Measured, in a throwaway clone:
 
-     * With the scan on, Tailwind walked the repo (skipping .gitignore'd paths) and
-       extracted class-like strings from `.tools/tailwindcss` — a 74 MB binary. The
-       stylesheet came out 72,145 bytes instead of 8,434: 8.5x of pure garbage, and it
-       still looked fine in a browser, so nothing would have caught it.
-     * It also scanned its OWN previous output in internal/assets/built/, so one build
-       could perturb the next. `bin/gate api` compares built output against committed
-       output, and a build that depends on what was already there fails that comparison
-       for reasons nobody can reproduce.
+     | configuration                              | bytes  |
+     | scan off (as committed)                    |  7,356 |
+     | scan on, .tools/ gitignored                |  8,434 |
+     | scan on, .tools/ NOT gitignored            | 72,145 |
 
-   Explicit sourcing means the output depends on the templates and nothing else. */
+   The 72,145 is Tailwind extracting class-like strings from `.tools/tailwindcss`, a 74 MB
+   binary — 8.5x of garbage that still renders fine in a browser, so nothing would catch it.
+   The 1,078-byte excess at 8,434 is 593 bytes from `htmx.min.js` (scanned in both copies)
+   and 485 from the repo's other .go and .md files.
+
+   ⚠️ CORRECTED 2026-09-16 (AOC-024 verify round 1). This comment used to add "it also
+   scanned its own previous output". That is FALSE: Tailwind v4 excludes .css from
+   auto-detection. Verified twice — a marker class planted in a .css file never reaches the
+   output, the same marker in a sibling .js file does. A transient size difference was
+   observed while diagnosing and written up as a cause without being measured, which is the
+   failure DECISIONS.md (2026-09-16) exists to prevent. The real cause of that transient is
+   still unknown and is deliberately NOT guessed at here.
+
+   The fix stands on its own: explicit sourcing means the output depends on the templates
+   and nothing else. Three consecutive builds are byte-identical. */
 @import "tailwindcss" source(none);
 @source "../../internal/templates/html/**/*.html";
 

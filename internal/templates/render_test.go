@@ -92,3 +92,68 @@ func TestRenderRefusesAnUnknownPage(t *testing.T) {
 		t.Fatal("Render accepted a page name that does not exist")
 	}
 }
+
+// ⭐ A template error mid-execution must not become "200 plus half a page". Render builds
+// into a buffer first precisely so the status can still be changed; writing straight to the
+// ResponseWriter makes that impossible, and that mutant survived (verify round 1).
+//
+// The template below PASSES the startup probe — probeData has a Marker field — and fails
+// only at render time, when a handler passes data that does not. That is the real shape of
+// this bug: a page that works until someone adds a second caller.
+func TestRenderWritesNothingWhenExecutionFails(t *testing.T) {
+	f := good()
+	f["html/cond.html"] = &fstest.MapFile{Data: []byte(`{{define "content"}}before{{.Data.Marker}}after{{end}}`)}
+	e, err := templates.NewFS(f, map[string]string{"cond": "html/cond.html"}, fakeAssets{})
+	if err != nil {
+		t.Fatalf("template referencing a probed field should start cleanly: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	v := templates.NewView("t", "d", "https://x/")
+	err = e.Render(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil),
+		http.StatusOK, "cond", v, struct{ Other string }{"x"})
+	if err == nil {
+		t.Fatal("Render succeeded on a template that cannot execute against this data")
+	}
+	if rr.Body.Len() != 0 {
+		t.Errorf("Render wrote %d bytes before failing (%q) — a half-page cannot be turned"+
+			" into a 500", rr.Body.Len(), rr.Body.String())
+	}
+}
+
+// Render must honour the status it is handed. Every caller passes 200 today, so a mutant
+// ignoring the argument survived — and the first caller to pass 404 would silently 200.
+func TestRenderHonoursTheStatusItIsGiven(t *testing.T) {
+	e, err := templates.NewFS(good(), map[string]string{"ok": "html/ok.html"}, fakeAssets{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{http.StatusOK, http.StatusNotFound, http.StatusGone} {
+		rr := httptest.NewRecorder()
+		v := templates.NewView("t", "d", "https://x/")
+		if err := e.Render(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil), want, "ok", v, nil); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if rr.Code != want {
+			t.Errorf("Render wrote status %d, want %d", rr.Code, want)
+		}
+	}
+}
+
+// A fragment that parses but cannot execute is reached only by an HTMX request, so it
+// would otherwise wait in production until someone clicked that one control.
+func TestNewFSRejectsABrokenFragment(t *testing.T) {
+	f := good()
+	f["html/echo.html"] = &fstest.MapFile{Data: []byte(`{{define "echo"}}{{call .Nope}}{{end}}`)}
+	if _, err := templates.NewFS(f, map[string]string{"ok": "html/ok.html"}, fakeAssets{}); err == nil {
+		t.Fatal("NewFS accepted a fragment that parses but cannot execute")
+	}
+}
+
+// Without a resolver every asset URL would render empty — <link href=""> — which loads
+// the page itself as a stylesheet and looks like a styling bug, not a wiring bug.
+func TestNewFSRequiresAnAssetResolver(t *testing.T) {
+	if _, err := templates.NewFS(good(), map[string]string{"ok": "html/ok.html"}, nil); err == nil {
+		t.Fatal("NewFS accepted a nil AssetResolver")
+	}
+}

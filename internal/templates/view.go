@@ -81,6 +81,15 @@ func Truncate(s string, max int) string {
 	if len(r) <= max {
 		return s
 	}
+	// max < 2 leaves no room for content plus the ellipsis, and max-1 would index
+	// backwards off the slice. No caller passes 0 today; a future one should get an empty
+	// string, not a panic in a meta tag. (AOC-024 verify round 1.)
+	if max <= 0 {
+		return ""
+	}
+	if max == 1 {
+		return "…"
+	}
 	// Leave room for the ellipsis itself, which is one rune.
 	cut := r[:max-1]
 	// ⚠️ First: the cut may ALREADY be on a boundary, when the rune just past it is a

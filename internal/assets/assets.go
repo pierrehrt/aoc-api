@@ -120,6 +120,10 @@ func (s *Set) Handler() http.Handler {
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		case ".js":
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		case ".png":
+			w.Header().Set("Content-Type", "image/png")
+		case ".svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
 		}
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		w.WriteHeader(http.StatusOK)
