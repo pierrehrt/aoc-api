@@ -1,6 +1,7 @@
 package pages_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,10 +33,10 @@ func get(t *testing.T, h http.Handler, method, path string, hdr map[string]strin
 	t.Helper()
 	var r *http.Request
 	if body != "" {
-		r = httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+		r = httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		r = httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		r = httptest.NewRequestWithContext(context.Background(), method, path, nil)
 	}
 	for k, v := range hdr {
 		r.Header.Set(k, v)

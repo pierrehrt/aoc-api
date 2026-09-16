@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,7 +72,7 @@ func TestRenderRefusesAnIncompleteView(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
-			err := e.Render(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil), 200, "ok", c.v, nil)
+			err := e.Render(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil), 200, "ok", c.v, nil)
 			if err == nil {
 				t.Fatal("Render accepted a View with a missing head field")
 			}
@@ -87,7 +88,7 @@ func TestRenderRefusesAnUnknownPage(t *testing.T) {
 	e, _ := templates.NewFS(good(), map[string]string{"ok": "html/ok.html"}, fakeAssets{})
 	rr := httptest.NewRecorder()
 	v := templates.NewView("t", "d", "https://x/")
-	if err := e.Render(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil), 200, "nope", v, nil); err == nil {
+	if err := e.Render(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil), 200, "nope", v, nil); err == nil {
 		t.Fatal("Render accepted a page name that does not exist")
 	}
 }
