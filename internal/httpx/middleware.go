@@ -129,7 +129,12 @@ func Log(next http.Handler) http.Handler {
 // returns the same JSON shape as every other error rather than chi's plain text.
 func NotFound(w http.ResponseWriter, r *http.Request) { Fail(w, r, ErrNotFound) }
 
-// MethodNotAllowed does the same for a known path with the wrong verb. It goes through
-// Fail like everything else -- writing the body directly here made AC4's "one path to an
-// error response" untrue, and meant a 405 was the only rejection that never got logged.
+// MethodNotAllowed does the same for a known path with the wrong verb, on the MACHINE
+// surface (/v1, /health, /assets). It goes through Fail like everything else there.
+//
+// ⚠️ Amended by AOC-024: on the HTML surface the router writes a small page directly
+// instead of calling this, because the renderer cannot be trusted to render a failure that
+// may be the renderer. The logging consequence the original comment warned about does not
+// return -- Log records every request from statusWriter no matter who wrote the body
+// (verified, AOC-024 verify round 2). It was the claim that went stale, not the behaviour.
 func MethodNotAllowed(w http.ResponseWriter, r *http.Request) { Fail(w, r, ErrMethodNotAllowed) }

@@ -122,7 +122,7 @@ assets: $(TAILWIND)
 	@$(TAILWIND) -i web/src/app.css -o internal/assets/built/app.css --minify
 	@cp web/src/htmx.min.js internal/assets/built/htmx.min.js
 	@cp web/src/og-card.png internal/assets/built/og-card.png
-	@for f in internal/assets/built/app.css internal/assets/built/htmx.min.js; do \
+	@for f in internal/assets/built/app.css internal/assets/built/htmx.min.js internal/assets/built/og-card.png; do \
 	  if [ ! -s "$$f" ]; then echo "asset build produced an EMPTY $$f — that is a failure, not a pass"; exit 1; fi; \
 	done
 	@echo "assets built:"; ls -l internal/assets/built/ | tail -n +2 | awk '{printf "  %-22s %s bytes\n", $$9, $$5}'
