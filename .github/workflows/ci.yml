@@ -18,6 +18,34 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # ⭐ A real Postgres, because the thing under test in internal/db is SQL, and SQL that
+    # has never met a database is not tested. Without this the migration and sqlc tests
+    # SKIP here — and a suite that skips its only integration tests while reporting
+    # success is the exact shape this project has spent four tickets removing.
+    #
+    # Version matches docker-compose.yml, which in turn must be >= Railway's. A migration
+    # that passes CI on 17 and fails production on 16 is the failure this pin prevents.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: aoc
+          POSTGRES_PASSWORD: aoc
+          POSTGRES_DB: aoc_dev
+        ports:
+          - 5432:5432
+        # Without a health check the job races the database and fails intermittently —
+        # the worst kind of red build, because it goes green on a re-run.
+        options: >-
+          --health-cmd "pg_isready -U aoc -d aoc_dev"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      TEST_DATABASE_URL: postgres://aoc:aoc@localhost:5432/aoc_dev?sslmode=disable
+
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +70,18 @@ jobs:
 
       - name: go test
         run: make test
+
+      # The integration tests skip when no database is reachable. That skip is legitimate
+      # on a laptop and NOT legitimate here, so CI asserts they actually ran.
+      - name: the database tests really ran
+        run: |
+          out="$(go test ./internal/db/ -v -count=1 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "SKIP"; then
+            echo "::error::internal/db tests SKIPPED in CI — the Postgres service is not reachable,"
+            echo "::error::so the migration and sqlc tests proved nothing."
+            exit 1
+          fi
 
   lint:
     runs-on: ubuntu-latest

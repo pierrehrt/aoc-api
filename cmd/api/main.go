@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/db"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/pages"
 	"github.com/pierrehrt/aoc-api/internal/templates"
@@ -35,6 +36,12 @@ func main() {
 }
 
 func run() error {
+	// Shut down on SIGINT/SIGTERM: stop accepting, let in-flight requests finish.
+	// Railway sends SIGTERM on every deploy, so without this each deploy cuts off
+	// whatever was mid-request. Established first so the database connect respects it.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Fill in any build identity the linker could not — on Railway the commit arrives as a
 	// runtime environment variable, not a build arg. Must happen before anything reports it.
 	version.Resolve()
@@ -55,6 +62,20 @@ func run() error {
 		return fmt.Errorf("parsing templates: %w", err)
 	}
 
+	// The database pool: built ONCE here and passed down, never a package-level global
+	// (a global cannot be swapped in a test and hides who depends on it).
+	//
+	// ⭐ Required, not optional. DATABASE_URL is set in Railway, and db.New PINGS, so a
+	// wrong or unreachable database fails the BOOT — where Railway keeps the previous
+	// deploy serving — instead of failing on the first request a visitor makes. Nothing
+	// queries it yet; AOC-009 brings the first real tables.
+	pool, err := db.New(ctx, db.DefaultConfig(os.Getenv("DATABASE_URL")))
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer pool.Close()
+	slog.Info("database connected", "max_conns", pool.Config().MaxConns)
+
 	// The origin canonical URLs are built from. Configured, never taken from the request:
 	// see the comment on pages.Handler.baseURL.
 	site := pages.New(tpl, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")))
@@ -70,12 +91,6 @@ func run() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-
-	// Shut down on SIGINT/SIGTERM: stop accepting, let in-flight requests finish.
-	// Railway sends SIGTERM on every deploy, so without this each deploy cuts off
-	// whatever was mid-request.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errc := make(chan error, 1)
 	go func() {
