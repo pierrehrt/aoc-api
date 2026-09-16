@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,7 +74,9 @@ func TestValidRejectsAMissingHeadField(t *testing.T) {
 		{"whitespace is not a title", templates.View{Title: "   ", Description: "d", Canonical: "c"}, templates.ErrNoTitle},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if got := c.v.Valid(); got != c.want {
+			// errors.Is, not !=: Valid may one day wrap its sentinels, and a == check
+			// would start passing for the wrong reason without anyone noticing.
+			if got := c.v.Valid(); !errors.Is(got, c.want) {
 				t.Errorf("Valid() = %v, want %v", got, c.want)
 			}
 		})

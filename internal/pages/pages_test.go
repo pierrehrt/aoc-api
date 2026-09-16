@@ -32,10 +32,10 @@ func get(t *testing.T, h http.Handler, method, path string, hdr map[string]strin
 	t.Helper()
 	var r *http.Request
 	if body != "" {
-		r = httptest.NewRequest(method, path, strings.NewReader(body))
+		r = httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		r = httptest.NewRequest(method, path, nil)
+		r = httptest.NewRequestWithContext(t.Context(), method, path, nil)
 	}
 	for k, v := range hdr {
 		r.Header.Set(k, v)
