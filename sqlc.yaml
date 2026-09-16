@@ -1,0 +1,23 @@
+# sqlc compiles the hand-written SQL in internal/db/queries/ into typed Go.
+#
+# Why sqlc and not an ORM (reference/architecture.md § The repo): the schema stays visible
+# and reviewable, and a column rename breaks the BUILD rather than production. The
+# generated code is committed, so a reviewer sees the diff and `bin/gate api` fails when
+# it is stale — the same rule the built assets follow.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/db/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_json_tags: false
+        # Pointers, not sql.NullString. A nullable column that arrives as a zero value is
+        # indistinguishable from a column that is legitimately empty, and this database is
+        # full of fields that are genuinely unknown rather than blank — an unsourced boss
+        # mechanic is not the empty string.
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
