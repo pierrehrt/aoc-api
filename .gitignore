@@ -8,3 +8,15 @@
 !.env.example
 
 .DS_Store
+
+# ⛔ DATABASE DUMPS ARE NEVER COMMITTED.
+# tmp/dumps/ holds real production dumps pulled down to rehearse migrations. That is the entire
+# researched dataset — and, once EP-06 ships, real accounts. A dump in git history cannot be
+# un-published: it survives every later deletion, in every clone, forever.
+# NOTE the trailing /* on the first line. `/tmp/` would exclude the DIRECTORY, and git does not
+# descend into an excluded directory — so every negation below it silently does nothing, and
+# tmp/dumps/ does not survive a fresh clone. Caught by `git check-ignore`, not by reading.
+/tmp/*
+!/tmp/dumps/
+/tmp/dumps/*
+!/tmp/dumps/.gitkeep
