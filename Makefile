@@ -48,11 +48,23 @@ fmt-check:
 
 COMPOSE ?= docker compose
 
+# The major version production runs. Checked on every db-up, because the failure it prevents
+# is silent: a client older than the server cannot take a dump at all, and the four-step
+# migration loop dies at step 1 (AOC-004 verify round 1).
+POSTGRES_MAJOR ?= 18
+
 db-up:
 	$(COMPOSE) up -d db
 	@echo "waiting for postgres to accept connections..."
 	@until $(COMPOSE) exec -T db pg_isready -U aoc -d aoc_dev >/dev/null 2>&1; do sleep 1; done
-	@echo "ready on localhost:5433 (db aoc_dev, user aoc)"
+	@got="$$($(COMPOSE) exec -T db psql -U aoc -d aoc_dev -tAc 'SHOW server_version' | cut -d. -f1 | tr -d ' \r')"; \
+	if [ "$$got" != "$(POSTGRES_MAJOR)" ]; then \
+	  echo "local Postgres is major $$got but production runs $(POSTGRES_MAJOR)."; \
+	  echo "A client older than the server cannot take a dump at all, so the migration"; \
+	  echo "rehearsal loop dies at step 1. Fix docker-compose.yml, then: make db-reset"; \
+	  exit 1; \
+	fi; \
+	echo "ready on localhost:5433 (db aoc_dev, user aoc, major $$got)"
 
 db-down:
 	$(COMPOSE) down
@@ -78,6 +90,10 @@ db-restore: db-up
 	  exit 1; \
 	fi; \
 	echo "restoring $$dump"; \
+	echo "  wiping the local schema first — a restore onto a populated database is ambiguous,"; \
+	echo "  and the point of this loop is that local IS production's data"; \
+	$(COMPOSE) exec -T db psql -U aoc -d aoc_dev -q -v ON_ERROR_STOP=1 \
+	  -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' >/dev/null || exit $$?; \
 	case "$$dump" in \
 	  *.sql) $(COMPOSE) exec -T db psql -U aoc -d aoc_dev -v ON_ERROR_STOP=1 < "$$dump" ;; \
 	  *)     $(COMPOSE) exec -T db pg_restore -U aoc -d aoc_dev --clean --if-exists --no-owner < "$$dump" ;; \

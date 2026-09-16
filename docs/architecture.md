@@ -329,7 +329,9 @@ Set in Railway's variables and nowhere else. `.env.example` lists every name wit
 | `PORT` | assigned by Railway; the server reads it, 8080 locally |
 | `ENV` | `production` on Railway, `local` otherwise |
 | `DATABASE_URL` | ⚠️ Railway's **private** hostname. The public proxy URL bills egress and adds latency for nothing |
-| `VERSION`, `COMMIT` | build args → `/health`, so a running container traces to a commit |
+| `VERSION` | build arg → `/health` |
+| `COMMIT` | ⚠️ **not** a build arg. `${{RAILWAY_GIT_COMMIT_SHA}}` resolves to an empty string at build time — Railway injects its git variables into the deployed **container**, not into the set `${{…}}` references resolve against. `version.Resolve()` reads it at runtime instead (PR #4) |
+| `PUBLIC_BASE_URL` | the origin canonical URLs and `og:image` are built from |
 
 ⛔ **No secret is ever committed.** `.env` is gitignored; `.env.example` holds names and dummies.
 
@@ -376,10 +378,29 @@ A failed migration is fixed **forward** from a known backup, never by hand-editi
 dataset — and after EP-06, real accounts. Committed once, it is in every clone forever.
 ⚠️ Most of that data is **unre-derivable** after the AoC>TV host lapses ~Feb 2027.
 
-⚠️ **`docker-compose.yml` pins Postgres 17; production's major version must be ≤ that.** `pg_dump`
-output from a newer server will not restore into an older one, and that failure would land midway
-through rehearsing a migration against the only copy of the armory. Reconcile the pin with
-Railway's actual version when the project is created.
+⚠️ **The local major version must be ≥ production's.** Railway runs **Postgres 18.6**
+(`ghcr.io/railwayapp-templates/postgres-ssl:18`), so `docker-compose.yml` pins `postgres:18-alpine`,
+and `make db-up` **fails** if the running major does not match `POSTGRES_MAJOR`.
+
+⭐ **The reason, measured — and the opposite of what this paragraph used to say.** It claimed
+"pg_dump output from a newer server will not restore into an older one". That was never tested and
+is false: an 18.6 dump restores into 17.11 fine. What actually bites is one step earlier —
+
+```
+pg_dump: error: aborting because of server version mismatch
+pg_dump: detail: server version: 18.6; pg_dump version: 17.11
+```
+
+`pg_dump` **refuses to read a server newer than itself**, so with a 17 client **step 1 of the loop
+cannot run at all**. It appeared to work only because this Mac happens to carry a Homebrew
+`pg_dump 18.6` on `$PATH` — undocumented luck, on the one step the entire "no second hosted
+environment" trade depends on. **Take the dump with the pinned container's client**
+(`docker compose exec -T db pg_dump …`), never whatever `pg_dump` is on `$PATH`, so the version
+that matters is the one this repo pins.
+
+⚠️ Bumping the pin is **not** just a number: the 18+ images store data in major-version-specific
+subdirectories, so the volume mounts at `/var/lib/postgresql`, not `/var/lib/postgresql/data`, and
+an existing volume from an older image must be dropped (`make db-reset`).
 
 ### Rollback
 
