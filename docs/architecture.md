@@ -280,6 +280,18 @@ Railway's actual version when the project is created.
 
 ### Rollback
 
+**Proved on 2026-09-16, not assumed.** The builder was pointed at a Dockerfile that does not
+exist and a real build was triggered by a push. Result: the build reported **FAILED**, and
+the live site answered **200 throughout, still serving the previous commit** — zero non-200
+responses across the whole test. Railway does not replace a running deploy with one that
+failed to build.
+
+⚠️ **`railway redeploy` does NOT rebuild.** It re-runs the existing image — DEPLOYING to
+SUCCESS in six seconds, same commit — so it cannot be used to test a build change, and the
+first attempt at this proof silently proved nothing. **A real build needs a push.**
+
+
+
 A failed **build** never replaces the running deploy — Railway keeps serving the previous one.
 A build that succeeds and is *wrong* is rolled back from the Railway dashboard by redeploying the
 previous deployment. **A deployment row is not a deployment:** check its newest state, and confirm
@@ -305,6 +317,3 @@ the old code cannot tolerate ships in two deploys, not one.
 | item schema — ⚠️ needs `vendor` and `spell_effect` as their own columns, and a label on what `coords` means (AOC-016/017) | AOC-010 |
 | the importer | AOC-011 |
 | public read endpoints for items | AOC-012 |
-
-<!-- rollback test 2026-09-16: this commit exists to force a real image build while
-     the builder is deliberately pointed at a missing Dockerfile (AOC-004). -->
