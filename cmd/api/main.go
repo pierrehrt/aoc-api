@@ -31,6 +31,10 @@ func main() {
 }
 
 func run() error {
+	// Fill in any build identity the linker could not — on Railway the commit arrives as a
+	// runtime environment variable, not a build arg. Must happen before anything reports it.
+	version.Resolve()
+
 	// Railway assigns the port; 8080 is the local default.
 	addr := ":" + envOr("PORT", "8080")
 
