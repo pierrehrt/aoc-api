@@ -27,7 +27,7 @@ import (
 type SiteRoutes func(chi.Router)
 
 // NewRouter keeps the JSON-only shape every existing caller expects.
-func NewRouter(ver, commit string) *chi.Mux { return NewRouterWithSite(ver, commit, nil, nil) }
+func NewRouter(b Build) *chi.Mux { return NewRouterWithSite(b, nil, nil) }
 
 // NewRouterWithSite additionally mounts the server-rendered site and its assets.
 //
@@ -41,7 +41,7 @@ func NewRouter(ver, commit string) *chi.Mux { return NewRouterWithSite(ver, comm
 //
 // The test is the PATH, not the Accept header. Accept is a negotiation a bot or a proxy
 // can get wrong, while the path is a fact about which contract was addressed.
-func NewRouterWithSite(ver, commit string, site SiteRoutes, assets http.Handler) *chi.Mux {
+func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Order matters, and it is the opposite of what it first looks like.
@@ -76,7 +76,7 @@ func NewRouterWithSite(ver, commit string, site SiteRoutes, assets http.Handler)
 	// chosen by who asked, not by which chi hook happened to fire.
 	r.MethodNotAllowed(htmlAwareFor(site != nil, MethodNotAllowed, http.StatusMethodNotAllowed, methodNotAllowedHTML))
 
-	r.Get("/health", Health(ver, commit))
+	r.Get("/health", Health(b))
 
 	v1 := chi.NewRouter()
 	// Domain sub-routers mount here as they arrive: items (AOC-012), content,

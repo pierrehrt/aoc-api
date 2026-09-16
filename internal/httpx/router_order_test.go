@@ -27,7 +27,7 @@ func TestProductionRouterLogsAPanickingRequest(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	defer slog.SetDefault(restore)
 
-	r := httpx.NewRouter("dev", "none")
+	r := httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"})
 	boom := chi.NewRouter()
 	boom.Get("/boom", func(http.ResponseWriter, *http.Request) { panic("boom") })
 	r.Mount("/verify-order-probe", boom)
@@ -67,7 +67,7 @@ func TestProductionRouterLogsEveryRequest(t *testing.T) {
 	defer slog.SetDefault(restore)
 
 	rr := httptest.NewRecorder()
-	httpx.NewRouter("dev", "none").ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil))
+	httpx.NewRouter(httpx.Build{Version: "dev", Commit: "none", Env: "test"}).ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil))
 
 	n := 0
 	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {

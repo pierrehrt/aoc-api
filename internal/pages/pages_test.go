@@ -28,7 +28,7 @@ func router(t *testing.T) http.Handler {
 		t.Fatalf("templates.New: %v", err)
 	}
 	h := pages.New(tpl, set, base)
-	return httpx.NewRouterWithSite("1.2.3", "abc1234", h.Routes, set.Handler())
+	return httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 }
 
 func get(t *testing.T, h http.Handler, method, path string, hdr map[string]string, body string) *httptest.ResponseRecorder {
@@ -337,7 +337,7 @@ func TestAssetPathsStayJSONEvenWithNoAssetHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	// site mounted, assets deliberately NOT mounted
-	h := httpx.NewRouterWithSite("1.2.3", "abc1234", pages.New(tpl, set, base).Routes, nil)
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base).Routes, nil)
 
 	rr := get(t, h, http.MethodGet, "/assets/app.css", nil, "")
 	if rr.Code != http.StatusNotFound {
@@ -371,7 +371,7 @@ func TestAFailedRenderIsA500ThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture engine should start cleanly: %v", err)
 	}
-	h := httpx.NewRouterWithSite("1.2.3", "abc1234", pages.New(tpl, set, base).Routes, set.Handler())
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base).Routes, set.Handler())
 
 	rr := get(t, h, http.MethodGet, "/", nil, "")
 	if rr.Code != http.StatusInternalServerError {
