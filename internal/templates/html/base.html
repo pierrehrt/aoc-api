@@ -1,0 +1,25 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.View.Title}}</title>
+<meta name="description" content="{{.View.Description}}">
+<link rel="canonical" href="{{.View.Canonical}}">
+{{if .View.NoIndex}}<meta name="robots" content="noindex">{{end}}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{.View.Title}}">
+<meta property="og:description" content="{{.View.Description}}">
+<meta property="og:url" content="{{.View.Canonical}}">
+{{if .View.OGImage}}<meta property="og:image" content="{{.View.OGImage}}">{{end}}
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "htmx.min.js"}}" defer></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-200 antialiased">
+<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:p-3">Skip to content</a>
+<main id="main" class="mx-auto max-w-3xl px-4 py-10">
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

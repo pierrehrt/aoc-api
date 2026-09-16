@@ -1,0 +1,36 @@
+/* Tailwind input. Built to internal/assets/built/app.css by `make assets`, which is
+   COMMITTED (DECISIONS.md, 2026-09-16) because the binary embeds what is committed.
+
+   @source tells Tailwind where class names live. Without it v4 scans from this file's
+   directory and would find nothing but this file — producing a stylesheet with no
+   utilities in it, which builds cleanly and renders an unstyled site. */
+/* ⭐ source(none) turns OFF Tailwind's automatic project scan, and the @source below is
+   then the ONLY thing scanned. Both hazards this closes were measured, not guessed:
+
+     * With the scan on, Tailwind walked the repo (skipping .gitignore'd paths) and
+       extracted class-like strings from `.tools/tailwindcss` — a 74 MB binary. The
+       stylesheet came out 72,145 bytes instead of 8,434: 8.5x of pure garbage, and it
+       still looked fine in a browser, so nothing would have caught it.
+     * It also scanned its OWN previous output in internal/assets/built/, so one build
+       could perturb the next. `bin/gate api` compares built output against committed
+       output, and a build that depends on what was already there fails that comparison
+       for reasons nobody can reproduce.
+
+   Explicit sourcing means the output depends on the templates and nothing else. */
+@import "tailwindcss" source(none);
+@source "../../internal/templates/html/**/*.html";
+
+/* The 30-second contract (reference/ux-principles.md): someone reads this on a phone,
+   on hotel wifi, three minutes before a pull. Dark by default because that is what the
+   game looks like and what a second monitor at night should be. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Respect a reader who has asked for less motion. Non-negotiable, and cheap. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

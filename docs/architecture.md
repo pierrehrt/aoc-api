@@ -169,6 +169,63 @@ deploy**, so without this every deploy cuts off whatever was mid-request.
 write to a var). The `Makefile` injects them from `git describe` and `git rev-parse`, and `/health`
 reports them, so a running container can always be traced to a commit.
 
+## Rendering (the HTML surface)
+
+Added by **AOC-024**. This is the pattern every later page copies, so it is worth reading
+once before adding a page.
+
+```
+web/src/app.css          Tailwind input      ─┐
+web/src/htmx.min.js      vendored HTMX        │ make assets
+                                              ▼
+internal/assets/built/   app.css, htmx.min.js   COMMITTED, embedded, content-hashed
+internal/templates/html/ base · home · smoke · echo
+internal/templates/      View + Engine (parse once at boot)
+internal/pages/          handlers: build a View, render a template
+```
+
+**One handler, one query, two renderings.** A route answers a normal request with a full
+page and an `HX-Request` with a fragment. That is what makes progressive enhancement real:
+the page works with JavaScript off, and HTMX only removes the reload.
+
+### The rules, and what each one prevents
+
+| Rule | What it prevents |
+|---|---|
+| Templates parsed **once at startup**, with a probe that *executes* every page | A typo reaching a visitor as a 500. It fails the boot instead, so Railway keeps the last good deploy |
+| `View` requires title, description and canonical; `Render` refuses without them | A page quietly shipping with no `<head>`, undoing the reason we render HTML at all |
+| Title ≤ **60**, description ≤ **155**, truncated on a **word boundary** | A search result cut mid-word. Counts runes — boss names carry accents |
+| Assets **content-hashed**, `immutable`, wrong hash ⇒ 404 | A stale stylesheet cached for a year, or a stale URL looking valid forever |
+| `Load()` **refuses** empty or absent assets | A build that "succeeded" and produced nothing: a site that serves fine and looks broken |
+| Both HTMX branches send `Vary: HX-Request` | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
+| Canonical built from **`PUBLIC_BASE_URL`**, never the request host | The same page declaring two canonicals when reached by two hostnames |
+
+### 404 has two shapes, chosen by PATH
+
+`/v1/*` and `/assets/*` return **JSON** — those are contracts a machine parses. Everything
+else returns a small **HTML** page. The path is used rather than `Accept` because a path is
+a fact about which contract was addressed, where `Accept` is a negotiation a bot or proxy
+can get wrong. That 404 page is deliberately **dependency-free** — no template, no asset —
+because it must still work when the renderer is the thing that broke.
+
+### Assets
+
+Built by `make assets` with the **Tailwind standalone binary** — no Node, no
+`node_modules`, no `package.json`. Pinned by version **and SHA-256** in the `Makefile`; a
+checksum mismatch fails the build, because a build tool that changes silently is how a site
+starts looking different for reasons nobody can find. The binary downloads to `.tools/`
+(gitignored); the **output is committed**, and `bin/gate api` fails if it is missing, empty,
+gitignored or stale.
+
+### Adding a page
+
+1. A template in `internal/templates/html/` defining `content`.
+2. A line in `pageTemplates`.
+3. A handler in `internal/pages/` that builds a `View` and calls `Render`.
+
+If the page needs data the startup probe does not supply, the probe **fails** — which is the
+point: it should not be possible to add a page whose data nobody declared.
+
 ## Deploy
 
 **One hosted environment.** No `dev`, no `staging` — Pierre's call, 2026-09-16: no revenue, so no

@@ -20,3 +20,7 @@
 !/tmp/dumps/
 /tmp/dumps/*
 !/tmp/dumps/.gitkeep
+
+# Downloaded build tools (Tailwind standalone). Pinned by version + SHA-256 in the
+# Makefile and re-downloaded on demand, so there is no reason to commit 74 MB.
+.tools/

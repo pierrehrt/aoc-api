@@ -44,3 +44,20 @@ First real routes arrive with **AOC-012** (public item reads).
 
 A 500's body is always that flat string. The detail goes to the log with the request id — a wrapped
 error can carry a table name or a query fragment and must not reach a client.
+
+## HTML surface (AOC-024)
+
+Not versioned: the HTML and its handlers deploy together in one binary, so the cached-client
+problem that `/v1` exists for does not apply. ⚠️ Public **URLs** are still a contract — a
+changed slug on an indexed page throws away its ranking and breaks every link ever pasted
+(`CLAUDE.md` rule 5c).
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/` | Home page, HTML |
+| GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
+| POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
+| GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS/JS, `Cache-Control: public, max-age=31536000, immutable`. A wrong hash is 404 |
+
+**404 shape follows the path:** `/v1/*` and `/assets/*` are JSON; everything else is a small
+HTML page.
