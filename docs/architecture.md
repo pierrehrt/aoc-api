@@ -121,9 +121,14 @@ handler until no two 404s look alike. **`bin/gate api` greps for it** — outsid
 outside tests, any `http.Error(` fails the gate. That grep was added by AOC-002 verify round 1,
 which found the rule claimed in two places and enforced in none.
 
-chi's 404 **and 405** both route through `Fail`, so there is genuinely one path to an error
-response. The 405 used to write its own body, which made that claim untrue and made a 405 the only
-rejection that never appeared in the log.
+chi's 404 and 405 route through `Fail` **for the machine surface** (`/v1/*`, `/health`,
+`/assets/*`), so there is one path to an error response there.
+
+⚠️ **Amended by AOC-024:** on the HTML surface both now write a small page directly, deliberately —
+the renderer cannot be trusted to render the failure that may be the renderer. The log consequence
+the original sentence warned about does **not** return: `Log` records every request from
+`statusWriter` regardless of who wrote the body, verified in round 2. It is the claim that was
+stale, not the behaviour.
 
 ## Middleware, in order
 
@@ -200,13 +205,20 @@ the page works with JavaScript off, and HTMX only removes the reload.
 | Both HTMX branches send `Vary: HX-Request` | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
 | Canonical built from **`PUBLIC_BASE_URL`**, never the request host | The same page declaring two canonicals when reached by two hostnames |
 
-### 404 has two shapes, chosen by PATH
+### Rejections have two shapes, chosen by PATH
 
-`/v1/*` and `/assets/*` return **JSON** — those are contracts a machine parses. Everything
-else returns a small **HTML** page. The path is used rather than `Accept` because a path is
-a fact about which contract was addressed, where `Accept` is a negotiation a bot or proxy
-can get wrong. That 404 page is deliberately **dependency-free** — no template, no asset —
-because it must still work when the renderer is the thing that broke.
+Applies to **404 and 405 alike**. `/v1/*`, `/health` and `/assets/*` return **JSON** — those
+are contracts a machine parses, and `/health` is read by Railway and by uptime monitors,
+never by a person. Everything else returns a small **HTML** page.
+
+The path decides, not `Accept`: a path is a fact about which contract was addressed, where
+`Accept` is a negotiation a bot or a proxy can get wrong. Both pages are deliberately
+**dependency-free** — no template, no asset — because they must work when the renderer is
+the thing that broke.
+
+⚠️ 405 was JSON everywhere until AOC-024 verify round 2, so a browser GET on a fragment
+route handed a person raw JSON. ⚠️ `HEAD` is answered on every route via
+`chi/middleware.GetHead`; without it chi replied 405 to monitors and link checkers.
 
 ### Assets
 

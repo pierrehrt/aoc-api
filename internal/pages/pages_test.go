@@ -2,10 +2,12 @@ package pages_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
@@ -181,6 +183,47 @@ func TestNotFoundShapeFollowsThePath(t *testing.T) {
 			if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, c.wantType) {
 				t.Errorf("Content-Type = %q, want %s", ct, c.wantType)
 			}
+			if c.wantType == "text/html" && !strings.Contains(rr.Body.String(), "<h1>Not found</h1>") {
+				t.Errorf("404 body is not the 'Not found' page:\n%s", rr.Body.String())
+			}
+		})
+	}
+}
+
+// ⭐ HEAD must work. chi's r.Get registers GET only, so every public page answered 405 —
+// on a site whose purpose is being crawled and linked, where monitors, link checkers and
+// `curl -I` all default to HEAD (verify round 2, measured live).
+func TestHEADWorksOnPublicPages(t *testing.T) {
+	// ⚠️ Through a REAL server, not httptest.NewRecorder. Body suppression for HEAD is done
+	// by net/http, not by the handler, so a recorder faithfully records bytes the wire never
+	// carries — and asserting "no body" against a recorder tests the recorder. This is the
+	// same class of mistake as the 500 test this round is fixing, so it is worth the server.
+	srv := httptest.NewServer(router(t))
+	defer srv.Close()
+
+	for _, path := range []string{"/", "/_smoke", "/health"} {
+		t.Run(path, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatalf("HEAD %s: %v", path, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("HEAD %s = %d, want 200 — monitors and link checkers default to HEAD",
+					path, resp.StatusCode)
+			}
+			b, _ := io.ReadAll(resp.Body)
+			if len(b) != 0 {
+				t.Errorf("HEAD %s carried a %d-byte body; HEAD must send none", path, len(b))
+			}
+			if ct := resp.Header.Get("Content-Type"); ct == "" {
+				t.Errorf("HEAD %s sent no Content-Type", path)
+			}
 		})
 	}
 }
@@ -271,6 +314,12 @@ func TestMethodNotAllowedShapeAlsoFollowsThePath(t *testing.T) {
 			if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, c.wantType) {
 				t.Errorf("Content-Type = %q, want %s", ct, c.wantType)
 			}
+			// ⚠️ Assert the BODY, not only the status and type. Without this, deleting the
+			// write entirely — or serving the 404 page for a 405 — leaves the suite green
+			// (verify round 2). The two dependency-free constants were pinned by nothing.
+			if c.wantType == "text/html" && !strings.Contains(rr.Body.String(), "<h1>Not allowed</h1>") {
+				t.Errorf("405 body is not the 'Not allowed' page:\n%s", rr.Body.String())
+			}
 		})
 	}
 }
@@ -299,30 +348,37 @@ func TestAssetPathsStayJSONEvenWithNoAssetHandler(t *testing.T) {
 	}
 }
 
-// A page whose template fails at render time must produce 500, not 200 with a blank body.
-func TestAFailedRenderIsA500(t *testing.T) {
+// ⭐ A page whose render fails must answer 500 THROUGH THE ROUTER.
+//
+// ⚠️ The previous version of this test was named for that and did not test it: it called
+// tpl.Render directly and asserted rr.Code == 200, so making pages.fail write 200 instead
+// of 500 left the whole suite green. It was written to close verify round 1 and repeated
+// round 1's exact failure — a test named for a property it never exercises. Round 2 caught
+// it. Google indexes 200s, so a broken page answering 200 is worse than one answering 500.
+func TestAFailedRenderIsA500ThroughTheRouter(t *testing.T) {
 	set, err := assets.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A page map naming a template that renders against data the handler will not supply
-	// cannot be built here (the startup probe rejects it), so exercise the handler's own
-	// failure path through the engine instead: Render returns an error, and pages.fail
-	// must turn that into 500 with no partial body.
-	tpl, err := templates.New(set)
+	// A "home" template that PASSES the startup probe (probeData has Marker) but fails at
+	// render time, because the real home handler passes nil data.
+	fsys := fstest.MapFS{
+		"html/base.html": &fstest.MapFile{Data: []byte(`{{define "base"}}<html><title>{{.View.Title}}</title>{{template "content" .}}</html>{{end}}`)},
+		"html/echo.html": &fstest.MapFile{Data: []byte(`{{define "echo"}}<p>{{.Echo}}</p>{{end}}`)},
+		"html/home.html": &fstest.MapFile{Data: []byte(`{{define "content"}}{{.Data.Marker}}{{end}}`)},
+	}
+	tpl, err := templates.NewFS(fsys, map[string]string{"home": "html/home.html"}, set)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("fixture engine should start cleanly: %v", err)
 	}
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
-	// An invalid View is the one failure a caller can trigger without a broken template.
-	if err := tpl.Render(rr, req, http.StatusOK, "home", templates.View{}, nil); err == nil {
-		t.Fatal("Render accepted an empty View")
+	h := httpx.NewRouterWithSite("1.2.3", "abc1234", pages.New(tpl, set, base).Routes, set.Handler())
+
+	rr := get(t, h, http.MethodGet, "/", nil, "")
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("a failed render answered %d, want 500 — a broken page returning 200 gets"+
+			" indexed as if it were fine", rr.Code)
 	}
-	if rr.Code != http.StatusOK {
-		t.Errorf("Render committed status %d before failing", rr.Code)
-	}
-	if rr.Body.Len() != 0 {
-		t.Errorf("Render wrote a partial body: %q", rr.Body.String())
+	if strings.Contains(rr.Body.String(), "<html") {
+		t.Error("the 500 body contains HTML — the renderer is what failed, it must not be used")
 	}
 }

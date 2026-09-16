@@ -7,9 +7,13 @@
 
 - **Everything product-facing lives under `/v1/`.** A breaking change ships as `/v2/` beside it and
   the old version is marked deprecated here, never changed in place (CLAUDE.md rule 5c).
-- **Every response is JSON**, success or failure, including 404, 405 and 500. The one exception is
-  outside our reach: `net/http` rejects a malformed request line or illegal header bytes with a
-  `400 text/plain` before any of our code runs.
+- **Every `/v1/*`, `/health` and `/assets/*` response is JSON**, success or failure, including
+  404, 405 and 500 — those are contracts a machine parses.
+  ⚠️ **Since AOC-024 the site surface is not.** A rejection on an HTML path (anything outside
+  those three) returns a small **HTML** page, so a person who mistypes a URL or follows a stale
+  link is not handed `{"error":"not found"}` in their browser. The shape follows the **path**,
+  because a path is a fact about which contract was addressed where `Accept` is a negotiation a
+  proxy can get wrong. See `docs/architecture.md` § *Rejections have two shapes*.
 - **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
 - **Errors share one body shape**: `{"error": "...", "request_id": "..."}`.
 - Every list endpoint will be paginated (none exist yet).
@@ -57,7 +61,16 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | GET | `/` | Home page, HTML |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
-| GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS/JS, `Cache-Control: public, max-age=31536000, immutable`. A wrong hash is 404 |
+| GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable`. A wrong hash is 404 |
 
-**404 shape follows the path:** `/v1/*` and `/assets/*` are JSON; everything else is a small
-HTML page.
+**Rejection shape follows the path**, for **404 and 405 alike**: `/v1/*`, `/health` and
+`/assets/*` are JSON; everything else is a small HTML page. `/health` is included because it is
+read by Railway and by uptime monitors — never by a person in a browser.
+
+**`HEAD` is answered on every route** (`chi/middleware.GetHead`): it routes an unmatched HEAD to
+the GET handler and drops the body. Without it chi replied **405**, which is what monitors, link
+checkers and `curl -I` would have seen on a site built to be crawled.
+
+⚠️ **405 responses carry no `Allow` header.** RFC 9110 §15.5.6 requires one; chi does not hand the
+handler the matched route's method set, and synthesising one risks a header that lies. Accepted
+limit, recorded in `DECISIONS.md` (2026-09-16).
