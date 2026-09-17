@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -312,6 +313,62 @@ func TestNewRejectsAnEmptyURL(t *testing.T) {
 	}
 }
 
+// seedScan is what a static pass over a migrations directory found: how many INSERT
+// statements it examined, and which of them a re-run would duplicate.
+type seedScan struct {
+	checked   int      // INSERT statements examined, across every file
+	offenders []string // "<file>: <statement>", one per INSERT with no ON CONFLICT clause
+}
+
+// checkSeedsAreIdempotent reports every INSERT in a migration's Up section that carries no
+// ON CONFLICT clause.
+//
+// ⚠️ THE TWO STEPS ARE ORDERED, and each order was chosen after the other one broke.
+//
+//  1. The Up/Down split happens on the RAW text, because `-- +goose Down` is itself a `--`
+//     comment. Strip first and the marker is gone, the split silently never fires, and the
+//     Down section is scanned as though it seeded — so a rollback that writes an audit row
+//     would be reported as a defect. Measured, not reasoned about.
+//  2. Comments are stripped from the Up section only AFTER that split, because every
+//     migration here explains its own ON CONFLICT clause in a comment directly above the
+//     INSERT, and that comment lands in the same `;`-delimited chunk as the statement.
+//     Searching raw text matched the PROSE: deleting the real clause left the check green.
+//
+// It takes a directory rather than reading migrationsDir itself so that it can be pointed at
+// synthetic fixtures — see TestTheSeedCheckReadsSQLNotProse for why that is the whole point.
+func checkSeedsAreIdempotent(dir string) (seedScan, error) {
+	var scan seedScan
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return scan, fmt.Errorf("reading %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return scan, fmt.Errorf("reading %s: %w", e.Name(), err)
+		}
+		up := string(b)
+		if i := strings.Index(up, "-- +goose Down"); i >= 0 {
+			up = up[:i] // only the Up section seeds
+		}
+		for _, stmt := range strings.Split(stripSQLComments(up), ";") {
+			u := strings.ToUpper(stmt)
+			if !strings.Contains(u, "INSERT INTO") {
+				continue
+			}
+			scan.checked++
+			if !strings.Contains(u, "ON CONFLICT") {
+				scan.offenders = append(scan.offenders,
+					fmt.Sprintf("%s: %s", e.Name(), strings.TrimSpace(stmt)))
+			}
+		}
+	}
+	return scan, nil
+}
+
 // ⭐ THE CONVENTION, enforced for every migration this project will ever have.
 //
 // EP-02 seeds every taxonomy table — classes, rarities, slots, currencies. A seed that can
@@ -319,41 +376,164 @@ func TestNewRejectsAnEmptyURL(t *testing.T) {
 // later by a reader, not by us. This is a STATIC check so it covers migrations nobody has
 // thought to write a test for.
 func TestEverySeedInsertIsIdempotent(t *testing.T) {
-	entries, err := os.ReadDir(migrationsDir)
+	scan, err := checkSeedsAreIdempotent(migrationsDir)
 	if err != nil {
-		t.Fatalf("reading %s: %v", migrationsDir, err)
+		t.Fatal(err)
 	}
-	checked := 0
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(migrationsDir, e.Name()))
-		if err != nil {
-			t.Fatalf("reading %s: %v", e.Name(), err)
-		}
-		body := stripSQLComments(string(b))
-		up := body
-		if i := strings.Index(body, "-- +goose Down"); i >= 0 {
-			up = body[:i] // only the Up section seeds
-		}
-		for _, stmt := range strings.Split(up, ";") {
-			l := strings.ToUpper(stmt)
-			if !strings.Contains(l, "INSERT INTO") {
-				continue
-			}
-			checked++
-			if !strings.Contains(l, "ON CONFLICT") {
-				t.Errorf("%s has an INSERT with no ON CONFLICT clause — a re-run would"+
-					" duplicate the row:\n%s", e.Name(), strings.TrimSpace(stmt))
-			}
-		}
+	for _, o := range scan.offenders {
+		t.Errorf("an INSERT with no ON CONFLICT clause — a re-run would duplicate the row:\n%s", o)
 	}
 	// A static check that examined nothing is not a passing check.
-	if checked == 0 {
+	if scan.checked == 0 {
 		t.Fatal("no INSERT statements found in migrations/ — this check asserted nothing")
 	}
-	t.Logf("checked %d INSERT statement(s)", checked)
+	t.Logf("checked %d INSERT statement(s)", scan.checked)
+}
+
+// ⭐ THE CHECK ITSELF IS PINNED — against synthetic migrations, not the repo's own.
+//
+// WHY THIS TEST EXISTS, because it is not obvious and it cost a verify round. The check above
+// reads the real migrations/ directory, and every file in there has BOTH a real ON CONFLICT
+// clause AND a comment explaining it. Against that input the check passes whether or not it
+// strips comments first — the two possible readings agree. So when the stripper was disabled
+// the entire suite stayed green: the property the stripper exists for was never pinned, only
+// the stripper's own behaviour was.
+//
+// Prose and SQL have to DISAGREE for the difference to be observable, and the repo contains
+// no such migration on purpose. Hence fixtures.
+func TestTheSeedCheckReadsSQLNotProse(t *testing.T) {
+	cases := []struct {
+		name        string
+		sql         string
+		wantChecked int
+		wantFlagged bool
+	}{
+		{
+			// The exact shape of the real migration, with the clause deleted: the CREATE
+			// TABLE ends the previous chunk, so the explanatory comment and the INSERT share
+			// one. This is the original bug, reproduced as a fixture.
+			name: "clause survives only in a line comment",
+			sql: `-- +goose Up
+CREATE TABLE widget (id int PRIMARY KEY, label text NOT NULL);
+
+-- ON CONFLICT DO NOTHING, not "insert if not exists" — a re-run must leave one row.
+INSERT INTO widget (id, label) VALUES (1, 'alpha');
+-- +goose Down
+DROP TABLE widget;
+`,
+			wantChecked: 1,
+			wantFlagged: true,
+		},
+		{
+			name: "clause survives only in a block comment",
+			sql: `-- +goose Up
+/* ON CONFLICT DO NOTHING keeps this idempotent. */
+INSERT INTO widget (id, label) VALUES (1, 'alpha');
+-- +goose Down
+DROP TABLE widget;
+`,
+			wantChecked: 1,
+			wantFlagged: true,
+		},
+		{
+			name: "a real clause and no comment at all",
+			sql: `-- +goose Up
+INSERT INTO widget (id, label) VALUES (1, 'alpha') ON CONFLICT (id) DO NOTHING;
+-- +goose Down
+DROP TABLE widget;
+`,
+			wantChecked: 1,
+			wantFlagged: false,
+		},
+		{
+			// How every migration in this repo is actually written. Must stay green, or the
+			// fix for the bug above would just have inverted it.
+			name: "a real clause with the comment that explains it",
+			sql: `-- +goose Up
+CREATE TABLE widget (id int PRIMARY KEY, label text NOT NULL);
+
+-- ON CONFLICT DO NOTHING, not "insert if not exists" — a re-run must leave one row.
+INSERT INTO widget (id, label) VALUES (1, 'alpha') ON CONFLICT (id) DO NOTHING;
+-- +goose Down
+DROP TABLE widget;
+`,
+			wantChecked: 1,
+			wantFlagged: false,
+		},
+		{
+			// Pins step 1 of the ordering. A Down section does not seed, so an INSERT there
+			// needs no ON CONFLICT and must not be counted. If the split is performed after
+			// comment-stripping, `-- +goose Down` has been erased and this fixture reports a
+			// phantom offender.
+			name: "an INSERT in the Down section is not a seed",
+			sql: `-- +goose Up
+CREATE TABLE widget (id int PRIMARY KEY, label text NOT NULL);
+-- +goose Down
+INSERT INTO widget_audit (note) VALUES ('rolled back');
+DROP TABLE widget;
+`,
+			wantChecked: 0,
+			wantFlagged: false,
+		},
+		{
+			name: "a migration that seeds nothing is examined and found empty",
+			sql: `-- +goose Up
+CREATE TABLE widget (id int PRIMARY KEY, label text NOT NULL);
+-- +goose Down
+DROP TABLE widget;
+`,
+			wantChecked: 0,
+			wantFlagged: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// One directory per case, so `checked` describes this fixture alone.
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "20260101000000_fixture.sql"), []byte(c.sql), 0o600); err != nil {
+				t.Fatalf("writing fixture: %v", err)
+			}
+			scan, err := checkSeedsAreIdempotent(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scan.checked != c.wantChecked {
+				t.Errorf("examined %d INSERT statement(s), want %d", scan.checked, c.wantChecked)
+			}
+			if flagged := len(scan.offenders) > 0; flagged != c.wantFlagged {
+				t.Errorf("flagged = %v, want %v (offenders: %v)", flagged, c.wantFlagged, scan.offenders)
+			}
+		})
+	}
+}
+
+// Non-.sql files and subdirectories are ignored, so a stray README in migrations/ can neither
+// break the check nor pad its count.
+func TestTheSeedCheckIgnoresNonMigrations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("INSERT INTO widget VALUES (1);"), 0o600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "archive"), 0o750); err != nil {
+		t.Fatalf("making subdirectory: %v", err)
+	}
+	scan, err := checkSeedsAreIdempotent(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.checked != 0 || len(scan.offenders) != 0 {
+		t.Errorf("examined %d and flagged %v, want a directory with no migrations to yield nothing",
+			scan.checked, scan.offenders)
+	}
+}
+
+// A directory that is not there is an error, not a silently empty scan — the shape that lets
+// a renamed folder turn a guard into a no-op.
+func TestTheSeedCheckFailsOnAMissingDirectory(t *testing.T) {
+	if _, err := checkSeedsAreIdempotent(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("scanning a missing directory returned no error")
+	}
 }
 
 // And the migration's OWN seed statement, re-executed, must still leave one row. The
@@ -538,4 +718,63 @@ func orphanNames(ctx context.Context, d *sql.DB) ([]string, error) {
 		names = append(names, n)
 	}
 	return names, rows.Err()
+}
+
+// ⭐ THE CLI AND THE LIBRARY MUST BE THE SAME GOOSE.
+//
+// `make migrate-up` applies migrations with the goose CLI; the tests in this file apply them
+// with the goose LIBRARY. Defect ❌2 of AOC-005 verify round 1 was exactly these two drifting:
+// the CLI on PATH was Homebrew v3.28.0 while go.mod pinned the library at v3.24.1, so the
+// migration that was tested and the migration that was run were applied by different code.
+//
+// The CLI is now pinned in the Makefile (GOOSE_VERSION) rather than taken from PATH, and this
+// test is what stops the two pins drifting apart again — a comment asking people to keep two
+// numbers in sync is not a mechanism.
+func TestTheGooseCLIMatchesTheGooseLibrary(t *testing.T) {
+	makefile := readRepoFile(t, "Makefile")
+	gomod := readRepoFile(t, "go.mod")
+
+	cli := findSubmatch(t, makefile, `(?m)^GOOSE_VERSION\s*:?=\s*(v[0-9][^\s]*)`,
+		"GOOSE_VERSION is not set in the Makefile")
+	lib := findSubmatch(t, gomod, `(?m)^\s*github\.com/pressly/goose/v3\s+(v[0-9][^\s]*)`,
+		"go.mod does not require github.com/pressly/goose/v3")
+
+	if cli != lib {
+		t.Errorf("the goose CLI and the goose library are different versions:\n"+
+			"  Makefile GOOSE_VERSION = %s  (applies migrations for `make migrate-up`)\n"+
+			"  go.mod    library       = %s  (applies migrations in these tests)\n"+
+			"Migrations would be applied by different code in test and in production.", cli, lib)
+	}
+}
+
+// And the tool the GATE runs must be the pinned one too, not a PATH binary.
+func TestTheGateHasAPinnedSQLCToRun(t *testing.T) {
+	makefile := readRepoFile(t, "Makefile")
+	if !regexp.MustCompile(`(?m)^sqlc-cmd:`).MatchString(makefile) {
+		t.Error("no `sqlc-cmd` target: bin/gate api falls back to whatever sqlc is on PATH, " +
+			"and sqlc's generated output is version-specific")
+	}
+	findSubmatch(t, makefile, `(?m)^SQLC_VERSION\s*:?=\s*(v[0-9][^\s]*)`,
+		"SQLC_VERSION is not pinned in the Makefile")
+	if !strings.Contains(makefile, "cmd/sqlc@$(SQLC_VERSION)") {
+		t.Error("the sqlc invocation does not use the pinned SQLC_VERSION")
+	}
+}
+
+func readRepoFile(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("../..", name))
+	if err != nil {
+		t.Fatalf("reading %s: %v", name, err)
+	}
+	return string(b)
+}
+
+func findSubmatch(t *testing.T, haystack, pattern, absent string) string {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(haystack)
+	if m == nil {
+		t.Fatal(absent)
+	}
+	return m[1]
 }
