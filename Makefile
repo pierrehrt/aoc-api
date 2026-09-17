@@ -7,7 +7,7 @@ PKG     := github.com/pierrehrt/aoc-api/internal/version
 LDFLAGS := -X '$(PKG).Version=$(VERSION)' -X '$(PKG).Commit=$(COMMIT)'
 
 .PHONY: run build compile test lint fmt tidy check db-up db-down db-reset db-restore db-psql assets tools
-.PHONY: migrate-up migrate-down migrate-status migrate-redo migrate-create sqlc schema-dump
+.PHONY: migrate-up migrate-down migrate-status migrate-redo migrate-create sqlc sqlc-cmd schema-dump
 
 run:
 	go run -ldflags "$(LDFLAGS)" ./cmd/api
@@ -191,8 +191,33 @@ assets: $(TAILWIND)
 	@echo "assets built:"; ls -l internal/assets/built/ | tail -n +2 | awk '{printf "  %-22s %s bytes\n", $$9, $$5}'
 
 # ---- migrations and generated SQL ------------------------------------------
-# goose for migrations, sqlc for typed queries. Both pinned in tools.go so go.mod records
-# the versions; installed on PATH so `bin/gate api` can see them.
+# goose for migrations, sqlc for typed queries — both pinned to an exact version HERE and run
+# through `go run <pkg>@<version>`, so the version that RUNS is the version written down.
+#
+# ⚠️ Never `goose` / `sqlc` from PATH. The header here used to claim "both pinned in tools.go"
+# and there was no tools.go at all. Measured (AOC-005 verify round 1): PATH goose was Homebrew
+# v3.28.0 against a go.mod library pin of v3.24.1 — two different versions of goose applying
+# the same migrations — and sqlc was in neither go.mod nor go.sum, so the gate's staleness
+# check judged committed code against whatever `brew upgrade` last installed.
+#
+# ⭐ WHY `@version` AND NOT A tools.go. A tools.go was tried first and reverted, because a
+# build tool must not get a vote on the DEPLOYED BINARY's toolchain: sqlc v1.31.1 declares
+# `go 1.26.0`, so importing it pushed this module's own go.mod from `go 1.23` to `go 1.26.0`,
+# which silently made the Dockerfile's `golang:1.23-alpine` stale — against the rule written
+# in the Dockerfile itself. It also dragged pgx, the PRODUCTION driver, from v5.7.2 to v5.9.2
+# and grew go.sum from 66 lines to 476 (ClickHouse, MySQL, …). `go run pkg@version` resolves
+# outside this module: exact version, verified against the checksum database, zero effect on
+# what we ship. It is also the pattern this repo already uses for golangci-lint (@v2.13.2) and
+# Tailwind (version + SHA-256). (DECISIONS.md, 2026-09-17.)
+#
+# ⚠️ GOOSE_VERSION must equal the goose LIBRARY version in go.mod — the CLI applies the
+# migrations and the library applies them in tests, and those drifting apart IS the original
+# defect. Pinned by TestTheGooseCLIMatchesTheGooseLibrary, so it cannot drift unnoticed.
+GOOSE_VERSION := v3.24.1
+SQLC_VERSION  := v1.31.1
+
+GOOSE := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
+SQLC  := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 #
 # ⭐ THE GUARD RAIL. There is ONE hosted environment, so nothing here may quietly default
 # to a database. Every target below requires DATABASE_URL to be set explicitly and ECHOES
@@ -220,30 +245,45 @@ endef
 
 migrate-up:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" up
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" up
 
 migrate-down:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" down
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" down
 
 migrate-status:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" status
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" status
 
 # Round-trips the newest migration: down, then up. A Down nobody has run is a Down that
 # does not work, and it is needed exactly when things are already going wrong.
 migrate-redo:
 	$(require_db)
-	@goose -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" redo
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$$DATABASE_URL" redo
 
 # make migrate-create NAME=add_item_tables
 migrate-create:
 	@if [ -z "$(NAME)" ]; then echo "usage: make migrate-create NAME=snake_case_name"; exit 1; fi
-	@goose -dir $(MIGRATIONS_DIR) create $(NAME) sql
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) create $(NAME) sql
 
 sqlc:
-	@sqlc generate
+	@$(SQLC) generate
 	@echo "sqlc: regenerated internal/db/sqlcgen/ — commit it, the gate checks it is current"
+
+# ⭐ HOW `bin/gate api` FINDS THE PINNED sqlc. This target PRINTS the invocation rather than
+# running it, and the gate runs what it prints.
+#
+# Why the indirection, because it looks like one step too many: the gate needs sqlc's OWN exit
+# code — `sqlc diff` exits 1 for "generated code is stale" and 2+ for "sqlc itself broke", and
+# telling those apart is the whole point (a tool that failed must never be read as a clean
+# diff). `make` collapses both to 2 when a recipe fails, so a `sqlc-diff` target would hand the
+# gate a verdict it cannot interpret. Printing the command keeps the exit code sqlc's own.
+#
+# It exists at all because the tool that DECIDES pass/fail was the last unpinned one: sqlc's
+# generated output is version-specific, so a PATH binary let the gate flip red, or quietly
+# bless different generated code, with no commit in this repo. (AOC-005 verify round 1, ❌2.)
+sqlc-cmd:
+	@echo "$(SQLC)"
 
 # Regenerates the living schema document from the migrated LOCAL database.
 #
@@ -251,14 +291,18 @@ sqlc:
 # That is the state CI and every new clone are in, so it is the state the committed artifact must
 # match. A restored database produces the same file, but fresh is the reference if they diverge.
 #
-# ⚠️ The \restrict / \unrestrict lines are stripped. pg_dump 17 emits them with a RANDOM
+# ⚠️ The \restrict / \unrestrict lines are stripped. pg_dump emits them with a RANDOM
 # token, so an unfiltered dump differs on every run — the file would show a diff after a
 # no-op regeneration, and a doc that changes when nothing changed is a doc people stop
 # reading. Measured by dumping twice and comparing.
 # docs/database-schema.sql describes where the schema IS, so a reviewer never has to
 # replay migrations/ in their head (bin/docs-check api enforces that it moves with them).
+# ⚠️ Deliberately does NOT call $(require_db). This target dumps the LOCAL compose container
+# and ignores DATABASE_URL entirely, so echoing "target: <prod host> ⚠️ NOT LOCAL" named a
+# database it never touches. Safe direction, false message — and the criterion is that it must
+# never be possible to mistake which database was hit. (AOC-005 verify round 1.)
 schema-dump:
-	$(require_db)
+	@echo "▶ target: the local compose database (this target ignores DATABASE_URL)"
 	@{ \
 	  echo "-- aoc_api — the CURRENT database schema, as a living document."; \
 	  echo "--"; \
