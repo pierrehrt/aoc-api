@@ -778,3 +778,35 @@ func findSubmatch(t *testing.T, haystack, pattern, absent string) string {
 	}
 	return m[1]
 }
+
+// ⭐ THE DOCKERFILE AND go.mod MUST NAME THE SAME GO.
+//
+// Lives beside the other two pin tests rather than in a package of its own: the pattern this
+// diff established is "the thing that stops two written-down versions drifting apart is a test,
+// and they all live together". A third location would be a third place to look.
+//
+// WHY IT EXISTS. The Dockerfile pins `golang:1.23-alpine` to match `go 1.23`, and says so in its
+// own header: "Bumping Go means bumping BOTH, in the same commit." That comment failed on the
+// very day it was being relied on — a tools.go added to pin sqlc pulled sqlc's own `go 1.26.0`
+// into this module's go.mod, so the image became a minor version too old to build the module it
+// exists to build, and nothing anywhere went red. A comment asking people to keep two numbers in
+// sync is not a mechanism. (AOC-005 verify round 2.)
+func TestTheDockerfileGoVersionMatchesGoMod(t *testing.T) {
+	gomod := readRepoFile(t, "go.mod")
+	dockerfile := readRepoFile(t, "Dockerfile")
+
+	// Only the major.minor line matters: `golang:1.23-alpine` tracks every 1.23.x patch, so
+	// go.mod saying `go 1.23.4` is agreement, not drift.
+	declared := findSubmatch(t, gomod, `(?m)^go\s+([0-9]+\.[0-9]+)`,
+		"go.mod has no `go` directive")
+	image := findSubmatch(t, dockerfile, `(?m)^FROM\s+golang:([0-9]+\.[0-9]+)`,
+		"the Dockerfile has no `FROM golang:<version>` build stage")
+
+	if declared != image {
+		t.Errorf("the build image and the module declare different Go versions:\n"+
+			"  go.mod     go %s   (what the module requires)\n"+
+			"  Dockerfile golang:%s-alpine   (what Railway actually builds with)\n"+
+			"Bump both in the same commit, or production is built by a toolchain the module "+
+			"does not expect.", declared, image)
+	}
+}
