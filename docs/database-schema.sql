@@ -36,6 +36,257 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: acquisition_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.acquisition_types (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: acquisition_types_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.acquisition_types_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: acquisition_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.acquisition_types_id_seq OWNED BY public.acquisition_types.id;
+
+
+--
+-- Name: archetypes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.archetypes (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: archetypes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.archetypes_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: archetypes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.archetypes_id_seq OWNED BY public.archetypes.id;
+
+
+--
+-- Name: armour_weights; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.armour_weights (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: armour_weights_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.armour_weights_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: armour_weights_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.armour_weights_id_seq OWNED BY public.armour_weights.id;
+
+
+--
+-- Name: bindings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bindings (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: bindings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.bindings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: bindings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.bindings_id_seq OWNED BY public.bindings.id;
+
+
+--
+-- Name: classes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.classes (
+    id integer NOT NULL,
+    archetype_id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    max_armour_weight integer
+);
+
+
+--
+-- Name: classes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.classes_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: classes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.classes_id_seq OWNED BY public.classes.id;
+
+
+--
+-- Name: currencies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.currencies (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: currencies_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.currencies_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: currencies_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.currencies_id_seq OWNED BY public.currencies.id;
+
+
+--
+-- Name: equip_locations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.equip_locations (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: equip_locations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.equip_locations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: equip_locations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.equip_locations_id_seq OWNED BY public.equip_locations.id;
+
+
+--
+-- Name: factions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.factions (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: factions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.factions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: factions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.factions_id_seq OWNED BY public.factions.id;
+
+
+--
 -- Name: goose_db_version; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -62,6 +313,69 @@ ALTER TABLE public.goose_db_version ALTER COLUMN id ADD GENERATED BY DEFAULT AS 
 
 
 --
+-- Name: item_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.item_types (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+--
+-- Name: item_types_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.item_types_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: item_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.item_types_id_seq OWNED BY public.item_types.id;
+
+
+--
+-- Name: rarities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rarities (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: rarities_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.rarities_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: rarities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.rarities_id_seq OWNED BY public.rarities.id;
+
+
+--
 -- Name: schema_probe; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -73,6 +387,307 @@ CREATE TABLE public.schema_probe (
 
 
 --
+-- Name: tiers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tiers (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: tiers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.tiers_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: tiers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tiers_id_seq OWNED BY public.tiers.id;
+
+
+--
+-- Name: acquisition_types id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_types ALTER COLUMN id SET DEFAULT nextval('public.acquisition_types_id_seq'::regclass);
+
+
+--
+-- Name: archetypes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.archetypes ALTER COLUMN id SET DEFAULT nextval('public.archetypes_id_seq'::regclass);
+
+
+--
+-- Name: armour_weights id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.armour_weights ALTER COLUMN id SET DEFAULT nextval('public.armour_weights_id_seq'::regclass);
+
+
+--
+-- Name: bindings id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bindings ALTER COLUMN id SET DEFAULT nextval('public.bindings_id_seq'::regclass);
+
+
+--
+-- Name: classes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes ALTER COLUMN id SET DEFAULT nextval('public.classes_id_seq'::regclass);
+
+
+--
+-- Name: currencies id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.currencies ALTER COLUMN id SET DEFAULT nextval('public.currencies_id_seq'::regclass);
+
+
+--
+-- Name: equip_locations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.equip_locations ALTER COLUMN id SET DEFAULT nextval('public.equip_locations_id_seq'::regclass);
+
+
+--
+-- Name: factions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.factions ALTER COLUMN id SET DEFAULT nextval('public.factions_id_seq'::regclass);
+
+
+--
+-- Name: item_types id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types ALTER COLUMN id SET DEFAULT nextval('public.item_types_id_seq'::regclass);
+
+
+--
+-- Name: rarities id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rarities ALTER COLUMN id SET DEFAULT nextval('public.rarities_id_seq'::regclass);
+
+
+--
+-- Name: tiers id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiers ALTER COLUMN id SET DEFAULT nextval('public.tiers_id_seq'::regclass);
+
+
+--
+-- Name: acquisition_types acquisition_types_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_types
+    ADD CONSTRAINT acquisition_types_name_key UNIQUE (name);
+
+
+--
+-- Name: acquisition_types acquisition_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_types
+    ADD CONSTRAINT acquisition_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: acquisition_types acquisition_types_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_types
+    ADD CONSTRAINT acquisition_types_slug_key UNIQUE (slug);
+
+
+--
+-- Name: archetypes archetypes_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.archetypes
+    ADD CONSTRAINT archetypes_name_key UNIQUE (name);
+
+
+--
+-- Name: archetypes archetypes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.archetypes
+    ADD CONSTRAINT archetypes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: archetypes archetypes_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.archetypes
+    ADD CONSTRAINT archetypes_slug_key UNIQUE (slug);
+
+
+--
+-- Name: armour_weights armour_weights_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.armour_weights
+    ADD CONSTRAINT armour_weights_name_key UNIQUE (name);
+
+
+--
+-- Name: armour_weights armour_weights_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.armour_weights
+    ADD CONSTRAINT armour_weights_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: armour_weights armour_weights_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.armour_weights
+    ADD CONSTRAINT armour_weights_slug_key UNIQUE (slug);
+
+
+--
+-- Name: bindings bindings_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bindings
+    ADD CONSTRAINT bindings_name_key UNIQUE (name);
+
+
+--
+-- Name: bindings bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bindings
+    ADD CONSTRAINT bindings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: bindings bindings_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bindings
+    ADD CONSTRAINT bindings_slug_key UNIQUE (slug);
+
+
+--
+-- Name: classes classes_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes
+    ADD CONSTRAINT classes_name_key UNIQUE (name);
+
+
+--
+-- Name: classes classes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes
+    ADD CONSTRAINT classes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: classes classes_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes
+    ADD CONSTRAINT classes_slug_key UNIQUE (slug);
+
+
+--
+-- Name: currencies currencies_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.currencies
+    ADD CONSTRAINT currencies_name_key UNIQUE (name);
+
+
+--
+-- Name: currencies currencies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.currencies
+    ADD CONSTRAINT currencies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: currencies currencies_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.currencies
+    ADD CONSTRAINT currencies_slug_key UNIQUE (slug);
+
+
+--
+-- Name: equip_locations equip_locations_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.equip_locations
+    ADD CONSTRAINT equip_locations_name_key UNIQUE (name);
+
+
+--
+-- Name: equip_locations equip_locations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.equip_locations
+    ADD CONSTRAINT equip_locations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: equip_locations equip_locations_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.equip_locations
+    ADD CONSTRAINT equip_locations_slug_key UNIQUE (slug);
+
+
+--
+-- Name: factions factions_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.factions
+    ADD CONSTRAINT factions_name_key UNIQUE (name);
+
+
+--
+-- Name: factions factions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.factions
+    ADD CONSTRAINT factions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: factions factions_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.factions
+    ADD CONSTRAINT factions_slug_key UNIQUE (slug);
+
+
+--
 -- Name: goose_db_version goose_db_version_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -81,11 +696,99 @@ ALTER TABLE ONLY public.goose_db_version
 
 
 --
+-- Name: item_types item_types_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types
+    ADD CONSTRAINT item_types_name_key UNIQUE (name);
+
+
+--
+-- Name: item_types item_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types
+    ADD CONSTRAINT item_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: item_types item_types_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types
+    ADD CONSTRAINT item_types_slug_key UNIQUE (slug);
+
+
+--
+-- Name: rarities rarities_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rarities
+    ADD CONSTRAINT rarities_name_key UNIQUE (name);
+
+
+--
+-- Name: rarities rarities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rarities
+    ADD CONSTRAINT rarities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rarities rarities_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rarities
+    ADD CONSTRAINT rarities_slug_key UNIQUE (slug);
+
+
+--
 -- Name: schema_probe schema_probe_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.schema_probe
     ADD CONSTRAINT schema_probe_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tiers tiers_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiers
+    ADD CONSTRAINT tiers_name_key UNIQUE (name);
+
+
+--
+-- Name: tiers tiers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiers
+    ADD CONSTRAINT tiers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tiers tiers_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiers
+    ADD CONSTRAINT tiers_slug_key UNIQUE (slug);
+
+
+--
+-- Name: classes classes_archetype_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes
+    ADD CONSTRAINT classes_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetypes(id);
+
+
+--
+-- Name: classes classes_max_armour_weight_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.classes
+    ADD CONSTRAINT classes_max_armour_weight_fkey FOREIGN KEY (max_armour_weight) REFERENCES public.armour_weights(id);
 
 
 --

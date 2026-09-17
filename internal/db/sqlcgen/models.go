@@ -8,8 +8,79 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AcquisitionType struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Archetype struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type ArmourWeight struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
+type Binding struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Class struct {
+	ID              int32
+	ArchetypeID     int32
+	Slug            string
+	Name            string
+	MaxArmourWeight *int32
+}
+
+type Currency struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type EquipLocation struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Faction struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type ItemType struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Rarity struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
 type SchemaProbe struct {
 	ID        int32
 	Note      string
 	CreatedAt pgtype.Timestamptz
+}
+
+type Tier struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
 }
