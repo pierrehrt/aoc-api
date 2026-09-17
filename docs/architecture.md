@@ -409,6 +409,13 @@ integration tests while reporting success is the failure shape this project keep
 
 ## Deploy
 
+> 💾 **Backups and restores have their own runbook: [`runbook-restore.md`](runbook-restore.md).**
+> Read it before touching the production database. ⚠️ Railway's scheduled backups are **Pro-only**
+> and this project is on **Hobby**, so the dumps that runbook produces are the **only** backups
+> that exist. Production is reached over **SSH** (`ssh -L` to the Postgres container's own
+> loopback) — there is deliberately **no public database endpoint**. (AOC-006)
+
+
 **One hosted environment.** No `dev`, no `staging` — Pierre's call, 2026-09-16: no revenue, so no
 second Postgres to pay for (`product_management/DECISIONS.md`). The safety that a second
 environment used to provide is replaced by the loop below, which costs nothing and tests more.
