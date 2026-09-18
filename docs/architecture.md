@@ -316,17 +316,29 @@ only structured copy of the armory data.
    is two statements with a race between them. EP-02 seeds every taxonomy table this way, and
    a taxonomy row duplicated by a re-run is a filter offering the same option twice.
 
-   Pinned by **three** tests, because two of them turned out to pin less than they appeared to:
+   Pinned by **four** tests, because two of them turned out to pin less than they appeared to:
    - `TestEverySeedInsertIsIdempotent` — a STATIC scan of `migrations/`, so it covers migrations
      nobody has written a test for. It splits Up from Down on the **raw** text (`-- +goose Down`
      is itself a `--` comment, so stripping first erases the marker and the Down section gets
-     scanned as if it seeded), then strips SQL comments before looking for the clause.
-   - `TestTheSeedCheckReadsSQLNotProse` — fixture migrations where the prose and the SQL
-     **disagree**. Needed because every real migration here has both a real `ON CONFLICT` clause
-     and a comment explaining it, so the check passes either way on the repo's own files: when
-     the comment-stripping was disabled, nothing went red.
+     scanned as if it seeded), then reads each statement through `sqlStatements`.
+   - `sqlStatements` splits on the semicolons that are outside **both comments and string
+     literals**, and decides on `code` — the statement with its comments removed and its
+     literals blanked — while keeping `text` verbatim for messages and re-execution. Both
+     cheaper readings have now failed on a real migration: matching raw text matched the
+     *comment* that explains the clause (AOC-005), and splitting on every `;` chopped AOC-009's
+     seeds mid-sentence, because their `source_note` values contain semicolons and apostrophes,
+     reporting 4 of 8 correct statements as offenders.
+   - `TestSQLStatementsSeparatesCodeFromProse` and `TestTheSeedCheckReadsSQLNotProse` — fixture
+     migrations where the prose and the SQL **disagree**. Needed because every real migration
+     here has both a real `ON CONFLICT` clause and a comment explaining it, so the check passes
+     either way on the repo's own files: when the comment-stripping was disabled, nothing went
+     red. The literal cases cover the mirror image — a seed whose *text* says "ON CONFLICT"
+     cannot vouch for itself.
    - `TestTheMigrationsOwnSeedIsIdempotent` — re-executes the migration's own statement, lifted
      verbatim from the file, against a real database and counts the rows.
+   - `TestEverySeedReExecutedChangesNothing` — the same thing for **every** seed in every
+     migration, against an already-seeded database. That is the state a re-applied migration
+     actually meets.
 
    ⚠️ **`TestSeedsAreIdempotent` does NOT pin this**, though its name suggests it: its `down`
    drops the table, so the following `up` can never meet a duplicate.
@@ -334,6 +346,47 @@ only structured copy of the armory data.
    the diff, and the gate fails when it is stale. Same rule as the built assets.
 5. ⚠️ **`make schema-dump` strips pg_dump's `\restrict` lines**, which carry a random token and
    would otherwise make the file differ on every run.
+
+### The content model, and why its seeds are generated
+
+**AOC-009** seeds the taxonomies (`archetypes`, `classes`, `rarities`, `item_types`,
+`equip_locations`, `currencies`, `acquisition_types`, `tiers`, `bindings`, `factions`,
+`armour_weights`) and the place entities (`regions` → `maps` → `places` → `bosses`, plus
+`quests` and `containers`).
+
+```
+scripts/gen_taxonomy_seed.py <snapshot>   the taxonomy migration
+scripts/gen_places_seed.py   <snapshot>   the place-entity migration
+```
+
+**The migrations are GENERATED, not hand-typed**, from `armory_snapshot/` — a separate
+repository holding our own OCR capture of AoC>TV (`items_clean.json`) and Pierre's geography
+(`reference_geography.json`). Re-run a generator against a newer snapshot and diff: an empty
+diff means the data has not moved. Nobody has to trust a number written in a ticket six weeks
+ago, and no fact is typed by a human or a model on the way in.
+
+Both generators **fail rather than guess**. A class with no archetype, a place name the
+geography does not know, a parenthetical that is neither a known complex nor `Unchained` — each
+one exits non-zero and says what to ask Pierre. That is the schema-level expression of
+`CLAUDE.md` STEP ZERO: an empty field is a feature, a confident guess is a bug.
+
+Three structural facts the rest of the app inherits:
+
+1. **Every "kind of thing" is a row, never a Postgres `ENUM` or a Go constant** — so adding a
+   class or a currency later is an `INSERT`, not a migration plus a deploy.
+2. **Places are a hierarchy, not three flat levels.** `places.parent_place_id` is
+   self-referencing (House of Crom contains two dungeons; Warmonk Monastery three) and
+   `places.map_id` is **nullable** (Skull Gate Pass and Kuthchemes hang straight off a region).
+   `region_id` is `NOT NULL` on every place and is deliberately redundant with the map's region
+   so that "everything in Stygia" is one join; `TestEveryPlacesRegionMatchesItsMap` is what makes
+   that redundancy safe. An Unchained dungeon is **its own row**, not a flag on its twin — the
+   two share no loot at all.
+3. **Every content row carries its provenance**: `confidence_id` →`confidence_levels`
+   (`verified` / `corroborated` / `unconfirmed` / `disputed`, the vocabulary in
+   `product_management/reference/sourcing-standards.md` § 3), `source_note` naming which source
+   it came from, and `open_question` holding what is still unknown. Conflicts between the two
+   sources are seeded `disputed` with both versions in the question rather than silently
+   resolved; `ListOpenQuestions` returns all of them in one read.
 
 ### The pool
 

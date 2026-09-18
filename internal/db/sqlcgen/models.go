@@ -8,8 +8,154 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AcquisitionType struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Archetype struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type ArmourWeight struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
+type Binding struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Boss struct {
+	ID           int32
+	PlaceID      *int32
+	MapID        *int32
+	RegionID     *int32
+	Slug         string
+	Name         string
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
+}
+
+type Class struct {
+	ID              int32
+	ArchetypeID     int32
+	Slug            string
+	Name            string
+	MaxArmourWeight *int32
+}
+
+type ConfidenceLevel struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
+type Container struct {
+	ID           int32
+	Slug         string
+	Name         string
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
+}
+
+type Currency struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type EquipLocation struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Faction struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type ItemType struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+type Map struct {
+	ID           int32
+	RegionID     *int32
+	Slug         string
+	Name         string
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
+}
+
+type Place struct {
+	ID             int32
+	RegionID       int32
+	MapID          *int32
+	ParentPlaceID  *int32
+	Slug           string
+	Name           string
+	Unchained      bool
+	ArmoryInstance *string
+	ArmoryDungeon  *string
+	ConfidenceID   int32
+	SourceNote     string
+	OpenQuestion   *string
+}
+
+type Quest struct {
+	ID           int32
+	RegionID     *int32
+	MapID        *int32
+	Slug         string
+	ArmoryLabel  string
+	Name         *string
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
+}
+
+type Rarity struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
+type Region struct {
+	ID           int32
+	Slug         string
+	Name         string
+	SortOrder    int32
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
+}
+
 type SchemaProbe struct {
 	ID        int32
 	Note      string
 	CreatedAt pgtype.Timestamptz
+}
+
+type Tier struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
 }
