@@ -6,8 +6,13 @@ Read this at 2 a.m. with no context. It assumes nothing except a Mac with Homebr
 
 > ⚠️ **THIS DATABASE HAS NO OTHER BACKUP.** Railway's scheduled backups are a **Pro-plan**
 > feature and this project is on Hobby. The dumps this runbook produces are the **only** copies
-> that exist. It will also hold the only structured copy of the AoC>TV dataset that will ever
-> exist (the source host lapses ~February 2027).
+> that exist, and they are made **by hand, by a person who remembered**. It will also hold the
+> only structured copy of the AoC>TV dataset that will ever exist (the source host lapses
+> ~February 2027).
+>
+> 🎯 **AOC-030 is the ticket that fixes this** — a scheduled `pg_dump` inside the Railway project
+> writing to R2, plus an alarm that fires when it stops. Until it ships, everything below is the
+> whole backup story. **It must be working before AOC-011 imports the armory.**
 
 ---
 
@@ -99,7 +104,7 @@ pg_restore -l ~/AoC-backups/aoc-prod-$TS.dump | head
 ```
 
 ⭐ **Copy it somewhere that is not this laptop.** Right now `~/AoC-backups` on Pierre's machine is
-the only off-Railway copy. Two copies in one place is one copy.
+the only off-Railway copy. Two copies in one place is one copy. (**AOC-030** makes this automatic.)
 
 ## 4. Restore into the local database
 
@@ -165,4 +170,11 @@ corrupt newest backup (there is currently no older one to fall back to).
 
 ## Re-rehearse every 6 months
 
-Next due: **2026-03-17**. There is no automated reminder yet.
+Next due: **2027-03-17** — six months after the 2026-09-17 rehearsal. (This said *2026-03-17* until
+2026-09-18: a date six months in the **past**, which a reader would either trip over or, worse,
+treat as already handled.)
+
+⚠️ **Nothing fires on that date.** A reminder that depends on someone remembering to look at a
+runbook is not a reminder. **AOC-030** replaces it with a scheduled job that opens an issue by
+itself — and, before that date arrives, **AOC-011** forces the earlier re-run this page already
+asks for, because that is when production stops being empty.
