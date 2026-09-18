@@ -540,6 +540,59 @@ the old code cannot tolerate ships in two deploys, not one.
 `railway logs` from the CLI, or the service's Observability tab. Output is JSON on stdout
 (`log/slog`), one object per line, carrying the request id echoed in `X-Request-Id`.
 
+## Object storage
+
+**Cloudflare R2, one bucket: `aoc-codex`.** It holds the things that must not live in Postgres and
+must not live on one SSD — the 4,645 armory tooltip images (AOC-008), and later the scheduled
+`pg_dump` backups (AOC-030). R2 was chosen over S3 and B2 for one reason: **egress is free at any
+volume**, so a link on Reddit cannot turn into an invoice on a project with no revenue
+(`product_management/DECISIONS.md`, 2026-09-13).
+
+| | |
+|---|---|
+| Bucket | `aoc-codex`, **private** — nothing is world-readable through `r2.dev` |
+| S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
+| Location hint | **`enam`** (Eastern North America) — ⚠️ **decided, not yet read back off the dashboard** (AOC-007) |
+| Jurisdiction | **none**, deliberately — see below |
+| Public URL | `img.aoc-codex.app`, a custom domain bound to the bucket (AOC-014). Not `r2.dev` |
+| Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
+| Free tier | 10 GB-month. The planned payload is ~175 MB — **1.7%** |
+
+⚠️ **Two fields on the create-bucket form are permanent and only one of them is the one you want.**
+**Location hint** (`wnam eeur enam weur apac oc`) is a placement preference. **Jurisdiction**
+(`eu`, `us`, `fedramp`) is a data-residency guarantee, and it changes the S3 endpoint to
+`https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`, forces every API token to be scoped
+to that jurisdiction, and stops Logpush interacting with the bucket at all. Neither can be edited
+afterwards — changing either means deleting the bucket and making a new one. **This bucket has a
+location hint and no jurisdiction**; two earlier buckets were created and destroyed getting that
+right, while they were still empty, which is the only moment it is free (AOC-007).
+
+### Credentials
+
+⛔ **Never in this repo, never in an env var committed anywhere.** Two files on Pierre's machine,
+both `chmod 600`:
+
+| File | Holds |
+|---|---|
+| `~/.config/aoc-codex/r2.env` | account id, bucket, endpoint, and the R2 API token key pairs |
+| `~/.config/rclone/rclone.conf` | the `[r2]` remote (`type = s3`, `provider = Cloudflare`) |
+
+The **Access Key ID** (32 hex) and **Secret Access Key** (64 hex) come from *R2 → Manage R2 API
+Tokens → Create API token*, and the secret is displayed **once**. The S3 endpoint URL shown on that
+same page is **not** a credential and is not interchangeable with one.
+
+### Verified round trip (AOC-007, 2026-09-18)
+
+Six files (five text, one 200 KB of random bytes) against the real bucket:
+
+```
+rclone copy  <dir> r2:aoc-codex/_aoc-007-roundtrip     # 6 files up
+rclone check <dir> r2:aoc-codex/_aoc-007-roundtrip     # 0 differences, 6 matching files
+rclone sync  <dir> r2:aoc-codex/_aoc-007-roundtrip     # re-run: Transferred 0 B, 6/6 checks
+rclone copy  r2:aoc-codex/_aoc-007-roundtrip <dir>-back && diff -r   # byte-identical
+rclone purge r2:aoc-codex/_aoc-007-roundtrip           # bucket back to 0 objects
+```
+
 ## Not here yet, and which ticket brings it
 
 | Thing | Ticket |
@@ -551,3 +604,5 @@ the old code cannot tolerate ships in two deploys, not one.
 | item schema — ⚠️ needs `vendor` and `spell_effect` as their own columns, and a label on what `coords` means (AOC-016/017) | AOC-010 |
 | the importer | AOC-011 |
 | public read endpoints for items | AOC-012 |
+| the 4,645 tooltip images in the bucket | AOC-008 |
+| scheduled `pg_dump` to R2 + dead man's switch | AOC-030 |
