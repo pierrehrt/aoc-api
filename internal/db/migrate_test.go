@@ -329,10 +329,12 @@ type seedScan struct {
 //     comment. Strip first and the marker is gone, the split silently never fires, and the
 //     Down section is scanned as though it seeded — so a rollback that writes an audit row
 //     would be reported as a defect. Measured, not reasoned about.
-//  2. Comments are stripped from the Up section only AFTER that split, because every
-//     migration here explains its own ON CONFLICT clause in a comment directly above the
-//     INSERT, and that comment lands in the same `;`-delimited chunk as the statement.
-//     Searching raw text matched the PROSE: deleting the real clause left the check green.
+//  2. The Up section is then walked by sqlStatements, which splits on semicolons and reads
+//     the clause from CODE ONLY — comments removed and string literals blanked. Searching raw
+//     text matched the PROSE: deleting the real clause left the check green (AOC-005). Splitting
+//     raw text on `;` broke the other way once the seeds carried sentences: AOC-009's
+//     source_note values contain semicolons and apostrophes, so every place row was reported
+//     as an offender although the clause was right there (AOC-009, 2026-09-18).
 //
 // It takes a directory rather than reading migrationsDir itself so that it can be pointed at
 // synthetic fixtures — see TestTheSeedCheckReadsSQLNotProse for why that is the whole point.
@@ -354,15 +356,15 @@ func checkSeedsAreIdempotent(dir string) (seedScan, error) {
 		if i := strings.Index(up, "-- +goose Down"); i >= 0 {
 			up = up[:i] // only the Up section seeds
 		}
-		for _, stmt := range strings.Split(stripSQLComments(up), ";") {
-			u := strings.ToUpper(stmt)
+		for _, stmt := range sqlStatements(up) {
+			u := strings.ToUpper(stmt.code)
 			if !strings.Contains(u, "INSERT INTO") {
 				continue
 			}
 			scan.checked++
 			if !strings.Contains(u, "ON CONFLICT") {
 				scan.offenders = append(scan.offenders,
-					fmt.Sprintf("%s: %s", e.Name(), strings.TrimSpace(stmt)))
+					fmt.Sprintf("%s: %s", e.Name(), strings.TrimSpace(stmt.text)))
 			}
 		}
 	}
@@ -593,65 +595,190 @@ func countProbes(t *testing.T, d *sql.DB) int {
 	return n
 }
 
-// stripSQLComments removes `-- …` line comments and /* … */ blocks.
+// sqlStatement is one statement out of a migration, twice over: `text` verbatim — what would
+// actually run, comments and all — and `code`, the same statement with comments removed and every
+// string literal blanked. Every DECISION is made on `code`; `text` is only ever shown or executed.
+type sqlStatement struct {
+	text string
+	code string
+}
+
+// sqlStatements splits SQL on the semicolons that end a statement, which means the ones that are
+// outside both comments and string literals.
 //
-// ⭐ WHY. The static check below used to search the raw file, and every migration in this
-// project explains its own ON CONFLICT clause in a comment directly above the INSERT. That
-// comment lands in the same `;`-delimited chunk as the statement, so deleting the REAL
-// clause left the check green — it was matching prose. Proved by deleting the clause: the
-// check still passed, still logging "checked 1 INSERT statement(s)".
+// ⭐ WHY IT WALKS THE TEXT INSTEAD OF CALLING strings.Split, because both cheaper readings have
+// now been tried and both were wrong in a way that took a real migration to expose:
 //
-// It matters beyond this one file: the convention document tells the next author to copy
-// this migration, comment and all, and EP-02 seeds a dozen taxonomy tables.
-// (AOC-005 verify round 1.)
-func stripSQLComments(s string) string {
-	var out strings.Builder
-	out.Grow(len(s))
+//   - Searching RAW text for "ON CONFLICT" matched the COMMENT that explains the clause, so
+//     deleting the real clause left the check green (AOC-005 verify round 1).
+//   - Splitting on every `;` and stripping comments with no idea what a string literal is broke
+//     the moment a seed carried prose: AOC-009's source_note values contain both semicolons
+//     ("…2026-09-13); corroborated by 35 armory source rows") and apostrophes, so the statements
+//     were chopped mid-sentence and 4 of 8 reported as offenders with the clause plainly present.
+//     A guard that cries wolf on correct SQL gets switched off, which is the same outcome as one
+//     that never fires.
+//
+// Blanking literals rather than deleting them also closes the mirror image of the AOC-005 bug: a
+// seed whose TEXT contains the words "ON CONFLICT" can no longer vouch for itself.
+func sqlStatements(s string) []sqlStatement {
+	var out []sqlStatement
+	var text, code strings.Builder
+	flush := func() {
+		if strings.TrimSpace(code.String()) != "" {
+			out = append(out, sqlStatement{text: text.String(), code: code.String()})
+		}
+		text.Reset()
+		code.Reset()
+	}
 	for i := 0; i < len(s); {
 		switch {
+		case s[i] == '\'':
+			// A string literal, '' being an escaped quote inside one. Copied verbatim into the
+			// statement and blanked in the code, so neither a `;` nor a `--` inside it is read
+			// as SQL.
+			j := i + 1
+			for j < len(s) {
+				if s[j] != '\'' {
+					j++
+					continue
+				}
+				if j+1 < len(s) && s[j+1] == '\'' {
+					j += 2
+					continue
+				}
+				j++
+				break
+			}
+			text.WriteString(s[i:j])
+			code.WriteString("''")
+			i = j
 		case strings.HasPrefix(s[i:], "--"):
 			j := strings.IndexByte(s[i:], '\n')
 			if j < 0 {
-				return out.String()
+				text.WriteString(s[i:])
+				i = len(s)
+				continue
 			}
-			out.WriteByte('\n') // keep line structure so `;` splitting is unchanged
+			text.WriteString(s[i : i+j+1])
+			code.WriteByte('\n') // keep line structure, drop the prose
 			i += j + 1
 		case strings.HasPrefix(s[i:], "/*"):
 			j := strings.Index(s[i+2:], "*/")
 			if j < 0 {
-				return out.String()
+				text.WriteString(s[i:])
+				i = len(s)
+				continue
 			}
+			text.WriteString(s[i : i+2+j+2])
 			i += 2 + j + 2
+		case s[i] == ';':
+			text.WriteByte(';')
+			code.WriteByte(';')
+			flush()
+			i++
 		default:
-			out.WriteByte(s[i])
+			text.WriteByte(s[i])
+			code.WriteByte(s[i])
 			i++
 		}
 	}
-	return out.String()
+	flush()
+	return out
 }
 
-// The stripper is itself load-bearing, so it is pinned: if it stopped removing comments the
-// static check would go back to matching prose, silently.
-func TestStripSQLCommentsRemovesProse(t *testing.T) {
-	cases := []struct{ name, in, wantGone, wantKept string }{
-		{"line comment", "-- ON CONFLICT DO NOTHING\nINSERT INTO t VALUES (1);", "ON CONFLICT", "INSERT INTO t"},
-		{"trailing comment", "INSERT INTO t VALUES (1); -- ON CONFLICT\n", "ON CONFLICT", "INSERT INTO t"},
-		{"block comment", "/* ON CONFLICT */ INSERT INTO t VALUES (1);", "ON CONFLICT", "INSERT INTO t"},
+// The splitter is load-bearing — it is what the static check reads — so it is pinned in both
+// directions. Replaces TestStripSQLCommentsRemovesProse, whose three cases are the first three
+// here; the rest are the string-literal cases that test could not express.
+func TestSQLStatementsSeparatesCodeFromProse(t *testing.T) {
+	cases := []struct {
+		name           string
+		in             string
+		wantStatements int
+		codeHas        []string
+		codeLacks      []string
+	}{
+		{"line comment", "-- ON CONFLICT DO NOTHING\nINSERT INTO t VALUES (1);", 1,
+			[]string{"INSERT INTO t"}, []string{"ON CONFLICT"}},
+		{"trailing comment", "INSERT INTO t VALUES (1); -- ON CONFLICT\n", 1,
+			[]string{"INSERT INTO t"}, []string{"ON CONFLICT"}},
+		{"block comment", "/* ON CONFLICT */ INSERT INTO t VALUES (1);", 1,
+			[]string{"INSERT INTO t"}, []string{"ON CONFLICT"}},
+		{"a real clause survives", "INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING;", 1,
+			[]string{"ON CONFLICT"}, nil},
+		{"a semicolon inside a literal does not end the statement",
+			"INSERT INTO t VALUES ('a; b') ON CONFLICT DO NOTHING;", 1,
+			[]string{"INSERT INTO t", "ON CONFLICT"}, []string{"a; b"}},
+		{"an escaped quote does not end the literal",
+			"INSERT INTO t VALUES ('Pierre''s note; and more') ON CONFLICT DO NOTHING;", 1,
+			[]string{"ON CONFLICT"}, []string{"and more"}},
+		{"a comment marker inside a literal is not a comment",
+			"INSERT INTO t VALUES ('a -- b') ON CONFLICT DO NOTHING;", 1,
+			[]string{"ON CONFLICT"}, []string{"a -- b"}},
+		{"the words ON CONFLICT inside a literal do not count",
+			"INSERT INTO t VALUES ('ON CONFLICT DO NOTHING');", 1,
+			[]string{"INSERT INTO t"}, []string{"ON CONFLICT"}},
+		{"two statements", "INSERT INTO t VALUES (1); INSERT INTO u VALUES (2);", 2,
+			[]string{"INSERT INTO"}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := stripSQLComments(c.in)
-			if strings.Contains(got, c.wantGone) {
-				t.Errorf("comment text survived: %q", got)
+			got := sqlStatements(c.in)
+			if len(got) != c.wantStatements {
+				t.Fatalf("split into %d statement(s), want %d: %+v", len(got), c.wantStatements, got)
 			}
-			if !strings.Contains(got, c.wantKept) {
-				t.Errorf("statement text was removed: %q", got)
+			all := ""
+			for _, s := range got {
+				all += s.code
+			}
+			for _, want := range c.codeHas {
+				if !strings.Contains(all, want) {
+					t.Errorf("code lost %q: %q", want, all)
+				}
+			}
+			for _, unwanted := range c.codeLacks {
+				if strings.Contains(all, unwanted) {
+					t.Errorf("code kept %q, which is prose or a literal: %q", unwanted, all)
+				}
+			}
+			// `text` is what would run, so each statement must be a verbatim slice of the
+			// input — not reassembled, not re-quoted. (A trailing comment after the last `;`
+			// is not a statement and is deliberately dropped, so this checks containment
+			// rather than a full round trip.)
+			for _, st := range got {
+				if !strings.Contains(c.in, st.text) {
+					t.Errorf("statement text is not verbatim from the input: %q", st.text)
+				}
 			}
 		})
 	}
-	// And a real clause must survive.
-	if !strings.Contains(stripSQLComments("INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING;"), "ON CONFLICT") {
-		t.Error("the stripper removed a real ON CONFLICT clause")
+}
+
+// ⭐ AND THE SAME SHAPE AS AOC-005's FIXTURE TEST, for the literal-aware half: a seed whose SQL
+// and whose PROSE disagree. Without these the fix above could have been "stop looking", and
+// nothing would have noticed.
+func TestTheSeedCheckStillFlagsASeedThatOnlyTALKSAboutTheClause(t *testing.T) {
+	dir := t.TempDir()
+	sql := `-- +goose Up
+CREATE TABLE widget (id int PRIMARY KEY, label text NOT NULL);
+
+INSERT INTO widget (id, label) VALUES (1, 'a; label mentioning ON CONFLICT DO NOTHING');
+-- +goose Down
+DROP TABLE widget;
+`
+	if err := os.WriteFile(filepath.Join(dir, "20260101000000_fixture.sql"), []byte(sql), 0o600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	scan, err := checkSeedsAreIdempotent(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.checked != 1 {
+		t.Errorf("examined %d statement(s), want 1 — a semicolon inside a literal must not split it",
+			scan.checked)
+	}
+	if len(scan.offenders) != 1 {
+		t.Errorf("flagged %v, want the one INSERT: its clause exists only inside a string",
+			scan.offenders)
 	}
 }
 

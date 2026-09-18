@@ -161,6 +161,43 @@ ALTER SEQUENCE public.bindings_id_seq OWNED BY public.bindings.id;
 
 
 --
+-- Name: bosses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bosses (
+    id integer NOT NULL,
+    place_id integer,
+    map_id integer,
+    region_id integer,
+    slug character varying(96) NOT NULL,
+    name character varying(96) NOT NULL,
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: bosses_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.bosses_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: bosses_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.bosses_id_seq OWNED BY public.bosses.id;
+
+
+--
 -- Name: classes; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -191,6 +228,72 @@ CREATE SEQUENCE public.classes_id_seq
 --
 
 ALTER SEQUENCE public.classes_id_seq OWNED BY public.classes.id;
+
+
+--
+-- Name: confidence_levels; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.confidence_levels (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: confidence_levels_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.confidence_levels_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: confidence_levels_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.confidence_levels_id_seq OWNED BY public.confidence_levels.id;
+
+
+--
+-- Name: containers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.containers (
+    id integer NOT NULL,
+    slug character varying(96) NOT NULL,
+    name character varying(96) NOT NULL,
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: containers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.containers_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: containers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.containers_id_seq OWNED BY public.containers.id;
 
 
 --
@@ -344,6 +447,118 @@ ALTER SEQUENCE public.item_types_id_seq OWNED BY public.item_types.id;
 
 
 --
+-- Name: maps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.maps (
+    id integer NOT NULL,
+    region_id integer,
+    slug character varying(64) NOT NULL,
+    name character varying(96) NOT NULL,
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: maps_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.maps_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: maps_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.maps_id_seq OWNED BY public.maps.id;
+
+
+--
+-- Name: places; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.places (
+    id integer NOT NULL,
+    region_id integer NOT NULL,
+    map_id integer,
+    parent_place_id integer,
+    slug character varying(96) NOT NULL,
+    name character varying(96) NOT NULL,
+    unchained boolean DEFAULT false NOT NULL,
+    armory_instance character varying(96),
+    armory_dungeon character varying(96),
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: places_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.places_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: places_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.places_id_seq OWNED BY public.places.id;
+
+
+--
+-- Name: quests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quests (
+    id integer NOT NULL,
+    region_id integer,
+    map_id integer,
+    slug character varying(96) NOT NULL,
+    armory_label character varying(96) NOT NULL,
+    name character varying(96),
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: quests_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.quests_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: quests_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.quests_id_seq OWNED BY public.quests.id;
+
+
+--
 -- Name: rarities; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -373,6 +588,41 @@ CREATE SEQUENCE public.rarities_id_seq
 --
 
 ALTER SEQUENCE public.rarities_id_seq OWNED BY public.rarities.id;
+
+
+--
+-- Name: regions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.regions (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    sort_order integer NOT NULL,
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: regions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.regions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: regions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.regions_id_seq OWNED BY public.regions.id;
 
 
 --
@@ -447,10 +697,31 @@ ALTER TABLE ONLY public.bindings ALTER COLUMN id SET DEFAULT nextval('public.bin
 
 
 --
+-- Name: bosses id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses ALTER COLUMN id SET DEFAULT nextval('public.bosses_id_seq'::regclass);
+
+
+--
 -- Name: classes id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.classes ALTER COLUMN id SET DEFAULT nextval('public.classes_id_seq'::regclass);
+
+
+--
+-- Name: confidence_levels id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.confidence_levels ALTER COLUMN id SET DEFAULT nextval('public.confidence_levels_id_seq'::regclass);
+
+
+--
+-- Name: containers id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.containers ALTER COLUMN id SET DEFAULT nextval('public.containers_id_seq'::regclass);
 
 
 --
@@ -482,10 +753,38 @@ ALTER TABLE ONLY public.item_types ALTER COLUMN id SET DEFAULT nextval('public.i
 
 
 --
+-- Name: maps id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps ALTER COLUMN id SET DEFAULT nextval('public.maps_id_seq'::regclass);
+
+
+--
+-- Name: places id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places ALTER COLUMN id SET DEFAULT nextval('public.places_id_seq'::regclass);
+
+
+--
+-- Name: quests id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests ALTER COLUMN id SET DEFAULT nextval('public.quests_id_seq'::regclass);
+
+
+--
 -- Name: rarities id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.rarities ALTER COLUMN id SET DEFAULT nextval('public.rarities_id_seq'::regclass);
+
+
+--
+-- Name: regions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regions ALTER COLUMN id SET DEFAULT nextval('public.regions_id_seq'::regclass);
 
 
 --
@@ -592,6 +891,30 @@ ALTER TABLE ONLY public.bindings
 
 
 --
+-- Name: bosses bosses_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_name_key UNIQUE (name);
+
+
+--
+-- Name: bosses bosses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: bosses bosses_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_slug_key UNIQUE (slug);
+
+
+--
 -- Name: classes classes_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -613,6 +936,54 @@ ALTER TABLE ONLY public.classes
 
 ALTER TABLE ONLY public.classes
     ADD CONSTRAINT classes_slug_key UNIQUE (slug);
+
+
+--
+-- Name: confidence_levels confidence_levels_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.confidence_levels
+    ADD CONSTRAINT confidence_levels_name_key UNIQUE (name);
+
+
+--
+-- Name: confidence_levels confidence_levels_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.confidence_levels
+    ADD CONSTRAINT confidence_levels_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: confidence_levels confidence_levels_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.confidence_levels
+    ADD CONSTRAINT confidence_levels_slug_key UNIQUE (slug);
+
+
+--
+-- Name: containers containers_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.containers
+    ADD CONSTRAINT containers_name_key UNIQUE (name);
+
+
+--
+-- Name: containers containers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.containers
+    ADD CONSTRAINT containers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: containers containers_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.containers
+    ADD CONSTRAINT containers_slug_key UNIQUE (slug);
 
 
 --
@@ -720,6 +1091,78 @@ ALTER TABLE ONLY public.item_types
 
 
 --
+-- Name: maps maps_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps
+    ADD CONSTRAINT maps_name_key UNIQUE (name);
+
+
+--
+-- Name: maps maps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps
+    ADD CONSTRAINT maps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: maps maps_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps
+    ADD CONSTRAINT maps_slug_key UNIQUE (slug);
+
+
+--
+-- Name: places places_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_name_key UNIQUE (name);
+
+
+--
+-- Name: places places_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: places places_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_slug_key UNIQUE (slug);
+
+
+--
+-- Name: quests quests_armory_label_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_armory_label_key UNIQUE (armory_label);
+
+
+--
+-- Name: quests quests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quests quests_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_slug_key UNIQUE (slug);
+
+
+--
 -- Name: rarities rarities_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -741,6 +1184,30 @@ ALTER TABLE ONLY public.rarities
 
 ALTER TABLE ONLY public.rarities
     ADD CONSTRAINT rarities_slug_key UNIQUE (slug);
+
+
+--
+-- Name: regions regions_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regions
+    ADD CONSTRAINT regions_name_key UNIQUE (name);
+
+
+--
+-- Name: regions regions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regions
+    ADD CONSTRAINT regions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: regions regions_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regions
+    ADD CONSTRAINT regions_slug_key UNIQUE (slug);
 
 
 --
@@ -776,6 +1243,73 @@ ALTER TABLE ONLY public.tiers
 
 
 --
+-- Name: bosses_place_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bosses_place_id_idx ON public.bosses USING btree (place_id);
+
+
+--
+-- Name: places_armory_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX places_armory_key ON public.places USING btree (armory_instance, armory_dungeon) NULLS NOT DISTINCT WHERE ((armory_instance IS NOT NULL) OR (armory_dungeon IS NOT NULL));
+
+
+--
+-- Name: places_map_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX places_map_id_idx ON public.places USING btree (map_id);
+
+
+--
+-- Name: places_parent_place_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX places_parent_place_id_idx ON public.places USING btree (parent_place_id);
+
+
+--
+-- Name: places_region_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX places_region_id_idx ON public.places USING btree (region_id);
+
+
+--
+-- Name: bosses bosses_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: bosses bosses_map_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_map_id_fkey FOREIGN KEY (map_id) REFERENCES public.maps(id);
+
+
+--
+-- Name: bosses bosses_place_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_place_id_fkey FOREIGN KEY (place_id) REFERENCES public.places(id);
+
+
+--
+-- Name: bosses bosses_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bosses
+    ADD CONSTRAINT bosses_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
 -- Name: classes classes_archetype_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -789,6 +1323,94 @@ ALTER TABLE ONLY public.classes
 
 ALTER TABLE ONLY public.classes
     ADD CONSTRAINT classes_max_armour_weight_fkey FOREIGN KEY (max_armour_weight) REFERENCES public.armour_weights(id);
+
+
+--
+-- Name: containers containers_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.containers
+    ADD CONSTRAINT containers_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: maps maps_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps
+    ADD CONSTRAINT maps_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: maps maps_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.maps
+    ADD CONSTRAINT maps_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
+-- Name: places places_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: places places_map_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_map_id_fkey FOREIGN KEY (map_id) REFERENCES public.maps(id);
+
+
+--
+-- Name: places places_parent_place_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_parent_place_id_fkey FOREIGN KEY (parent_place_id) REFERENCES public.places(id);
+
+
+--
+-- Name: places places_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.places
+    ADD CONSTRAINT places_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
+-- Name: quests quests_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: quests quests_map_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_map_id_fkey FOREIGN KEY (map_id) REFERENCES public.maps(id);
+
+
+--
+-- Name: quests quests_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quests
+    ADD CONSTRAINT quests_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
+-- Name: regions regions_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regions
+    ADD CONSTRAINT regions_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
 
 
 --
