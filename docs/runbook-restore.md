@@ -21,6 +21,7 @@ Read this at 2 a.m. with no context. It assumes nothing except a Mac with Homebr
 ```bash
 brew install libpq          # Postgres client 18.6 — MUST be >= the server
 brew install colima docker docker-compose   # only needed for a restore
+colima start                # ⚠️ installing it does not START it, and `make db-up` dies without it
 ```
 
 ⚠️ **`libpq` is keg-only: its binaries are NOT on `PATH`.** Every command below starts by fixing
@@ -50,10 +51,22 @@ ssh -i ~/.ssh/railway_aoc_ed25519 -f -N -L 15432:127.0.0.1:5432 \
     5a0e6a81-37de-4f92-9cc6-3c7b45cf7005@ssh.railway.com
 ```
 
-⚠️ **That username is the Postgres service's INSTANCE ID, and nothing else works.**
-Measured, all refused: the service ID, the deployment ID, and the `api` service's domain.
-If it ever changes: Railway dashboard → Postgres service → `CMD+K` → **Copy Service Instance ID**
-(*not* "Copy Service ID", a different value).
+⚠️ **That username is the Postgres service's INSTANCE ID.** If it ever changes: Railway dashboard →
+Postgres service → `CMD+K` → **Copy Service Instance ID** (*not* "Copy Service ID", a different
+value).
+
+**What each username actually does**, because "it let me in" is not the same as "I am in the right
+container", and an earlier version of this page said all three were refused:
+
+| Username | Result, measured 2026-09-17 |
+|---|---|
+| Postgres **service instance ID** | ✅ what you want — you are in the Postgres container, which has `pg_dump` 18.6 |
+| `api` **service domain** (`…up.railway.app`) | ⚠️ **authenticates**, but lands you in the `api` container — a `scratch` image with **no shell and no `pg_dump`** — and forwarding on to Postgres from there was refused |
+| **service** ID | ❌ refused; Railway's docs say so explicitly |
+| **deployment** ID | ❌ refused: *"No target found … Use a service domain as the SSH username."* |
+
+So if your login succeeds and there is still no database on port 15432, you are in the wrong
+container — do not go looking at your key.
 
 ⚠️ **Forward to `127.0.0.1:5432`, the container's own loopback — NOT to
 `postgres.railway.internal`.** Railway's docs say private-network targets are allowed; they were
@@ -108,10 +121,24 @@ the only off-Railway copy. Two copies in one place is one copy. (**AOC-030** mak
 
 ## 4. Restore into the local database
 
+⚠️ **Start here if production is already gone.** Sections 1–3 take a *new* dump; a real disaster
+restores an *old* one, and `$TS` from section 3 does not exist on that path. Pick the file first:
+
+```bash
+ls -lt ~/AoC-backups/*.dump                    # what you have, newest first
+DUMP=$(ls -t ~/AoC-backups/*.dump | head -1)   # or set it by hand from that listing
+echo "restoring: $DUMP"
+[ -s "$DUMP" ] || echo "THAT FILE IS EMPTY OR MISSING — pick another one"
+```
+
+**Look at the dates before trusting the newest.** If the newest dump is corrupt, an older one is
+the whole fallback, and `pg_restore -l "$DUMP" | head` is how you find out which.
+
 Never restore over `aoc_dev` — you lose whatever you were working on. Use a separate database.
 
 ```bash
 cd /Volumes/SSD_pierre/Dev/Age\ of\ Conan/aoc_api
+colima start                                   # the container runtime; a no-op if already up
 make db-up                                     # Postgres 18 on localhost:5433
 
 docker compose exec -T db psql -U aoc -d postgres \
@@ -119,7 +146,7 @@ docker compose exec -T db psql -U aoc -d postgres \
   -c 'CREATE DATABASE aoc_prod_restore'
 
 PGPASSWORD=aoc pg_restore -h 127.0.0.1 -p 5433 -U aoc -d aoc_prod_restore \
-  --no-owner --no-acl ~/AoC-backups/aoc-prod-$TS.dump
+  --no-owner --no-acl "$DUMP"
 echo "exit: $?"          # 0 = restored
 ```
 
@@ -129,23 +156,40 @@ like success. That happened during this rehearsal.
 
 ## 5. Prove the restore actually worked
 
+⚠️ **Two databases, two different passwords — write them out, do not loop.** Production's password
+is in `$PGPASSWORD` from section 2; the local one is `aoc`. An earlier version of this page looped
+over both with `PGPASSWORD=${PGPASSWORD:-aoc}`, which sends **production's** password to the local
+database and fails authentication — on the step whose entire job is to prove the restore worked.
+(It also used `set -- $db` to split a string, which **does not word-split in zsh**, the shell macOS
+has shipped since Catalina. Both were found by AOC-006 verify round 1 and both are why this is now
+two plain commands.)
+
 ```bash
-# object counts, both sides
-for db in "15432 postgres railway" "5433 aoc aoc_prod_restore"; do
-  set -- $db
-  PGPASSWORD=${PGPASSWORD:-aoc} psql -h 127.0.0.1 -p $1 -U $2 -d $3 -tAc \
-    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-     WHERE c.relkind='r' AND n.nspname='public'"
-done
+TABLES='SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = '"'"'r'"'"' AND n.nspname = '"'"'public'"'"''
+
+# production, through the tunnel — uses $PGPASSWORD from section 2
+psql -h 127.0.0.1 -p 15432 -U postgres -d railway -tAc "$TABLES"
+
+# the restored copy, locally — its password is 'aoc', not production's
+PGPASSWORD=aoc psql -h 127.0.0.1 -p 5433 -U aoc -d aoc_prod_restore -tAc "$TABLES"
 ```
 
-For a database with real content, compare the rows themselves, not just the counts:
+The two numbers must match. ⚠️ **Two zeroes are not a match** — an empty restore "matches" an empty
+production, which is exactly the false pass this rehearsal hit. If both print `0`, something is
+wrong with the restore *or* production is genuinely empty; check which before believing it.
 
-```sql
-SELECT md5(string_agg(id||note,'|' ORDER BY id)) FROM schema_probe;
+For a database with real content, compare the rows themselves, not just the counts. Run the same
+query on both sides — again with each side's own password — and the hashes must be equal:
+
+```bash
+HASH="SELECT md5(string_agg(id||note, '|' ORDER BY id)) FROM schema_probe"
+
+psql -h 127.0.0.1 -p 15432 -U postgres -d railway -tAc "$HASH"
+PGPASSWORD=aoc psql -h 127.0.0.1 -p 5433 -U aoc -d aoc_prod_restore -tAc "$HASH"
 ```
 
-Run it on both sides; the hashes must be equal.
+(`schema_probe` is the table that exists today. After AOC-011 the table to hash is `items`.)
 
 ---
 
