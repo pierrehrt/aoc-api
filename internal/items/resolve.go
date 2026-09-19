@@ -198,6 +198,11 @@ type Unresolved struct {
 //
 // It also audits the decided list itself: an entry that no longer matches anything is reported,
 // because a stale exemption is how a list like this stops meaning what it says.
+//
+// ⚠️ THE AUDIT ASSUMES THE WHOLE SNAPSHOT. Import a subset and every decision it does not happen
+// to contain reads as stale — correctly, since from that input's point of view the entry really
+// does match nothing. The importer is only ever meant to be pointed at the full items_clean.json;
+// a partial run is refused loudly rather than silently importing under exemptions nobody checked.
 func CheckResolvable(its []Item, l *Lookups) (unknown []Unresolved, staleDecisions []string) {
 	counts := map[string]map[string]int{}
 	note := func(kind, value string) {
