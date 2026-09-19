@@ -550,11 +550,11 @@ volume**, so a link on Reddit cannot turn into an invoice on a project with no r
 
 | | |
 |---|---|
-| Bucket | `aoc-codex-enam`, **private** — nothing is world-readable through `r2.dev` |
+| Bucket | `aoc-codex-enam`, **private** — public access **off** and **zero custom domains**, confirmed off the dashboard 2026-09-19. Nothing is world-readable |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
 | Location hint | **`enam`** (Eastern North America) — **confirmed twice**: read off the dashboard, and measured against the APAC bucket it replaced (see *Why the name carries the region*) |
 | Jurisdiction | **none**, deliberately — see below |
-| Public URL | `img.aoc-codex.app`, a custom domain bound to the bucket (AOC-014). Not `r2.dev` |
+| Public URL | ⏳ **none yet.** `img.aoc-codex.app` is the *planned* custom domain and **AOC-014 binds it**; today the bucket has no public route at all. Never `r2.dev` |
 | Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
 | Free tier | 10 GB-month. The planned payload is ~175 MB — **1.7%** |
 
@@ -568,10 +568,10 @@ them means deleting the bucket and making a new one.
 | **Location** | placement preference: `wnam eeur enam weur apac oc` | ⛔ **defaults to `Automatic`, which picks from where the create request comes from.** Pierre is in Bangkok, so Automatic means **APAC** — the wrong end of the planet for a US/EU audience |
 | **Jurisdiction** | data-residency guarantee (`eu`, `us`, `fedramp`) | changes the S3 endpoint to `https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`, forces every API token to be scoped to that jurisdiction, and **stops Logpush interacting with the bucket at all** |
 
-**This bucket has `Location = enam`, explicitly chosen, and no jurisdiction.** Four buckets were
-created and destroyed getting there, each time while still empty, which is the only moment it is
-free (AOC-007). Every one of those four was caused by the same mistake: **an instruction that named
-one permanent field and left the one beside it to its default.**
+**This bucket has `Location = enam`, explicitly chosen, and no jurisdiction.** Getting there took
+**four buckets, three of them destroyed** — each while still empty, which is the only moment it is
+free (AOC-007). All three mistakes were the same mistake: **an instruction that named one permanent
+field and left the one beside it to its default.**
 
 #### Why the name carries the region
 
