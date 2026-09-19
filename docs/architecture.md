@@ -388,6 +388,45 @@ Three structural facts the rest of the app inherits:
    sources are seeded `disputed` with both versions in the question rather than silently
    resolved; `ListOpenQuestions` returns all of them in one read.
 
+### The item schema (AOC-010)
+
+`items` · `item_equip_locations` · `item_stats` · `item_spell_effects` · `item_sources` ·
+`item_costs` · `item_classes` · `sets` · `slot_fits`. Empty until **AOC-011** imports; the reads
+live in `internal/db/queries/items.sql` and the service layer that wraps them arrives with
+**AOC-012** (`internal/items/` is a documented empty package until then).
+
+Four shapes that are not obvious, each of which a simpler schema would have got confidently wrong:
+
+1. **Equip location is a JOIN, not a column on `items`.** Two of the snapshot's 16
+   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items (a two-hander
+   occupying both slots at once) and `Left/Right Finger` on **188** (a ring occupying either) —
+   and AOC-009 seeds only the **13 atomic slots**. Flattened into one column, *"show me every Off
+   Hand item"* silently returns 141 instead of 531. `items.slot_fit_id`
+   (`single` · `both` · `either`) says how to read an item's rows, and it lives on the **item**
+   because it describes the whole set: two join rows could otherwise contradict each other.
+   `TestAskingForOffHandItemsReturnsTwoHandersToo` is mutation-tested — flatten the fixture and it
+   fails naming the missing item.
+2. **Stat values are `numeric(8,2)`, not `integer`.** The 2026-09-13 decision said *"integers"*
+   meaning arithmetic-not-text, and **480 rows disprove the literal reading**: Natural Mana Regen
+   (314), Natural Stamina Regen (131) and Natural Health Regen (35) carry values like `4.5`, `1.6`,
+   `2.4`. An `integer` column truncates 4.5 to 4 and quietly wrongs every regen number on the site.
+   `numeric` and not `float` because the armoury **sums** these. `items.dps` is fractional for the
+   same reason (16.5 … 157.1).
+3. **Spell effects are their own table**, identical in shape to `item_stats` and deliberately not
+   a flag on it. A build calculator sums `item_stats` and can never reach `item_spell_effects`, so
+   eight mounts cannot hand every wearer `-8% Sprinting Stamina Drain` (AOC-016). Structure rather
+   than a rule someone has to remember — the same argument as `sets.set_armour_weight_id`, which is
+   what a set's **pieces** weigh and is not a class ceiling (`classes.max_armour_weight` is).
+4. **`item_sources.boss_id` and `vendor_id` are separate, with a `CHECK` that at most one is set.**
+   The snapshot's single `boss_or_npc` field conflated real bosses with vendor names and with
+   `Unchained`, which is a difficulty and not an NPC. AOC-017 split them at the source; the
+   constraint is what stops an importer in a hurry re-merging them.
+
+`items.item_id` is the **source site's own id** and has no default — after the origin host lapses
+(~Feb 2027) it is the only key our data and the original still share, so it is never re-numbered.
+`pg_trgm` backs the name search; production's Postgres runs as `postgres`, so the
+`CREATE EXTENSION` was checked to be permitted before the index was designed around it.
+
 ### The pool
 
 Built **once in `main`** — never a package-level global, which cannot be swapped in a test and
@@ -689,8 +728,7 @@ six objects exactly as uploaded. The denied writes left nothing behind.
 | Railway projects + Postgres | AOC-004 |
 | goose + sqlc toolchain, first migration | AOC-005 |
 | taxonomy tables and place entities | AOC-009 |
-| item schema — ⚠️ needs `vendor` and `spell_effect` as their own columns, and a label on what `coords` means (AOC-016/017) | AOC-010 |
+| item rows in the item schema (the tables exist and are empty) | AOC-011 |
 | the importer | AOC-011 |
 | public read endpoints for items | AOC-012 |
-| the 4,645 tooltip images in the bucket | AOC-008 |
 | scheduled `pg_dump` to R2 + dead man's switch | AOC-030 |
