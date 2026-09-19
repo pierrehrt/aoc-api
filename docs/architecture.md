@@ -575,7 +575,7 @@ both `chmod 600`:
 | File | Holds |
 |---|---|
 | `~/.config/aoc-codex/r2.env` | account id, bucket, endpoint, and the R2 API token key pairs |
-| `~/.config/rclone/rclone.conf` | the `[r2]` remote (`type = s3`, `provider = Cloudflare`) |
+| `~/.config/rclone/rclone.conf` | two remotes, `[r2]` (read-write) and `[r2ro]` (read-only), both `type = s3`, `provider = Cloudflare` |
 
 The **Access Key ID** (32 hex) and **Secret Access Key** (64 hex) come from *R2 → Manage R2 API
 Tokens → Create API token*, and the secret is displayed **once**. The S3 endpoint URL shown on that
@@ -592,6 +592,42 @@ rclone sync  <dir> r2:aoc-codex/_aoc-007-roundtrip     # re-run: Transferred 0 B
 rclone copy  r2:aoc-codex/_aoc-007-roundtrip <dir>-back && diff -r   # byte-identical
 rclone purge r2:aoc-codex/_aoc-007-roundtrip           # bucket back to 0 objects
 ```
+
+### The two tokens, and the proof that the read-only one is read-only (AOC-007, 2026-09-19)
+
+Two R2 API tokens exist, both scoped to the single bucket `aoc-codex`:
+
+| rclone remote | Token permission | Used by |
+|---|---|---|
+| `[r2]` | **Object Read & Write** | the tooltip upload (AOC-008), the backup writer (AOC-030) |
+| `[r2ro]` | **Object Read only** | restore-side reads, and anything that should not be able to damage the bucket |
+
+A credential is only *described* as read-only until a write through it has been seen to fail. Three
+denials, all `403 AccessDenied`, each on the operation named:
+
+```
+rclone copy       forbidden.txt r2ro:aoc-codex/ --s3-no-check-bucket   # PutObject    403
+rclone copy       <overwrite>   r2ro:aoc-codex/                        # PutObject    403
+rclone deletefile r2ro:aoc-codex/probe.txt                             # DeleteObject 403
+```
+
+⚠️ **Two traps make that evidence worthless if you skip them**, and both were hit here first:
+
+1. **A broken credential also fails to write.** So the same token must first be seen to *succeed* at
+   reading: `rclone ls r2ro:aoc-codex` listed the probe and `rclone copy r2ro:aoc-codex/probe.txt`
+   brought it back **byte-identical** (sha256 matched the local original). Only then does a denied
+   write mean *scoping*, rather than a typo in the secret.
+2. **`rclone copy` never reached `PutObject` on the first try.** It fails earlier, at `CreateBucket`,
+   because it tries to ensure the bucket exists and this token cannot see it. `--s3-no-check-bucket`
+   skips that and makes the write actually attempt. A `CreateBucket 403` looks like a passing test
+   and proves nothing about writing objects.
+
+Afterwards the probe was re-downloaded with `[r2]` and was **unchanged**, and `forbidden.txt` was
+**absent** — the denied writes left nothing behind. Bucket returned to **0 objects**.
+
+📌 A useful side effect: `rclone lsd r2ro:` is itself denied (`ListBuckets 403`) while `rclone lsd
+r2:` succeeds. That difference is the evidence that the read-only token is scoped to this one
+bucket rather than to the whole account — bucket scoping is not otherwise visible over the S3 API.
 
 ## Not here yet, and which ticket brings it
 
