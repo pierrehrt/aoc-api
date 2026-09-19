@@ -18,14 +18,14 @@ SELECT i.item_id, i.slug, i.name,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, b.slug AS binding,
        i.item_level, i.requires_level, i.armor, i.critigation, i.dps, i.damage_range,
-       i.set_id, s.name AS set_name,
+       i.set_id, s.name AS set_name, s.declared_piece_count,
        f.slug AS faction, i.faction_rank,
        i.pvp_source, i.has_pvp_stats, i.pvp_penalty, i.no_longer_available,
        i.tooltip_image, i.tooltip_source_url,
        c.slug AS confidence, i.source_note, i.open_question
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
@@ -36,33 +36,34 @@ WHERE i.item_id = $1
 `
 
 type GetItemRow struct {
-	ItemID            int32
-	Slug              string
-	Name              string
-	Rarity            string
-	ItemType          string
-	SlotFit           *string
-	ArmourWeight      *string
-	Binding           *string
-	ItemLevel         *int32
-	RequiresLevel     *int32
-	Armor             *int32
-	Critigation       *int32
-	Dps               pgtype.Numeric
-	DamageRange       *string
-	SetID             *int32
-	SetName           *string
-	Faction           *string
-	FactionRank       *int32
-	PvpSource         bool
-	HasPvpStats       bool
-	PvpPenalty        bool
-	NoLongerAvailable *string
-	TooltipImage      *string
-	TooltipSourceUrl  *string
-	Confidence        string
-	SourceNote        string
-	OpenQuestion      *string
+	ItemID             int32
+	Slug               string
+	Name               string
+	Rarity             string
+	ItemType           *string
+	SlotFit            *string
+	ArmourWeight       *string
+	Binding            *string
+	ItemLevel          *int32
+	RequiresLevel      *int32
+	Armor              *int32
+	Critigation        *int32
+	Dps                pgtype.Numeric
+	DamageRange        *string
+	SetID              *int32
+	SetName            *string
+	DeclaredPieceCount *int32
+	Faction            *string
+	FactionRank        *int32
+	PvpSource          bool
+	HasPvpStats        bool
+	PvpPenalty         bool
+	NoLongerAvailable  *string
+	TooltipImage       *string
+	TooltipSourceUrl   *string
+	Confidence         string
+	SourceNote         string
+	OpenQuestion       *string
 }
 
 // Read queries for the Armory (AOC-010). The write side belongs to the importer (AOC-011) and the
@@ -99,6 +100,7 @@ func (q *Queries) GetItem(ctx context.Context, itemID int32) (GetItemRow, error)
 		&i.DamageRange,
 		&i.SetID,
 		&i.SetName,
+		&i.DeclaredPieceCount,
 		&i.Faction,
 		&i.FactionRank,
 		&i.PvpSource,
@@ -245,7 +247,7 @@ JOIN confidence_levels c ON c.id = src.confidence_id
 LEFT JOIN acquisition_types at ON at.id = src.acquisition_type_id
 LEFT JOIN places p ON p.id = src.place_id
 LEFT JOIN bosses bo ON bo.id = src.boss_id
-LEFT JOIN places v ON v.id = src.vendor_id
+LEFT JOIN vendors v ON v.id = src.vendor_id
 LEFT JOIN quests q ON q.id = src.quest_id
 LEFT JOIN containers ct ON ct.id = src.container_id
 LEFT JOIN regions rg ON rg.id = src.region_id
@@ -284,8 +286,8 @@ type ListItemSourcesRow struct {
 	OpenQuestion    *string
 }
 
-// An item page's "where does this come from". 422 items have more than one place, so this is a
-// list and never a single row.
+// An item page's "where does this come from". 237 items have more than one place — 8 with two and
+// 229 with three — so this is a list and never a single row.
 func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItemSourcesRow, error) {
 	rows, err := q.db.Query(ctx, listItemSources, itemID)
 	if err != nil {
@@ -435,7 +437,7 @@ SELECT i.item_id, i.slug, i.name,
        count(*) OVER () AS total_count
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
@@ -474,7 +476,7 @@ type ListItemsRow struct {
 	Name          string
 	Rarity        string
 	RaritySort    int32
-	ItemType      string
+	ItemType      *string
 	SlotFit       *string
 	ItemLevel     *int32
 	RequiresLevel *int32
@@ -490,8 +492,9 @@ type ListItemsRow struct {
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //
 // ⭐ The equip-location filter goes through the join (EXISTS), so asking for 'off-hand' returns
-// the 390 two-handers as well as the 141 off-hand-only items. That is the acceptance criterion
-// this whole schema shape exists for.
+// the 390 two-handers as well as the 141 off-hand-only items — 531, not 141. That is the
+// acceptance criterion this whole schema shape exists for, and
+// TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error) {
 	rows, err := q.db.Query(ctx, listItems,
 		arg.Rarity,
@@ -542,7 +545,7 @@ SELECT DISTINCT i.item_id, i.slug, i.name, r.slug AS rarity, it.slug AS item_typ
        ic.amount, i.tooltip_image
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN item_sources src ON src.item_id = i.item_id
 JOIN item_costs ic ON ic.item_source_id = src.id
 JOIN currencies cu ON cu.id = ic.currency_id
@@ -555,7 +558,7 @@ type ListItemsByCurrencyRow struct {
 	Slug         string
 	Name         string
 	Rarity       string
-	ItemType     string
+	ItemType     *string
 	Amount       pgtype.Numeric
 	TooltipImage *string
 }
@@ -595,7 +598,7 @@ SELECT DISTINCT i.item_id, i.slug, i.name, r.slug AS rarity, r.sort_order AS rar
        it.slug AS item_type, i.tooltip_image
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN item_sources src ON src.item_id = i.item_id
 JOIN places p ON p.id = src.place_id
 WHERE p.slug = $1
@@ -608,7 +611,7 @@ type ListItemsByPlaceRow struct {
 	Name         string
 	Rarity       string
 	RaritySort   int32
-	ItemType     string
+	ItemType     *string
 	TooltipImage *string
 }
 
@@ -691,7 +694,8 @@ func (q *Queries) ListOpenItemQuestions(ctx context.Context) ([]ListOpenItemQues
 const listSets = `-- name: ListSets :many
 SELECT s.id, s.slug, s.name, cl.slug AS class, aw.slug AS set_armour_weight,
        c.slug AS confidence, s.source_note, s.open_question,
-       (SELECT count(*) FROM items i WHERE i.set_id = s.id) AS piece_count
+       s.declared_piece_count,
+       (SELECT count(*) FROM items i WHERE i.set_id = s.id) AS pieces_held
 FROM sets s
 JOIN confidence_levels c ON c.id = s.confidence_id
 LEFT JOIN classes cl ON cl.id = s.class_id
@@ -700,15 +704,16 @@ ORDER BY s.name
 `
 
 type ListSetsRow struct {
-	ID              int32
-	Slug            string
-	Name            string
-	Class           *string
-	SetArmourWeight *string
-	Confidence      string
-	SourceNote      string
-	OpenQuestion    *string
-	PieceCount      int64
+	ID                 int32
+	Slug               string
+	Name               string
+	Class              *string
+	SetArmourWeight    *string
+	Confidence         string
+	SourceNote         string
+	OpenQuestion       *string
+	DeclaredPieceCount *int32
+	PiecesHeld         int64
 }
 
 func (q *Queries) ListSets(ctx context.Context) ([]ListSetsRow, error) {
@@ -729,7 +734,8 @@ func (q *Queries) ListSets(ctx context.Context) ([]ListSetsRow, error) {
 			&i.Confidence,
 			&i.SourceNote,
 			&i.OpenQuestion,
-			&i.PieceCount,
+			&i.DeclaredPieceCount,
+			&i.PiecesHeld,
 		); err != nil {
 			return nil, err
 		}

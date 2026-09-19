@@ -434,8 +434,8 @@ func TestListSetsCountsPiecesAndToleratesNoClass(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := d.ExecContext(ctx, `
-INSERT INTO sets (slug, name, confidence_id, source_note)
-VALUES ('verify-fixture-set', 'Verify Fixture Set',
+INSERT INTO sets (slug, name, declared_piece_count, confidence_id, source_note)
+VALUES ('verify-fixture-set', 'Verify Fixture Set', 7,
         (SELECT id FROM confidence_levels WHERE slug='unconfirmed'), 'fixture')`); err != nil {
 		t.Fatalf("seeding the set: %v", err)
 	}
@@ -453,8 +453,17 @@ WHERE item_id IN (900, 901, 903)`); err != nil {
 		t.Fatalf("ListSets returned %d rows, want 1", len(sets))
 	}
 	s := sets[0]
-	if s.PieceCount != 3 {
-		t.Errorf("piece_count = %d, want 3", s.PieceCount)
+	// pieces_held is what we actually hold; declared_piece_count is what the SET says it contains.
+	// Conflating them renders a 5-of-7 set as though it were a 5-piece set (AOC-010 verify round 1).
+	if s.PiecesHeld != 3 {
+		t.Errorf("pieces_held = %d, want 3", s.PiecesHeld)
+	}
+	if s.DeclaredPieceCount == nil || *s.DeclaredPieceCount != 7 {
+		got := "NULL"
+		if s.DeclaredPieceCount != nil {
+			got = fmt.Sprint(*s.DeclaredPieceCount)
+		}
+		t.Errorf("declared_piece_count = %s, want 7 — an incomplete set must not report its own size as 3", got)
 	}
 	if s.Class != nil {
 		t.Errorf("the set reports class %q — a set with no class must read as NULL, not be dropped", *s.Class)

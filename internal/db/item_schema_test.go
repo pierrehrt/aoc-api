@@ -218,7 +218,7 @@ func TestColumnsTheDataHasHolesInAreNullable(t *testing.T) {
 	d, _ := migratedDB(t)
 
 	nullable := map[string][]string{
-		"items": {"slot_fit_id", "armour_weight_id", "binding_id", "item_level", "requires_level",
+		"items": {"item_type_id", "slot_fit_id", "armour_weight_id", "binding_id", "item_level", "requires_level",
 			"armor", "critigation", "dps", "damage_range", "set_id", "faction_id", "faction_rank",
 			"no_longer_available", "tooltip_image", "tooltip_source_url", "open_question"},
 		"item_sources": {"acquisition_type_id", "place_id", "boss_id", "vendor_id", "quest_id",
@@ -273,6 +273,96 @@ WHERE table_schema='public' AND table_name='items' AND column_name='item_id'`).S
 	if def != nil {
 		t.Errorf("items.item_id has a default (%q) — it must carry the source site's id, not a generated one", *def)
 	}
+}
+
+// The converse of the test above, and the reason it exists: a hand-listed set of NULLABLE columns
+// can only catch a column that was *supposed* to be nullable and is not. It cannot catch a NOT NULL
+// column nobody thought about — which is the only direction that blocks an import. So this pins the
+// NOT NULL set exactly: adding one becomes a deliberate act with a test to update, not a default.
+//
+// Verify round 1 found precisely this: items.item_type_id was NOT NULL and item 4532
+// 'Mini-Pet: The Devourer' has no item_type in the snapshot, so AOC-011 would have had to invent
+// one. The old test could not have caught it, and did not.
+func TestNothingIsNotNullByAccident(t *testing.T) {
+	d, _ := migratedDB(t)
+
+	want := map[string][]string{
+		// item_id/slug/name identify the row; rarity is on every item in the snapshot; the three
+		// pvp booleans default false; provenance is required by DECISIONS.md 2026-09-18.
+		"items": {"item_id", "slug", "name", "rarity_id", "pvp_source", "has_pvp_stats",
+			"pvp_penalty", "confidence_id", "source_note"},
+		"item_sources":         {"id", "item_id", "is_raid", "unchained", "confidence_id", "source_note"},
+		"item_stats":           {"id", "item_id", "stat", "value", "sign", "unit", "pvp"},
+		"item_spell_effects":   {"id", "item_id", "stat", "value", "sign", "unit", "pvp"},
+		"sets":                 {"id", "slug", "name", "confidence_id", "source_note"},
+		"vendors":              {"id", "slug", "name", "confidence_id", "source_note"},
+		"item_costs":           {"id", "item_source_id", "currency_id", "amount"},
+		"item_equip_locations": {"item_id", "equip_location_id"},
+		"item_classes":         {"item_id", "class_id"},
+	}
+
+	for table, expected := range want {
+		rows, err := d.QueryContext(context.Background(), `
+SELECT column_name FROM information_schema.columns
+WHERE table_schema='public' AND table_name=$1 AND is_nullable='NO' ORDER BY column_name`, table)
+		if err != nil {
+			t.Fatalf("%s: %v", table, err)
+		}
+		got := notNullColumns(t, rows)
+
+		for _, c := range expected {
+			if !got[c] {
+				t.Errorf("%s.%s should be NOT NULL and is not", table, c)
+			}
+			delete(got, c)
+		}
+		for c := range got {
+			t.Errorf("%s.%s is NOT NULL and nothing says it should be — if the snapshot ever "+
+				"lacks this value the import cannot proceed without inventing one", table, c)
+		}
+	}
+}
+
+// A vendor is not a place. 23 distinct vendors across 1,869 source rows, none of which matches any
+// of the 86 seeded places: pointing vendor_id at places(id) would have put `Minigames` and
+// `Loyalty Rewards` in the browse tree and made "what drops here" answer with vendor stock.
+func TestVendorIdPointsAtVendorsNotPlaces(t *testing.T) {
+	d, _ := migratedDB(t)
+
+	var target string
+	err := d.QueryRowContext(context.Background(), `
+SELECT ccu.table_name
+FROM information_schema.table_constraints tc
+JOIN information_schema.key_column_usage kcu
+  ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+JOIN information_schema.constraint_column_usage ccu
+  ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = 'item_sources'
+  AND kcu.column_name = 'vendor_id'`).Scan(&target)
+	if err != nil {
+		t.Fatalf("looking up the vendor_id foreign key: %v", err)
+	}
+	if target != "vendors" {
+		t.Errorf("item_sources.vendor_id references %q, want \"vendors\"", target)
+	}
+}
+
+func notNullColumns(t *testing.T, rows *sql.Rows) map[string]bool {
+	t.Helper()
+	defer func() { _ = rows.Close() }()
+
+	got := map[string]bool{}
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		got[c] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 func itemNamesInSlot(t *testing.T, d *sql.DB, slot string) []string {

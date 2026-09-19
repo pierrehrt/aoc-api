@@ -19,14 +19,14 @@ SELECT i.item_id, i.slug, i.name,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, b.slug AS binding,
        i.item_level, i.requires_level, i.armor, i.critigation, i.dps, i.damage_range,
-       i.set_id, s.name AS set_name,
+       i.set_id, s.name AS set_name, s.declared_piece_count,
        f.slug AS faction, i.faction_rank,
        i.pvp_source, i.has_pvp_stats, i.pvp_penalty, i.no_longer_available,
        i.tooltip_image, i.tooltip_source_url,
        c.slug AS confidence, i.source_note, i.open_question
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
@@ -66,8 +66,8 @@ WHERE ic.item_id = $1
 ORDER BY cl.name;
 
 -- name: ListItemSources :many
--- An item page's "where does this come from". 422 items have more than one place, so this is a
--- list and never a single row.
+-- An item page's "where does this come from". 237 items have more than one place — 8 with two and
+-- 229 with three — so this is a list and never a single row.
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type,
        src.place_id, p.name AS place_name,
@@ -85,7 +85,7 @@ JOIN confidence_levels c ON c.id = src.confidence_id
 LEFT JOIN acquisition_types at ON at.id = src.acquisition_type_id
 LEFT JOIN places p ON p.id = src.place_id
 LEFT JOIN bosses bo ON bo.id = src.boss_id
-LEFT JOIN places v ON v.id = src.vendor_id
+LEFT JOIN vendors v ON v.id = src.vendor_id
 LEFT JOIN quests q ON q.id = src.quest_id
 LEFT JOIN containers ct ON ct.id = src.container_id
 LEFT JOIN regions rg ON rg.id = src.region_id
@@ -106,8 +106,9 @@ ORDER BY ic.item_source_id, cu.name;
 -- which keeps one query behind every combination the page offers rather than building SQL by hand.
 --
 -- ⭐ The equip-location filter goes through the join (EXISTS), so asking for 'off-hand' returns
--- the 390 two-handers as well as the 141 off-hand-only items. That is the acceptance criterion
--- this whole schema shape exists for.
+-- the 390 two-handers as well as the 141 off-hand-only items — 531, not 141. That is the
+-- acceptance criterion this whole schema shape exists for, and
+-- TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort,
        it.slug AS item_type,
@@ -118,7 +119,7 @@ SELECT i.item_id, i.slug, i.name,
        count(*) OVER () AS total_count
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 WHERE (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::varchar)
@@ -145,7 +146,7 @@ SELECT DISTINCT i.item_id, i.slug, i.name, r.slug AS rarity, r.sort_order AS rar
        it.slug AS item_type, i.tooltip_image
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN item_sources src ON src.item_id = i.item_id
 JOIN places p ON p.id = src.place_id
 WHERE p.slug = $1
@@ -158,7 +159,7 @@ SELECT DISTINCT i.item_id, i.slug, i.name, r.slug AS rarity, it.slug AS item_typ
        ic.amount, i.tooltip_image
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
-JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN item_sources src ON src.item_id = i.item_id
 JOIN item_costs ic ON ic.item_source_id = src.id
 JOIN currencies cu ON cu.id = ic.currency_id
@@ -168,7 +169,8 @@ ORDER BY ic.amount, i.name;
 -- name: ListSets :many
 SELECT s.id, s.slug, s.name, cl.slug AS class, aw.slug AS set_armour_weight,
        c.slug AS confidence, s.source_note, s.open_question,
-       (SELECT count(*) FROM items i WHERE i.set_id = s.id) AS piece_count
+       s.declared_piece_count,
+       (SELECT count(*) FROM items i WHERE i.set_id = s.id) AS pieces_held
 FROM sets s
 JOIN confidence_levels c ON c.id = s.confidence_id
 LEFT JOIN classes cl ON cl.id = s.class_id

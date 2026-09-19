@@ -92,7 +92,7 @@ type Item struct {
 	Slug              string
 	Name              string
 	RarityID          int32
-	ItemTypeID        int32
+	ItemTypeID        *int32
 	SlotFitID         *int32
 	ArmourWeightID    *int32
 	BindingID         *int32
@@ -243,14 +243,15 @@ type SchemaProbe struct {
 }
 
 type Set struct {
-	ID                int32
-	Slug              string
-	Name              string
-	ClassID           *int32
-	SetArmourWeightID *int32
-	ConfidenceID      int32
-	SourceNote        string
-	OpenQuestion      *string
+	ID                 int32
+	Slug               string
+	Name               string
+	ClassID            *int32
+	SetArmourWeightID  *int32
+	DeclaredPieceCount *int32
+	ConfidenceID       int32
+	SourceNote         string
+	OpenQuestion       *string
 }
 
 type SlotFit struct {
@@ -265,4 +266,14 @@ type Tier struct {
 	Slug      string
 	Name      string
 	SortOrder int32
+}
+
+type Vendor struct {
+	ID           int32
+	Slug         string
+	Name         string
+	PlaceID      *int32
+	ConfidenceID int32
+	SourceNote   string
+	OpenQuestion *string
 }

@@ -503,7 +503,7 @@ CREATE TABLE public.item_sources (
     confidence_id integer NOT NULL,
     source_note character varying(300) NOT NULL,
     open_question character varying(300),
-    CONSTRAINT item_sources_boss_xor_vendor CHECK (((boss_id IS NULL) OR (vendor_id IS NULL)))
+    CONSTRAINT item_sources_boss_and_vendor_not_both CHECK (((boss_id IS NULL) OR (vendor_id IS NULL)))
 );
 
 
@@ -638,7 +638,7 @@ CREATE TABLE public.items (
     slug character varying(160) NOT NULL,
     name character varying(160) NOT NULL,
     rarity_id integer NOT NULL,
-    item_type_id integer NOT NULL,
+    item_type_id integer,
     slot_fit_id integer,
     armour_weight_id integer,
     binding_id integer,
@@ -863,6 +863,7 @@ CREATE TABLE public.sets (
     name character varying(120) NOT NULL,
     class_id integer,
     set_armour_weight_id integer,
+    declared_piece_count integer,
     confidence_id integer NOT NULL,
     source_note character varying(300) NOT NULL,
     open_question character varying(300)
@@ -951,6 +952,41 @@ CREATE SEQUENCE public.tiers_id_seq
 --
 
 ALTER SEQUENCE public.tiers_id_seq OWNED BY public.tiers.id;
+
+
+--
+-- Name: vendors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vendors (
+    id integer NOT NULL,
+    slug character varying(120) NOT NULL,
+    name character varying(120) NOT NULL,
+    place_id integer,
+    confidence_id integer NOT NULL,
+    source_note character varying(300) NOT NULL,
+    open_question character varying(300)
+);
+
+
+--
+-- Name: vendors_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.vendors_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: vendors_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.vendors_id_seq OWNED BY public.vendors.id;
 
 
 --
@@ -1119,6 +1155,13 @@ ALTER TABLE ONLY public.slot_fits ALTER COLUMN id SET DEFAULT nextval('public.sl
 --
 
 ALTER TABLE ONLY public.tiers ALTER COLUMN id SET DEFAULT nextval('public.tiers_id_seq'::regclass);
+
+
+--
+-- Name: vendors id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors ALTER COLUMN id SET DEFAULT nextval('public.vendors_id_seq'::regclass);
 
 
 --
@@ -1666,6 +1709,22 @@ ALTER TABLE ONLY public.tiers
 
 
 --
+-- Name: vendors vendors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors
+    ADD CONSTRAINT vendors_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: vendors vendors_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors
+    ADD CONSTRAINT vendors_slug_key UNIQUE (slug);
+
+
+--
 -- Name: bosses_place_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1701,13 +1760,6 @@ CREATE INDEX item_equip_locations_equip_location_id_idx ON public.item_equip_loc
 
 
 --
--- Name: item_sources_boss_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX item_sources_boss_id_idx ON public.item_sources USING btree (boss_id) WHERE (boss_id IS NOT NULL);
-
-
---
 -- Name: item_sources_item_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1733,13 +1785,6 @@ CREATE INDEX item_spell_effects_item_id_idx ON public.item_spell_effects USING b
 --
 
 CREATE INDEX item_stats_item_id_idx ON public.item_stats USING btree (item_id);
-
-
---
--- Name: item_stats_stat_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX item_stats_stat_idx ON public.item_stats USING btree (stat);
 
 
 --
@@ -2001,7 +2046,7 @@ ALTER TABLE ONLY public.item_sources
 --
 
 ALTER TABLE ONLY public.item_sources
-    ADD CONSTRAINT item_sources_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.places(id);
+    ADD CONSTRAINT item_sources_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendors(id);
 
 
 --
@@ -2186,6 +2231,22 @@ ALTER TABLE ONLY public.sets
 
 ALTER TABLE ONLY public.sets
     ADD CONSTRAINT sets_set_armour_weight_id_fkey FOREIGN KEY (set_armour_weight_id) REFERENCES public.armour_weights(id);
+
+
+--
+-- Name: vendors vendors_confidence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors
+    ADD CONSTRAINT vendors_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: vendors vendors_place_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors
+    ADD CONSTRAINT vendors_place_id_fkey FOREIGN KEY (place_id) REFERENCES public.places(id);
 
 
 --
