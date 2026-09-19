@@ -87,6 +87,95 @@ type Faction struct {
 	Name string
 }
 
+type Item struct {
+	ItemID            int32
+	Slug              string
+	Name              string
+	RarityID          int32
+	ItemTypeID        int32
+	SlotFitID         *int32
+	ArmourWeightID    *int32
+	BindingID         *int32
+	ItemLevel         *int32
+	RequiresLevel     *int32
+	Armor             *int32
+	Critigation       *int32
+	Dps               pgtype.Numeric
+	DamageRange       *string
+	SetID             *int32
+	FactionID         *int32
+	FactionRank       *int32
+	PvpSource         bool
+	HasPvpStats       bool
+	PvpPenalty        bool
+	NoLongerAvailable *string
+	TooltipImage      *string
+	TooltipSourceUrl  *string
+	ConfidenceID      int32
+	SourceNote        string
+	OpenQuestion      *string
+}
+
+type ItemClass struct {
+	ItemID  int32
+	ClassID int32
+}
+
+type ItemCost struct {
+	ID           int64
+	ItemSourceID int64
+	CurrencyID   int32
+	Amount       pgtype.Numeric
+}
+
+type ItemEquipLocation struct {
+	ItemID          int32
+	EquipLocationID int32
+}
+
+type ItemSource struct {
+	ID                int64
+	ItemID            int32
+	AcquisitionTypeID *int32
+	PlaceID           *int32
+	BossID            *int32
+	VendorID          *int32
+	QuestID           *int32
+	ContainerID       *int32
+	RegionID          *int32
+	MapID             *int32
+	TierID            *int32
+	IsRaid            bool
+	Coords            *string
+	SectionRaw        *string
+	Unchained         bool
+	ConfidenceID      int32
+	SourceNote        string
+	OpenQuestion      *string
+}
+
+type ItemSpellEffect struct {
+	ID         int64
+	ItemID     int32
+	Stat       string
+	Value      pgtype.Numeric
+	Sign       int16
+	Unit       string
+	DamageType *string
+	Pvp        bool
+}
+
+type ItemStat struct {
+	ID         int64
+	ItemID     int32
+	Stat       string
+	Value      pgtype.Numeric
+	Sign       int16
+	Unit       string
+	DamageType *string
+	Pvp        bool
+}
+
 type ItemType struct {
 	ID   int32
 	Slug string
@@ -151,6 +240,24 @@ type SchemaProbe struct {
 	ID        int32
 	Note      string
 	CreatedAt pgtype.Timestamptz
+}
+
+type Set struct {
+	ID                int32
+	Slug              string
+	Name              string
+	ClassID           *int32
+	SetArmourWeightID *int32
+	ConfidenceID      int32
+	SourceNote        string
+	OpenQuestion      *string
+}
+
+type SlotFit struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
 }
 
 type Tier struct {
