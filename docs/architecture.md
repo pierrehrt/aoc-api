@@ -552,7 +552,7 @@ volume**, so a link on Reddit cannot turn into an invoice on a project with no r
 |---|---|
 | Bucket | `aoc-codex-enam`, **private** — public access **off** and **zero custom domains**, confirmed off the dashboard 2026-09-19. Nothing is world-readable |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
-| Location hint | **`enam`** (Eastern North America) — **confirmed twice**: read off the dashboard, and measured against the APAC bucket it replaced (see *Why the name carries the region*) |
+| Location hint | **`enam`** (Eastern North America) — **read back from the API**: `GET ?location=` → `<LocationConstraint>ENAM</LocationConstraint>` (see *Reading a bucket's location hint*) |
 | Jurisdiction | **none**, deliberately — see below |
 | Public URL | ⏳ **none yet.** `img.aoc-codex.app` is the *planned* custom domain and **AOC-014 binds it**; today the bucket has no public route at all. Never `r2.dev` |
 | Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
@@ -573,21 +573,40 @@ them means deleting the bucket and making a new one.
 free (AOC-007). All three mistakes were the same mistake: **an instruction that named one permanent
 field and left the one beside it to its default.**
 
+#### Reading a bucket's location hint
+
+**One signed S3 call reports it exactly**, and this is the authoritative check:
+
+```
+GET https://<account-id>.r2.cloudflarestorage.com/<bucket>?location=
+  → 200  <LocationConstraint>ENAM</LocationConstraint>
+```
+
+No `aws` CLI is needed — ~40 lines of Python **stdlib** (`hmac`, `hashlib`, `urllib`) signing SigV4
+with the key pair from `r2.env`. ⚠️ **The canonical query string must be `location=`, with the empty
+value.** Signing the bare flag `location` yields `SignatureDoesNotMatch`, which reads exactly like a
+bad secret and is how this call gets wrongly written off as unsupported. `rclone` exposes no
+equivalent, which is a limit of `rclone`, not of R2.
+
+**The A/B latency method is history, kept for its one real use.** Before the call above was tried,
+the region was established by writing ten sequential objects to two buckets from the same machine
+with the same token, interleaved: the APAC bucket ran **6.60 / 6.70 / 7.16 s**, the ENAM bucket
+**19.76 / 18.75 / 19.83 s** from Bangkok — 2.85× apart with no overlap. Note what that can and
+cannot do. **Absolute latency establishes nothing** (an R2 write is dominated by its durability
+commit, not by round trips), and even the A/B only separates **near from far** — it rules out
+`apac` from Bangkok but could never tell `enam` from `weur`. Use it only when there is no
+credential to sign with; otherwise ask the API.
+
 #### Why the name carries the region
 
-`aoc-codex-enam` is uglier than `aoc-codex` and is kept on purpose. The location hint is permanent
-and invisible over the S3 API — `GetBucketLocation` does not report it usefully and no `rclone`
-command exposes it — so the **name is the only place the region is legible without opening the
-dashboard**. It cannot become a lie, because the property it names cannot change while the bucket
-exists. The name is never public either way: the images are served from `img.aoc-codex.app`
-(AOC-014).
+`aoc-codex-enam` is uglier than `aoc-codex` and is kept for a plain reason: **renaming is not a
+rename.** The name is permanent, so changing it means creating a fifth bucket and reissuing both
+tokens — real clicks from Pierre for a cosmetic gain (rule 16). The suffix is accurate and cannot
+become a lie, because the property it names cannot change while the bucket exists.
 
-**Measuring a bucket's location, if it is ever in doubt again.** Absolute latency will not tell you
-— an R2 write is dominated by its durability commit, not by network round trips, so a slow `PutObject`
-says nothing on its own. What works is an **A/B against a second bucket in a known region**, from the
-same machine with the same token: ten sequential `PutObject`s each, interleaved to control for drift.
-The APAC bucket ran **6.60 / 6.70 / 7.16 s**, the ENAM bucket **19.76 / 18.75 / 19.83 s** from
-Bangkok — a 2.85× separation with no overlap.
+⚠️ It is **not** kept because the region is otherwise unreadable — an earlier version of this
+section claimed exactly that, and it was false. The name is a convenience, not the system of record.
+The name is never public either way: the images will be served from `img.aoc-codex.app` (AOC-014).
 
 ### Credentials
 
@@ -620,16 +639,23 @@ rclone deletefile r2:aoc-codex-enam/_aoc-007-roundtrip/<f>   # per object, back 
 Two R2 API tokens, **both scoped to the single bucket `aoc-codex-enam`** — and that scoping is
 measured, not assumed, because an earlier version of this section asserted it and was **wrong**:
 
-| rclone remote | Token permission | `ListBuckets` | Other buckets | Used by |
-|---|---|---|---|---|
-| `[r2]` | **Object Read & Write** | `403` | `403` | the tooltip upload (AOC-008), the backup writer (AOC-030) |
-| `[r2ro]` | **Object Read only** | `403` | `403` | restore-side reads, and anything that must not be able to damage the bucket |
+| rclone remote | Token permission | `ListBuckets` | Used by |
+|---|---|---|---|
+| `[r2]` | **Object Read & Write** | `403` | the tooltip upload (AOC-008), the backup writer (AOC-030) |
+| `[r2ro]` | **Object Read only** | `403` | restore-side reads, and anything that must not be able to damage the bucket |
 
-📌 **`ListBuckets` returning `403` is the evidence**, and it is the only evidence available: bucket
-scoping is invisible over the S3 API otherwise. A token left on *Apply to all buckets* lists them
-happily. The first read-write token issued for this project was account-wide exactly that way — it
-reached a bucket created minutes earlier that it had never been named against — and it was replaced
-rather than documented around.
+📌 **`ListBuckets` returning `403` is the evidence available over the S3 API**, and it is the only
+one. A token left on *Apply to all buckets* lists them happily. The first read-write token issued
+for this project was account-wide exactly that way — it reached a bucket created minutes earlier
+that it had never been named against — and it was replaced rather than documented around.
+
+⛔ **What is NOT evidence: a `403` on some other bucket name.** R2 answers
+`ListObjectsV2 403 AccessDenied` for a bucket that **has never existed** — measured against
+`zzz-never-existed-4b8e21` — so that test cannot separate *scoped out of it* from *it is not there*.
+An earlier version of this table presented it as a second, independent column. It was not one.
+
+📌 **Scoping is not invisible in general** — the R2 dashboard's *Manage API Tokens* page states each
+token's scope outright. It is invisible only to a program holding nothing but the key pair.
 
 #### Proving a read-only credential is read-only
 
