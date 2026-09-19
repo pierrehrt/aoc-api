@@ -542,7 +542,7 @@ the old code cannot tolerate ships in two deploys, not one.
 
 ## Object storage
 
-**Cloudflare R2, one bucket: `aoc-codex`.** It holds the things that must not live in Postgres and
+**Cloudflare R2, one bucket: `aoc-codex-enam`.** It holds the things that must not live in Postgres and
 must not live on one SSD — the 4,645 armory tooltip images (AOC-008), and later the scheduled
 `pg_dump` backups (AOC-030). R2 was chosen over S3 and B2 for one reason: **egress is free at any
 volume**, so a link on Reddit cannot turn into an invoice on a project with no revenue
@@ -550,22 +550,44 @@ volume**, so a link on Reddit cannot turn into an invoice on a project with no r
 
 | | |
 |---|---|
-| Bucket | `aoc-codex`, **private** — nothing is world-readable through `r2.dev` |
+| Bucket | `aoc-codex-enam`, **private** — nothing is world-readable through `r2.dev` |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
-| Location hint | **`enam`** (Eastern North America) — ⚠️ **decided, not yet read back off the dashboard** (AOC-007) |
+| Location hint | **`enam`** (Eastern North America) — **confirmed twice**: read off the dashboard, and measured against the APAC bucket it replaced (see *Why the name carries the region*) |
 | Jurisdiction | **none**, deliberately — see below |
 | Public URL | `img.aoc-codex.app`, a custom domain bound to the bucket (AOC-014). Not `r2.dev` |
 | Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
 | Free tier | 10 GB-month. The planned payload is ~175 MB — **1.7%** |
 
-⚠️ **Two fields on the create-bucket form are permanent and only one of them is the one you want.**
-**Location hint** (`wnam eeur enam weur apac oc`) is a placement preference. **Jurisdiction**
-(`eu`, `us`, `fedramp`) is a data-residency guarantee, and it changes the S3 endpoint to
-`https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`, forces every API token to be scoped
-to that jurisdiction, and stops Logpush interacting with the bucket at all. Neither can be edited
-afterwards — changing either means deleting the bucket and making a new one. **This bucket has a
-location hint and no jurisdiction**; two earlier buckets were created and destroyed getting that
-right, while they were still empty, which is the only moment it is free (AOC-007).
+⚠️ **Three fields on the create-bucket form are permanent, and the default on one of them is a
+trap.** All three must be set deliberately, because none can be edited afterwards — changing any of
+them means deleting the bucket and making a new one.
+
+| Field | What it does | The trap |
+|---|---|---|
+| **Name** | permanent identity | — |
+| **Location** | placement preference: `wnam eeur enam weur apac oc` | ⛔ **defaults to `Automatic`, which picks from where the create request comes from.** Pierre is in Bangkok, so Automatic means **APAC** — the wrong end of the planet for a US/EU audience |
+| **Jurisdiction** | data-residency guarantee (`eu`, `us`, `fedramp`) | changes the S3 endpoint to `https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`, forces every API token to be scoped to that jurisdiction, and **stops Logpush interacting with the bucket at all** |
+
+**This bucket has `Location = enam`, explicitly chosen, and no jurisdiction.** Four buckets were
+created and destroyed getting there, each time while still empty, which is the only moment it is
+free (AOC-007). Every one of those four was caused by the same mistake: **an instruction that named
+one permanent field and left the one beside it to its default.**
+
+#### Why the name carries the region
+
+`aoc-codex-enam` is uglier than `aoc-codex` and is kept on purpose. The location hint is permanent
+and invisible over the S3 API — `GetBucketLocation` does not report it usefully and no `rclone`
+command exposes it — so the **name is the only place the region is legible without opening the
+dashboard**. It cannot become a lie, because the property it names cannot change while the bucket
+exists. The name is never public either way: the images are served from `img.aoc-codex.app`
+(AOC-014).
+
+**Measuring a bucket's location, if it is ever in doubt again.** Absolute latency will not tell you
+— an R2 write is dominated by its durability commit, not by network round trips, so a slow `PutObject`
+says nothing on its own. What works is an **A/B against a second bucket in a known region**, from the
+same machine with the same token: ten sequential `PutObject`s each, interleaved to control for drift.
+The APAC bucket ran **6.60 / 6.70 / 7.16 s**, the ENAM bucket **19.76 / 18.75 / 19.83 s** from
+Bangkok — a 2.85× separation with no overlap.
 
 ### Credentials
 
@@ -581,53 +603,57 @@ The **Access Key ID** (32 hex) and **Secret Access Key** (64 hex) come from *R2 
 Tokens → Create API token*, and the secret is displayed **once**. The S3 endpoint URL shown on that
 same page is **not** a credential and is not interchangeable with one.
 
-### Verified round trip (AOC-007, 2026-09-18)
+### Verified round trip (AOC-007, 2026-09-19)
 
 Six files (five text, one 200 KB of random bytes) against the real bucket:
 
 ```
-rclone copy  <dir> r2:aoc-codex/_aoc-007-roundtrip     # 6 files up
-rclone check <dir> r2:aoc-codex/_aoc-007-roundtrip     # 0 differences, 6 matching files
-rclone sync  <dir> r2:aoc-codex/_aoc-007-roundtrip     # re-run: Transferred 0 B, 6/6 checks
-rclone copy  r2:aoc-codex/_aoc-007-roundtrip <dir>-back && diff -r   # byte-identical
-rclone purge r2:aoc-codex/_aoc-007-roundtrip           # bucket back to 0 objects
+rclone copy  <dir> r2:aoc-codex-enam/_aoc-007-roundtrip   # 6 files up
+rclone check <dir> r2:aoc-codex-enam/_aoc-007-roundtrip   # 0 differences, 6 matching files
+rclone sync  <dir> r2:aoc-codex-enam/_aoc-007-roundtrip   # re-run: Transferred 0 B, Checks 6/6
+rclone copy  r2:aoc-codex-enam/_aoc-007-roundtrip <dir>-back && diff -r   # byte-identical
+rclone deletefile r2:aoc-codex-enam/_aoc-007-roundtrip/<f>   # per object, back to 0
 ```
 
-### The two tokens, and the proof that the read-only one is read-only (AOC-007, 2026-09-19)
+### The two tokens, and what was actually proved about each (AOC-007, 2026-09-19)
 
-Two R2 API tokens exist, both scoped to the single bucket `aoc-codex`:
+Two R2 API tokens, **both scoped to the single bucket `aoc-codex-enam`** — and that scoping is
+measured, not assumed, because an earlier version of this section asserted it and was **wrong**:
 
-| rclone remote | Token permission | Used by |
-|---|---|---|
-| `[r2]` | **Object Read & Write** | the tooltip upload (AOC-008), the backup writer (AOC-030) |
-| `[r2ro]` | **Object Read only** | restore-side reads, and anything that should not be able to damage the bucket |
+| rclone remote | Token permission | `ListBuckets` | Other buckets | Used by |
+|---|---|---|---|---|
+| `[r2]` | **Object Read & Write** | `403` | `403` | the tooltip upload (AOC-008), the backup writer (AOC-030) |
+| `[r2ro]` | **Object Read only** | `403` | `403` | restore-side reads, and anything that must not be able to damage the bucket |
 
-A credential is only *described* as read-only until a write through it has been seen to fail. Three
-denials, all `403 AccessDenied`, each on the operation named:
+📌 **`ListBuckets` returning `403` is the evidence**, and it is the only evidence available: bucket
+scoping is invisible over the S3 API otherwise. A token left on *Apply to all buckets* lists them
+happily. The first read-write token issued for this project was account-wide exactly that way — it
+reached a bucket created minutes earlier that it had never been named against — and it was replaced
+rather than documented around.
+
+#### Proving a read-only credential is read-only
+
+Three writes denied, each `403 AccessDenied` on the operation named:
 
 ```
-rclone copy       forbidden.txt r2ro:aoc-codex/ --s3-no-check-bucket   # PutObject    403
-rclone copy       <overwrite>   r2ro:aoc-codex/                        # PutObject    403
-rclone deletefile r2ro:aoc-codex/probe.txt                             # DeleteObject 403
+rclone copy       forbidden.txt r2ro:<bucket>/ --s3-no-check-bucket   # PutObject    403
+rclone copy       <overwrite>   r2ro:<bucket>/ --s3-no-check-bucket   # PutObject    403
+rclone deletefile r2ro:<bucket>/t1.txt                                # DeleteObject 403
 ```
 
 ⚠️ **Two traps make that evidence worthless if you skip them**, and both were hit here first:
 
-1. **A broken credential also fails to write.** So the same token must first be seen to *succeed* at
-   reading: `rclone ls r2ro:aoc-codex` listed the probe and `rclone copy r2ro:aoc-codex/probe.txt`
-   brought it back **byte-identical** (sha256 matched the local original). Only then does a denied
-   write mean *scoping*, rather than a typo in the secret.
-2. **`rclone copy` never reached `PutObject` on the first try.** It fails earlier, at `CreateBucket`,
-   because it tries to ensure the bucket exists and this token cannot see it. `--s3-no-check-bucket`
-   skips that and makes the write actually attempt. A `CreateBucket 403` looks like a passing test
-   and proves nothing about writing objects.
+1. **A broken credential also fails to write.** The same token must first be seen to *succeed* at
+   reading: `rclone lsf r2ro:<bucket>/...` listed all six objects and the 200 KB random file came
+   back with a **matching sha256**. Only then does a denied write mean *scoping* rather than a typo
+   in the secret.
+2. **`rclone copy` never reaches `PutObject` on the first try.** It fails earlier at `CreateBucket`,
+   because it tries to ensure the bucket exists and a scoped token cannot see it.
+   `--s3-no-check-bucket` skips that. A `CreateBucket 403` looks like a passing test and proves
+   nothing about writing objects.
 
-Afterwards the probe was re-downloaded with `[r2]` and was **unchanged**, and `forbidden.txt` was
-**absent** — the denied writes left nothing behind. Bucket returned to **0 objects**.
-
-📌 A useful side effect: `rclone lsd r2ro:` is itself denied (`ListBuckets 403`) while `rclone lsd
-r2:` succeeds. That difference is the evidence that the read-only token is scoped to this one
-bucket rather than to the whole account — bucket scoping is not otherwise visible over the S3 API.
+Afterwards the bucket was re-listed with `[r2]`: `forbidden.txt` **absent**, `t1.txt` **unchanged**,
+six objects exactly as uploaded. The denied writes left nothing behind.
 
 ## Not here yet, and which ticket brings it
 
