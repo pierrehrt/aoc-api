@@ -509,3 +509,137 @@ VALUES ('verify-open-set', 'Verify Open Set',
 		}
 	}
 }
+
+// ⭐ AOC-010 verify round 2. Making items.item_type_id nullable (round 1, finding B) is only half
+// the fix: four queries joined item_types with a plain JOIN, and a plain JOIN on a now-nullable
+// column drops the row instead of showing it with an empty field. Round 2 changed all four to
+// LEFT JOIN — and nothing tested that, so reverting any one of them would have made item 4532
+// 'Mini-Pet: The Devourer' vanish from the Armory, from its own page, and from every place and
+// currency listing, with every test still green. That is the round-1 failure shape exactly.
+func TestTheItemWithNoTypeIsStillReachableEverywhere(t *testing.T) {
+	q, d := queriesOn(t)
+	ctx := context.Background()
+
+	var placeSlug, currencySlug string
+	if err := d.QueryRowContext(ctx, `SELECT slug FROM places ORDER BY id LIMIT 1`).Scan(&placeSlug); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRowContext(ctx, `SELECT slug FROM currencies ORDER BY id LIMIT 1`).Scan(&currencySlug); err != nil {
+		t.Fatal(err)
+	}
+
+	// The shape of item 4532: a rarity, no item_type at all.
+	if _, err := d.ExecContext(ctx, `
+INSERT INTO items (item_id, slug, name, rarity_id, item_type_id, confidence_id, source_note)
+VALUES (910, 'verify-typeless-item', 'Verify Typeless Item',
+        (SELECT id FROM rarities ORDER BY id LIMIT 1), NULL,
+        (SELECT id FROM confidence_levels WHERE slug='unconfirmed'),
+        'fixture — the item 4532 shape, not a game fact')`); err != nil {
+		t.Fatalf("seeding the typeless item: %v", err)
+	}
+	var srcID int64
+	if err := d.QueryRowContext(ctx, `
+INSERT INTO item_sources (item_id, place_id, confidence_id, source_note)
+VALUES (910, (SELECT id FROM places WHERE slug = $1),
+        (SELECT id FROM confidence_levels WHERE slug='unconfirmed'), 'fixture')
+RETURNING id`, placeSlug).Scan(&srcID); err != nil {
+		t.Fatalf("seeding its source: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `
+INSERT INTO item_costs (item_source_id, currency_id, amount)
+VALUES ($1, (SELECT id FROM currencies WHERE slug = $2), 40)`, srcID, currencySlug); err != nil {
+		t.Fatalf("seeding its cost: %v", err)
+	}
+
+	list, err := q.ListItems(ctx, sqlcgen.ListItemsParams{PageSize: 50})
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	var inList *sqlcgen.ListItemsRow
+	for i := range list {
+		if list[i].Name == "Verify Typeless Item" {
+			inList = &list[i]
+		}
+	}
+	if inList == nil {
+		t.Fatalf("the typeless item is missing from ListItems (%v) — item_types is joined, not LEFT joined", names(list))
+	}
+	if inList.ItemType != nil {
+		t.Errorf("item_type = %q, want NULL — an empty field is the honest answer", *inList.ItemType)
+	}
+	if inList.TotalCount != 6 {
+		t.Errorf("total_count = %d, want 6 — the typeless item is not being counted either", inList.TotalCount)
+	}
+
+	item, err := q.GetItem(ctx, 910)
+	if err != nil {
+		t.Fatalf("GetItem on the typeless item: %v — its own page 404s", err)
+	}
+	if item.ItemType != nil {
+		t.Errorf("GetItem item_type = %q, want NULL", *item.ItemType)
+	}
+
+	byPlace, err := q.ListItemsByPlace(ctx, placeSlug)
+	if err != nil {
+		t.Fatalf("ListItemsByPlace: %v", err)
+	}
+	if len(byPlace) != 1 || byPlace[0].Name != "Verify Typeless Item" {
+		t.Errorf("ListItemsByPlace = %d rows, want the typeless item — it was dropped from \"what drops here\"", len(byPlace))
+	}
+
+	byCurrency, err := q.ListItemsByCurrency(ctx, currencySlug)
+	if err != nil {
+		t.Fatalf("ListItemsByCurrency: %v", err)
+	}
+	if len(byCurrency) != 1 || byCurrency[0].Name != "Verify Typeless Item" {
+		t.Errorf("ListItemsByCurrency = %d rows, want the typeless item", len(byCurrency))
+	}
+}
+
+// The other half of round 1's finding A: vendor_id now points at `vendors`, so ListItemSources has
+// to resolve a vendor name out of that table. `vendors` ships empty (AOC-011 fills it), so without
+// this nothing ever executes the join.
+func TestASourceResolvesItsVendorFromTheVendorsTable(t *testing.T) {
+	q, d := queriesOn(t)
+	ctx := context.Background()
+
+	if _, err := d.ExecContext(ctx, `
+INSERT INTO vendors (slug, name, confidence_id, source_note)
+VALUES ('verify-fixture-vendor', 'Verify Fixture Vendor',
+        (SELECT id FROM confidence_levels WHERE slug='unconfirmed'), 'fixture')`); err != nil {
+		t.Fatalf("seeding the vendor: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `
+INSERT INTO item_sources (item_id, vendor_id, confidence_id, source_note)
+VALUES (900, (SELECT id FROM vendors WHERE slug='verify-fixture-vendor'),
+        (SELECT id FROM confidence_levels WHERE slug='unconfirmed'), 'fixture')`); err != nil {
+		t.Fatalf("seeding the vendor source: %v", err)
+	}
+
+	sources, err := q.ListItemSources(ctx, 900)
+	if err != nil {
+		t.Fatalf("ListItemSources: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("ListItemSources returned %d rows, want 1", len(sources))
+	}
+	s := sources[0]
+	if s.VendorName == nil || *s.VendorName != "Verify Fixture Vendor" {
+		t.Errorf("vendor_name = %v, want the vendor's name — the join is not resolving", s.VendorName)
+	}
+	if s.PlaceName != nil {
+		t.Errorf("the vendor source also resolved a place (%q) — a vendor is not a place", *s.PlaceName)
+	}
+	if s.BossID != nil {
+		t.Error("the vendor source resolved a boss")
+	}
+
+	// And a vendor is still not allowed to be a boss as well.
+	_, err = d.ExecContext(ctx, `
+INSERT INTO item_sources (item_id, boss_id, vendor_id, confidence_id, source_note)
+SELECT 900, (SELECT id FROM bosses LIMIT 1), (SELECT id FROM vendors LIMIT 1),
+       (SELECT id FROM confidence_levels WHERE slug='unconfirmed'), 'fixture'`)
+	if err == nil {
+		t.Error("a source naming both a boss and a vendor was accepted; item_sources_boss_and_vendor_not_both is not doing its job")
+	}
+}
