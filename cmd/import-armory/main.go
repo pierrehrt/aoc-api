@@ -6,6 +6,12 @@
 //	go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json -dry-run
 //	go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json
 //
+// ⭐ IT SAYS WHICH DATABASE IT IS WRITING TO, BEFORE IT WRITES. The import DELETEs nine tables and
+// rebuilds them, and `DATABASE_URL` is the only thing choosing the target — the same variable the
+// Makefile tells you to export to production for a migration, in the same shell. So the host is
+// printed first, and a non-local one is refused unless -confirm-host names it back. See
+// internal/db/target.go. (AOC-011 verify round 1.)
+//
 // ⭐ IT REFUSES TO GUESS. Before anything is written it resolves every name in the snapshot
 // against the seeded taxonomies; an unrecognised value stops the import and is printed. The
 // handful of values we have already decided about are listed in internal/items/resolve.go, each
@@ -37,12 +43,16 @@ func main() {
 func run() error {
 	snapshot := flag.String("snapshot", "../armory_snapshot/items_clean.json", "path to items_clean.json")
 	dryRun := flag.Bool("dry-run", false, "resolve everything and roll back instead of committing")
+	confirmHost := flag.String("confirm-host", "", "the non-local host you mean to write to, typed out")
 	flag.Parse()
 
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		return fmt.Errorf("DATABASE_URL is not set — refusing to guess which database to write to")
+	// ---- which database? before anything else, including reading the snapshot ---------------
+	banner, err := db.ConfirmTarget(os.Getenv("DATABASE_URL"), *confirmHost, "-confirm-host")
+	if err != nil {
+		return err
 	}
+	fmt.Println(banner)
+	url := os.Getenv("DATABASE_URL")
 
 	its, err := items.LoadSnapshot(*snapshot)
 	if err != nil {

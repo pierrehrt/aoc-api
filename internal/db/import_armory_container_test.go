@@ -18,20 +18,10 @@ package db_test
 // ⚠️ Fixture names are fake; the taxonomy values ("Acheronian Cache", "Dead Man's Hand") are real
 // because they must resolve against AOC-009's seeds. Nothing here asserts a game fact: it asserts
 // that the value the snapshot supplied is the value the database ends up holding.
-//
-// 📌 This file carries its own importAndCommit rather than calling import_armory_test.go's
-// runImport, whose `commit` argument is dead (every caller passes true). Two more true callers
-// tip `unparam` over its threshold and the gate goes red — so the helper wants its parameter
-// removed, which is a change to existing source that verify may not make.
 
 import (
 	"context"
-	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/pierrehrt/aoc-api/internal/items"
 )
 
 const containerFixtureJSON = `[
@@ -52,37 +42,11 @@ const containerFixtureJSON = `[
    "quest":null,"is_raid":false,"coords":null,"tier":null,"section_raw":"fixture",
    "on_hold":false,"on_hold_reason":null}]}]`
 
-// importAndCommit runs the fixture through the real importer and commits, failing the test on
-// any error — these two tests have nothing to say about a refused import.
-func importAndCommit(t *testing.T, pool *pgxpool.Pool, body string) {
-	t.Helper()
-	ctx := context.Background()
-
-	its, err := items.DecodeSnapshot(strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("decoding fixture: %v", err)
-	}
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	l, err := items.LoadLookups(ctx, tx)
-	if err != nil {
-		t.Fatalf("lookups: %v", err)
-	}
-	if _, err := items.Import(ctx, tx, its, l); err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-}
-
 func TestAContainerSourceKeepsItsContainer(t *testing.T) {
 	pool, d := importTarget(t)
-	importAndCommit(t, pool, containerFixtureJSON)
+	if r := runImport(t, pool, containerFixtureJSON); r.err != nil {
+		t.Fatalf("import: %v", r.err)
+	}
 	ctx := context.Background()
 
 	var container string
@@ -111,7 +75,9 @@ WHERE item_id = 9101 AND container_id IS NOT NULL AND place_id IS NOT NULL`).Sca
 
 func TestAnUnchainedSourceLandsOnTheUnchainedPlace(t *testing.T) {
 	pool, d := importTarget(t)
-	importAndCommit(t, pool, containerFixtureJSON)
+	if r := runImport(t, pool, containerFixtureJSON); r.err != nil {
+		t.Fatalf("import: %v", r.err)
+	}
 
 	var name string
 	var sourceUnchained, placeUnchained bool

@@ -451,9 +451,30 @@ tables have.
 ```
 DATABASE_URL=… go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json -dry-run
 DATABASE_URL=… go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json
+DATABASE_URL=… go run ./cmd/import-armory -confirm-host <host:port>     # a non-local target
 ```
 
 Wiring only, like `cmd/api`: every decision about what the data means lives in `internal/items`.
+
+⚠️ **It says which database it is writing to, before it writes — and a remote one has to be named
+back.** The import is a **full replace**: nine tables are `DELETE`d and rebuilt. Its only clue
+about the target is `DATABASE_URL`, which is the same variable the Makefile tells you to export to
+production for a migration, *in the same shell*. So `db.ConfirmTarget` (`internal/db/target.go`)
+runs first, before the snapshot is even read:
+
+| target | what happens |
+|---|---|
+| local (`localhost`, `127.0.0.1`, `::1`, `postgres`, `db`, `host.docker.internal`) | prints `▶ target: <host>  (local)` and continues |
+| anything else, no `-confirm-host` | **refuses**, names the host, says nothing was written |
+| anything else, `-confirm-host` naming a *different* host | **refuses** — this is the shell-history near-miss |
+| anything else, `-confirm-host` naming it exactly | continues, banner still says `⚠️ NOT LOCAL` |
+
+The flag takes the hostname rather than being a bare `-yes`, because a `-yes` is a flag people
+learn to add by reflex while a hostname has to be read off the URL in front of you. `-dry-run` is
+refused on a remote target too: it rolls back, but it still takes locks on nine tables of a live
+database. The same `HostOf`/`IsLocalHost` pair decides the migration tests' refusal to run
+anywhere but a developer machine — **one definition of "is this local?", not two**.
+(AOC-005 established the property; AOC-011 verify round 1 found this command bypassing it.)
 
 **It refuses to guess.** Before a single row is written it resolves every name in the snapshot
 against AOC-009's seeds. An unrecognised value prints and stops the import, because it means
