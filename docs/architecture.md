@@ -482,8 +482,41 @@ environment used to provide is replaced by the loop below, which costs nothing a
 | Host | Railway, one project, one service, one Postgres, **private networking** between them |
 | Build | this repo's `Dockerfile` (not Railway's Go buildpack — it picks its own Go version) |
 | Trigger | push to `main` → Railway builds → health check |
-| URL | `aoc-codex.app` (AOC-014) |
+| URL | `aoc-codex.app` — see § Hostnames below (AOC-014) |
 | Local DB | `docker-compose.yml`, Postgres on **localhost:5433** |
+
+### Hostnames
+
+Three names, one of which is not a service at all.
+
+| hostname | points at | serves |
+|---|---|---|
+| `aoc-codex.app` | Railway, CNAME → `nnja20lj.up.railway.app` | the site (HTML at `/`) **and** `/v1/*` JSON — one origin, one certificate, no CORS |
+| `www.aoc-codex.app` | **nothing** — answered at Cloudflare's edge | `301` to the apex, always |
+| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam` | the 4,645 archived tooltip images |
+
+⚠️ **`.app` is HSTS-preloaded at the TLD level.** Browsers refuse plain HTTP to *any* `.app` name
+before a request is made, so there is no "try it over http first" step and no HTTP fallback to fall
+back to. A certificate that has not issued yet does not look like a warning — it looks like the site
+is down. Every hostname above must be HTTPS from its first hit, and every asset URL must be `https`
+or it is blocked rather than mixed-content-warned.
+
+**`www` is a Cloudflare Redirect Rule, not a Railway domain.** It is a proxied DNS record with a
+rule in front of it, so the request is answered at the edge and never reaches the origin. Railway
+bills usage, so a hostname whose only job is to say "go to the apex" should not cost a container
+wake-up — the same reasoning as the cache in AOC-026. It also means Railway issues one certificate
+instead of two, for one name instead of a name and its alias.
+
+**Why there is no `api.aoc-codex.app`.** One binary serves both surfaces, so a second hostname would
+be a second name for the same service. Keeping `/v1/*` on the site's own origin means no CORS
+configuration, no preflight round-trip on the critical path, and one certificate.
+(Decided 2026-09-16; `product_management/DECISIONS.md`.)
+
+**The images were named before they were reachable.** `tooltip_image` in the database has held
+`https://img.aoc-codex.app/armory/…` since AOC-008 rewrote the URLs **in the generator** — 4,644 of
+4,646 rows, the other two being AOC-008's two 404s. Those URLs were imported on 2026-09-19 and
+pointed at a hostname that did not resolve until this ticket. `tooltip_source_url` still holds all
+4,646 original `is-better-than.tv` URLs: that column is provenance and never moves.
 
 ### Configuration
 
