@@ -491,9 +491,28 @@ Three names, one of which is not a service at all.
 
 | hostname | points at | serves |
 |---|---|---|
-| `aoc-codex.app` | Railway, CNAME → `nnja20lj.up.railway.app` | the site (HTML at `/`) **and** `/v1/*` JSON — one origin, one certificate, no CORS |
-| `www.aoc-codex.app` | **nothing** — answered at Cloudflare's edge | `301` to the apex, always |
-| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam` | the 4,645 archived tooltip images |
+| **`www.aoc-codex.app`** | Railway, CNAME → `8q2yax25.up.railway.app` | **the canonical site** — HTML at `/` **and** `/v1/*` JSON, one origin, one certificate, no CORS |
+| `aoc-codex.app` (apex) | **nothing** — answered at Cloudflare's edge | `301` to `www`, always |
+| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam`, CNAME → `public.r2.dev` | the 4,645 archived tooltip images |
+
+⚠️ **`www` is canonical and the bare domain redirects to it — the opposite of what was planned, and
+forced by DNS rather than chosen.** Railway verifies a custom domain by **reading the CNAME record
+and comparing its value**. A CNAME at a zone apex is illegal in DNS, so Cloudflare must *flatten* it
+and publish A records instead — leaving Railway nothing to read. Measured, in the same zone and the
+same minute: on `www`, Railway reported `currentValue: nnja20lj.up.railway.app` immediately; on the
+apex, `currentValue` stayed **empty** through every attempt and the certificate never left
+`VALIDATING_OWNERSHIP`. It was not slow. There was nothing there to read.
+
+Three escapes were tried and each is closed:
+
+| attempt | what happens | why |
+|---|---|---|
+| apex proxied (orange cloud) | Railway returns *"Application not found"* | Cloudflare presents `aoc-codex.app` as **SNI** and Railway holds no certificate for it |
+| apex DNS-only (grey cloud) | `curl` fails the hostname check | Railway serves its `*.up.railway.app` certificate; the SAN list does not include us |
+| Cloudflare SSL set to Flexible | redirect loop | Railway answers port 80 with a `301` to HTTPS, unconditionally |
+
+**Each custom domain gets its own CNAME target.** The apex was issued `nnja20lj…`, `www` was issued
+`8q2yax25…`. Reusing one for the other silently fails verification while looking correct.
 
 ⚠️ **`.app` is HSTS-preloaded at the TLD level.** Browsers refuse plain HTTP to *any* `.app` name
 before a request is made, so there is no "try it over http first" step and no HTTP fallback to fall
