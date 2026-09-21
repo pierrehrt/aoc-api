@@ -529,7 +529,10 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
   -- single-value parameter made the caller's second choice unrepresentable -- so the service
   -- passed NULL and the place predicate silently vanished, returning all 4,646 items
-  -- (AOC-012 verify round 1). An empty array is treated as "no filter" by the NULL check.
+  -- (AOC-012 verify round 1).
+  -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for every
+  -- row. The caller passes nil rather than an empty slice, and derives that from the same
+  -- predicate that decides collapsing, so the two cannot disagree (verify round 2).
   AND ($6::varchar[] IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         JOIN places p ON p.id = src.place_id

@@ -143,13 +143,29 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		offset = 0
 	}
 
+	// ⭐ ONE definition of "no places", not two. Aggregate() decides the collapsing mode; this
+	// decides the SQL predicate; and when they disagreed, an EMPTY (non-nil) slice reached Postgres
+	// as '{}' rather than NULL, so `p.slug = ANY('{}')` was false for every row: the service
+	// reported collapsed=true and returned nothing (verify round 2).
+	//
+	// Deriving the parameter FROM the predicate is what makes that unrepresentable, rather than a
+	// second length check sitting somewhere else waiting to drift from the first.
+	//
+	// It is reachable from the surface this layer exists for: the HTML armory page builds
+	// Filters{Places: selected} from a multi-select, and an empty multi-select is its default
+	// state — first paint would have shown zero items.
+	var placeSlugs []string
+	if !f.Aggregate() {
+		placeSlugs = f.Places
+	}
+
 	params := sqlcgen.ListItemsParams{
 		Rarity:        ptrIfSet(f.Rarity),
 		ItemType:      ptrIfSet(f.ItemType),
 		NameQuery:     ptrIfSet(escapeLike(f.Query)),
 		EquipLocation: ptrIfSet(f.EquipLocation),
 		Class:         ptrIfSet(f.Class),
-		PlaceSlugs:    f.Places,
+		PlaceSlugs:    placeSlugs,
 		ArmourWeight:  ptrIfSet(f.ArmourWeight),
 		Region:        ptrIfSet(f.Region),
 		Tier:          ptrIfSet(f.Tier),
@@ -233,7 +249,6 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 
 		// Expanded: one row per NAMED place this item is in, so an item shared by two selected
 		// dungeons appears under both.
-		var matched int
 		for _, p := range places {
 			if !named[p.Slug] {
 				continue
@@ -242,19 +257,17 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			pc := p
 			row.Place = &pc
 			out.Items = append(out.Items, row)
-			matched++
 		}
-		// ⛔ NO FALLBACK HERE, deliberately. An earlier version emitted the item once with no
-		// place when the expansion matched nothing, reasoning that losing a row is worse than
-		// showing one without its place. Its only live effect was to HIDE a bug: when the place
-		// filter silently vanished, it turned "the query returned all 4,646 items" into 196
-		// plausible-looking rows instead of an obviously wrong page (verify round 1).
+		// ⛔ NO FALLBACK when nothing matched, deliberately. An earlier version emitted the item
+		// once with no place, reasoning that losing a row is worse than showing one without its
+		// place. Its only live effect was to HIDE a bug: when the place filter silently vanished,
+		// it turned "the query returned all 4,646 items" into 196 plausible-looking rows instead
+		// of an obviously wrong page (verify round 1).
 		//
-		// It is also unreachable now: the SQL matched this item through `p.slug = ANY(...)` over
-		// the same join ListItemPlaces uses, so a row that got here HAS a named place. If that
+		// It is also unreachable: the SQL matched this item through `p.slug = ANY(...)` over the
+		// same join ListItemPlaces uses, so a row that reaches here HAS a named place. If that
 		// ever stops being true, the item should disappear from a place view it does not belong
 		// to -- which is visible -- rather than appear without a place, which is not.
-		_ = matched
 	}
 
 	return out, nil

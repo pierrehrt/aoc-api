@@ -258,3 +258,49 @@ func TestAggregateIsDecidedByTheFiltersAndNotByTheCaller(t *testing.T) {
 		t.Error("naming a place is not an aggregate view")
 	}
 }
+
+// ⭐ Aggregate() and the SQL parameter must never disagree about what "no places" means.
+//
+// They did: Aggregate() said an EMPTY selection is an aggregate view, while the empty (non-nil)
+// slice reached Postgres as '{}' and matched nothing — so the service reported collapsed=true and
+// returned zero items. Unreachable through /v1, which drops blanks, but reachable from the HTML
+// armory page, whose multi-select starts empty: first paint would have shown nothing.
+//
+// This asserts the two agree by construction rather than by coincidence.
+func TestAnEmptyPlaceSelectionIsNotAFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		places []string
+	}{
+		{"nil places", nil},
+		{"an empty but non-nil selection", []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := sharedItem()
+			res, err := NewService(q).List(context.Background(), Filters{Places: tc.places})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !res.Collapsed {
+				t.Errorf("collapsed = false; an empty selection is an aggregate view")
+			}
+			// The predicate and the parameter are the same decision: if Aggregate() is true, no
+			// place predicate may reach SQL.
+			if got := q.firstArgs().PlaceSlugs; got != nil {
+				t.Errorf("PlaceSlugs reached the query as %#v; an aggregate view must send none", got)
+			}
+			if len(res.Items) != 1 {
+				t.Errorf("got %d items, want the item — an empty selection filters nothing", len(res.Items))
+			}
+		})
+	}
+
+	// And the converse: a real selection must reach SQL, or the filter silently vanishes (B1).
+	q := sharedItem()
+	if _, err := NewService(q).List(context.Background(), Filters{Places: []string{"test-cave", "test-lair"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.firstArgs().PlaceSlugs; len(got) != 2 {
+		t.Errorf("PlaceSlugs reached the query as %#v, want both named places", got)
+	}
+}
