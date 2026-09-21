@@ -29,9 +29,11 @@ RESOLVER=1.1.1.1
 KEY_PLAIN='armory/a_fathers_devotion.jpg';                    BYTES_PLAIN=18505
 KEY_ENC='armory/%5Bcenterpiece_legion_commander%5D.jpg';      BYTES_ENC=5286
 
-fails=0
-pass() { printf '  \033[32mPASS\033[0m  %s\n' "$*"; }
-fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fails=$((fails+1)); }
+fails=0; checks=0
+# The totals are counted, never written down: a hardcoded "24 checks" in a ticket drifts the
+# moment a check is added, and then two numbers disagree and neither is trusted.
+pass() { checks=$((checks+1)); printf '  \033[32mPASS\033[0m  %s\n' "$*"; }
+fail() { checks=$((checks+1)); fails=$((fails+1)); printf '  \033[31mFAIL\033[0m  %s\n' "$*"; }
 info() { printf '  ----  %s\n' "$*"; }
 head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
@@ -77,6 +79,15 @@ for h in "$CANON" "$OTHER"; do
   fi
 done
 
+# criterion 8 covers all three names, and the images are the traffic AOC-026's cache exists for.
+# img has no /health, so it is probed with a real key.
+iip=$(dig +short A "$IMG" @$RESOLVER | grep -E '^[0-9]' | head -1)
+if [ -n "$iip" ] && curl -sS -o /dev/null -D- --max-time 20 --resolve "$IMG:443:$iip" "https://$IMG/$KEY_PLAIN" 2>/dev/null | tr -d '\r' | grep -qi '^server: cloudflare'; then
+  pass "$IMG is PROXIED by Cloudflare (server: cloudflare via $iip)"
+else
+  fail "$IMG is NOT proxied by Cloudflare — criterion 8 covers all three names"
+fi
+
 head_ "3. The canonical host serves the application (criteria 3, 4)"
 IFS='|' read -r code ctype _ <<<"$(probe "https://$CANON/health")"
 [ "$code" = 200 ] && pass "https://$CANON/health -> 200" || fail "https://$CANON/health -> $code"
@@ -91,25 +102,37 @@ else
 fi
 # Server-rendered means the markup is in the first response, not fetched by a script.
 n=$(curl -sS --max-time 20 "https://$CANON/" 2>/dev/null | grep -ciE '<(h1|main|table|article|ul)\b')
+# A FAIL, not an INFO. "Public content pages must render with JavaScript disabled" is the whole
+# reason for this architecture (CLAUDE.md rule 5b); a check that can only ever say "fine" is not
+# a check, and this one degraded to INFO so criterion 4 could never fail the run.
 [ "${n:-0}" -gt 0 ] && pass "  markup present without JavaScript ($n structural tags)" \
-                    || info "  no structural tags yet — the site is still the EP-01 skeleton"
+                    || fail "  no structural markup in the first response — the page needs JavaScript to say anything"
 
 IFS='|' read -r code ctype _ <<<"$(probe "https://$CANON/v1/items")"
+# What this pins is the ORIGIN and the content type, not the endpoint: /v1/items is built by
+# AOC-012 and 404s until then. But a 404 that is not JSON means /v1/* is not answered by our
+# handlers at all, which is a real failure and used to degrade to INFO.
 case "$ctype" in
-  application/json*) pass "https://$CANON/v1/items -> $code $ctype (JSON, same origin)" ;;
-  *) info "https://$CANON/v1/items -> $code $ctype — endpoint lands in AOC-012, not this ticket" ;;
+  application/json*) pass "https://$CANON/v1/items -> $code $ctype (JSON from the same origin)" ;;
+  *) fail "https://$CANON/v1/items -> $code $ctype — /v1/* must answer JSON, even when it answers 404" ;;
 esac
 
 head_ "4. The non-canonical host 301s to the canonical one (criterion 5)"
+# The criterion says the redirect PRESERVES the request, so the destination is compared exactly.
+# A prefix test would accept https://<canonical>/ for a request to /health -- every URL collapsing
+# to the home page, which is a redirect that passes a prefix check and destroys the site.
 oip=$(dig +short A "$OTHER" @$RESOLVER | grep -E '^[0-9]' | head -1)
-IFS='|' read -r code ctype loc <<<"$(probe_at "$OTHER" "$oip" "https://$OTHER/health")"
-if [ "$code" = 301 ] && [ "${loc#https://$CANON}" != "$loc" ]; then
-  pass "https://$OTHER/health -> 301 $loc"
-elif [ "$code" = 301 ]; then
-  fail "https://$OTHER/health -> 301 but to $loc (expected https://$CANON/...)"
-else
-  fail "https://$OTHER/health -> $code (expected a 301 to $CANON, not a second indexable copy)"
-fi
+for rel in "/health" "/v1/items?q=test&page=2" "/boss/some-slug?a=1&b=two%20words" "/"; do
+  IFS='|' read -r code ctype loc <<<"$(probe_at "$OTHER" "$oip" "https://$OTHER$rel")"
+  want="https://$CANON$rel"
+  if [ "$code" = 301 ] && [ "$loc" = "$want" ]; then
+    pass "https://$OTHER$rel -> 301 $loc"
+  elif [ "$code" = 301 ]; then
+    fail "https://$OTHER$rel -> 301 to $loc, wanted exactly $want (path or query not preserved)"
+  else
+    fail "https://$OTHER$rel -> $code (expected a 301 to $CANON, not a second indexable copy)"
+  fi
+done
 
 head_ "5. Tooltip images on $IMG (criterion 6)"
 for pair in "$KEY_PLAIN:$BYTES_PLAIN" "$KEY_ENC:$BYTES_ENC"; do
@@ -145,7 +168,14 @@ for h in "$CANON" "$OTHER" "$IMG"; do
   case "$h" in "$IMG") path="/$KEY_PLAIN" ;; *) path=/health ;; esac
   IFS='|' read -r code ctype loc <<<"$(probe "http://$h$path")"
   case "$code" in
-    301|302|307|308) pass "http://$h$path -> $code $loc" ;;
+    301|302|307|308)
+      # "Upgraded" means to HTTPS. A 3xx that lands on http:// again is a redirect, not an
+      # upgrade, and would pass a check that only looks at the status code.
+      case "$loc" in
+        https://*) pass "http://$h$path -> $code $loc" ;;
+        "")        fail "http://$h$path -> $code with no Location — cannot confirm an upgrade" ;;
+        *)         fail "http://$h$path -> $code to $loc — NOT https, so not an upgrade" ;;
+      esac ;;
     000)             fail "http://$h$path -> no answer" ;;
     *)               fail "http://$h$path -> $code ${ctype} — SERVED in plaintext, not upgraded" ;;
   esac
@@ -160,7 +190,7 @@ info "r2.dev development URL: checked out-of-band via the Cloudflare API (domain
 
 head_ "Result"
 if [ "$fails" -eq 0 ]; then
-  printf '  \033[32mall checks passed\033[0m (canonical: %s)\n\n' "$CANON"; exit 0
+  printf '  \033[32mall %d checks passed\033[0m (canonical: %s)\n\n' "$checks" "$CANON"; exit 0
 else
-  printf '  \033[31m%d check(s) failed\033[0m (canonical: %s)\n\n' "$fails" "$CANON"; exit 1
+  printf '  \033[31m%d of %d checks failed\033[0m (canonical: %s)\n\n' "$fails" "$checks" "$CANON"; exit 1
 fi
