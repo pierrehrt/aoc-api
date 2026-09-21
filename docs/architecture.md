@@ -491,38 +491,51 @@ Three names, one of which is not a service at all.
 
 | hostname | points at | serves |
 |---|---|---|
-| **`www.aoc-codex.app`** | Railway, CNAME → `8q2yax25.up.railway.app` | **the canonical site** — HTML at `/` **and** `/v1/*` JSON, one origin, one certificate, no CORS |
-| `aoc-codex.app` (apex) | **nothing** — answered at Cloudflare's edge | `301` to `www`, always |
-| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam`, CNAME → `public.r2.dev` | the 4,645 archived tooltip images |
+| **`aoc-codex.app`** (apex) | Railway, CNAME `nnja20lj.up.railway.app`, **proxied** | **the canonical site** — HTML at `/` **and** `/v1/*` JSON, one origin, one certificate, no CORS |
+| `www.aoc-codex.app` | Railway, CNAME `8q2yax25.up.railway.app`, **proxied** | `301` to the apex, answered at Cloudflare's edge |
+| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam`, CNAME `public.r2.dev`, **proxied** | the 4,645 archived tooltip images |
 
-⚠️ **`www` is canonical and the bare domain redirects to it — the opposite of what was planned, and
-forced by DNS rather than chosen.** Railway verifies a custom domain by **reading the CNAME record
-and comparing its value**. A CNAME at a zone apex is illegal in DNS, so Cloudflare must *flatten* it
-and publish A records instead — leaving Railway nothing to read. Measured, in the same zone and the
-same minute: on `www`, Railway reported `currentValue: nnja20lj.up.railway.app` immediately; on the
-apex, `currentValue` stayed **empty** through every attempt and the certificate never left
-`VALIDATING_OWNERSHIP`. It was not slow. There was nothing there to read.
+**Railway validates a custom domain with a TXT record, not by reading the CNAME.** This is worth
+stating plainly because getting it wrong cost a day and nearly cost the apex permanently.
+`railway domain status <host> --service api --json` returns two independent things:
 
-⏳ **2026-09-21 — the paragraph above is under re-measurement and may be wrong.** `railway domain
-status` also returns a **`verification`** block, separate from the CNAME: `verified: false`, with a
-TXT record to publish at `_railway-verify.www` (and `_railway-verify` for the apex). Neither record
-has ever existed — measured with `dig @1.1.1.1 TXT`. So `www` has a correct, propagated CNAME and
-*still* has no certificate, which the CNAME story does not explain. The CNAME carries
-`purpose: TRAFFIC_ROUTE`; ownership is proved by the TXT, and **a TXT record at a zone apex is
-perfectly legal**. Both "escapes" below are what a host with no certificate looks like either way, so
-neither one proves the apex can never validate. Do not rely on this section until the TXT records
-exist and both certificates have been watched (AOC-014).
+- a **`dnsRecords`** entry with `purpose: DNS_RECORD_PURPOSE_TRAFFIC_ROUTE` — the CNAME that carries
+  traffic, and
+- a **`verification`** block — `verified`, a `dnsHost` of `_railway-verify[.<label>]`, and the TXT
+  value to publish there.
 
-Three escapes were tried and each is closed:
+**The certificate waits on `verification`, and nothing else.** Until that TXT exists the status sits
+at `CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP` indefinitely — not "slow", not "stuck", simply
+unsatisfied. Both hostnames sat there for a day with perfect CNAMEs. Within **~30 seconds** of the
+two TXT records resolving, both went `VALIDATING_OWNERSHIP → ISSUING → VALID`.
 
-| attempt | what happens | why |
-|---|---|---|
-| apex proxied (orange cloud) | Railway returns *"Application not found"* | Cloudflare presents `aoc-codex.app` as **SNI** and Railway holds no certificate for it |
-| apex DNS-only (grey cloud) | `curl` fails the hostname check | Railway serves its `*.up.railway.app` certificate; the SAN list does not include us |
-| Cloudflare SSL set to Flexible | redirect loop | Railway answers port 80 with a `301` to HTTPS, unconditionally |
+⚠️ **The corollary, which reversed a decision.** It was previously recorded here that a zone apex can
+*never* be a Railway custom domain, reasoning that Railway reads the CNAME's value and that
+Cloudflare must flatten an apex CNAME into A records, leaving nothing to read. The flattening is
+real; the conclusion was not. Ownership is proved by a **TXT record, and a TXT at a zone apex is
+perfectly legal DNS**. The apex holds a valid Let's Encrypt certificate today. Every symptom
+previously offered as proof — *"Application not found"* when proxied, a certificate-name failure when
+DNS-only — is simply what **any** host with no certificate looks like, through the two different
+paths. None of them was evidence about the apex specifically.
 
-**Each custom domain gets its own CNAME target.** The apex was issued `nnja20lj…`, `www` was issued
-`8q2yax25…`. Reusing one for the other silently fails verification while looking correct.
+📌 **Each custom domain gets its own CNAME target and its own TXT token.** The apex was issued
+`nnja20lj…`, `www` was issued `8q2yax25…`, and the two `_railway-verify` values differ. Reusing one
+for the other silently fails verification while looking correct.
+
+📌 **A TXT record is never proxied** — there is no orange cloud to get wrong. Create it with type,
+name, content and `ttl: 1`, and leave the neighbouring records alone.
+
+**`www` is a Cloudflare Page Rule, not Go middleware.** `www.aoc-codex.app/*` →
+`https://aoc-codex.app/$1`, `301`, path and query preserved. The redirect is answered at the edge and
+never reaches the origin: Railway bills usage, so a hostname whose only job is to say "go to the
+canonical name" should not cost a container wake-up — the same reasoning as the cache in AOC-026.
+⚠️ There is **no Dynamic Redirect permission on this account**, so this is a Page Rule, and the free
+plan allows **three**; one is now spent.
+
+**`www` still needs its own Railway custom domain and certificate even though it only redirects.**
+Cloudflare presents the requested hostname as SNI to the origin, so a proxied name with no
+certificate on the Railway side fails before the Page Rule matters.
+
 
 **Checking all of this:** `scripts/check-hostnames.sh [canonical-host]` gathers the evidence for
 every hostname criterion — resolution, proxy status, TLS, the canonical host's `/health` and HTML,
@@ -532,19 +545,17 @@ HTTP on all three names, and that the bucket does not list. It only reads: no DN
 call, no credential. Exit 0 means every check passed. Watch mode and AOC-026 re-ask exactly these
 questions, which is why it lives in the repo instead of a scratchpad.
 
+📌 **It pins curl to an authoritative address on purpose.** Immediately after the orange cloud is
+switched on, this machine's own resolver still answers with the pre-proxy address for the rest of
+the old TTL, so an unpinned check reports "not proxied" for a change that was in fact applied —
+measured on 2026-09-21, `dig` said `104.21.34.205` while `dscacheutil` still said `69.46.46.106`.
+The script reports the disagreement as a note rather than a failure.
+
 ⚠️ **`.app` is HSTS-preloaded at the TLD level.** Browsers refuse plain HTTP to *any* `.app` name
 before a request is made, so there is no "try it over http first" step and no HTTP fallback to fall
 back to. A certificate that has not issued yet does not look like a warning — it looks like the site
 is down. Every hostname above must be HTTPS from its first hit, and every asset URL must be `https`
 or it is blocked rather than mixed-content-warned.
-
-**The redirecting hostname is a Cloudflare Page Rule, not a Railway domain.** ⚠️ This paragraph
-described `www` redirecting to the apex; since the flip it is the **apex** that redirects to `www`,
-and the mechanism is a **Page Rule** (there is no Dynamic Redirect permission on this account), of
-which the free plan allows three. It is a proxied DNS record with a rule in front of it, so the
-request is answered at the edge and never reaches the origin. Railway bills usage, so a hostname
-whose only job is to say "go to the canonical name" should not cost a container wake-up — the same reasoning as the cache in AOC-026. It also means Railway issues one certificate
-instead of two, for one name instead of a name and its alias.
 
 **Why there is no `api.aoc-codex.app`.** One binary serves both surfaces, so a second hostname would
 be a second name for the same service. Keeping `/v1/*` on the site's own origin means no CORS

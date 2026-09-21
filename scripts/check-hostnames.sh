@@ -7,7 +7,7 @@
 # no credential. Safe to run from anywhere, any time.
 #
 # Usage:  scripts/check-hostnames.sh [canonical-host]
-#         canonical-host defaults to www.aoc-codex.app (AOC-014, 2026-09-20).
+#         canonical-host defaults to aoc-codex.app, the apex (AOC-014, 2026-09-21).
 #
 # Exit 0 if every check passed, 1 otherwise. Each line is PASS / FAIL / INFO so the
 # output can be pasted into a ticket as evidence.
@@ -15,7 +15,7 @@
 set -uo pipefail
 
 ZONE=aoc-codex.app
-CANON=${1:-www.aoc-codex.app}
+CANON=${1:-$ZONE}
 case "$CANON" in
   "$ZONE")      OTHER="www.$ZONE" ;;
   "www.$ZONE")  OTHER="$ZONE" ;;
@@ -41,6 +41,8 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 # shifts the redirect target into $ctype and leaves $loc empty. Measured, not guessed.
 probe() { curl -sS -o /dev/null -w '%{http_code}|%{content_type}|%{redirect_url}' --max-time 20 "$1" 2>/dev/null; }
 hdr()   { curl -sS -o /dev/null -D- --max-time 20 "$1" 2>/dev/null | tr -d '\r'; }
+# Same as probe(), but pinned to an address so a stale local resolver cannot answer for it.
+probe_at() { if [ -n "$2" ]; then curl -sS -o /dev/null -w '%{http_code}|%{content_type}|%{redirect_url}' --max-time 20 --resolve "$1:443:$2" --resolve "$1:80:$2" "$3" 2>/dev/null; else probe "$3"; fi; }
 
 head_ "1. Zone nameservers (criterion 1)"
 ns=$(dig +short NS "$ZONE" @$RESOLVER | sort | tr '\n' ' ')
@@ -53,11 +55,20 @@ head_ "2. DNS and TLS on both site hostnames (criteria 2, 8)"
 for h in "$CANON" "$OTHER"; do
   a=$(dig +short A "$h" @$RESOLVER | grep -E '^[0-9]' | tr '\n' ' ')
   [ -n "$a" ] && pass "$h resolves: $a" || fail "$h does not resolve"
-  # A proxied record answers from Cloudflare's ranges (104.x / 172.67.x announced by CF).
-  if curl -sS -o /dev/null -D- --max-time 20 "https://$h/health" 2>/dev/null | tr -d '\r' | grep -qi '^server: cloudflare'; then
-    pass "$h is PROXIED by Cloudflare (server: cloudflare)"
+  # Ask an authoritative-ish resolver directly, then pin curl to that address.
+  # ⚠️ The trap this avoids: this machine's OWN resolver caches the pre-proxy address for
+  # the record's old TTL, so right after flipping the orange cloud `curl` still reaches
+  # Railway and the check reports "not proxied" when the change was in fact applied.
+  # Measured on 2026-09-21: dig said 104.21.34.205, dscacheutil still said 69.46.46.106.
+  ip=$(dig +short A "$h" @$RESOLVER | grep -E '^[0-9]' | head -1)
+  if [ -n "$ip" ] && curl -sS -o /dev/null -D- --max-time 20 --resolve "$h:443:$ip" "https://$h/health" 2>/dev/null | tr -d '\r' | grep -qi '^server: cloudflare'; then
+    pass "$h is PROXIED by Cloudflare (server: cloudflare via $ip)"
   else
     fail "$h is NOT proxied by Cloudflare — AOC-026's cache rules need the orange cloud"
+  fi
+  sysip=$(dscacheutil -q host -a name "$h" 2>/dev/null | awk '/^ip_address/{print $2; exit}')
+  if [ -n "$sysip" ] && [ -n "$ip" ] && [ "$sysip" != "$ip" ]; then
+    info "  NOTE: this machine still resolves $h to $sysip, authoritative says $ip — stale local cache, not a fault"
   fi
   if curl -sS -o /dev/null --max-time 20 "https://$h/health" 2>/dev/null; then
     pass "$h serves valid TLS (certificate verified by curl)"
@@ -90,7 +101,8 @@ case "$ctype" in
 esac
 
 head_ "4. The non-canonical host 301s to the canonical one (criterion 5)"
-IFS='|' read -r code ctype loc <<<"$(probe "https://$OTHER/health")"
+oip=$(dig +short A "$OTHER" @$RESOLVER | grep -E '^[0-9]' | head -1)
+IFS='|' read -r code ctype loc <<<"$(probe_at "$OTHER" "$oip" "https://$OTHER/health")"
 if [ "$code" = 301 ] && [ "${loc#https://$CANON}" != "$loc" ]; then
   pass "https://$OTHER/health -> 301 $loc"
 elif [ "$code" = 301 ]; then
