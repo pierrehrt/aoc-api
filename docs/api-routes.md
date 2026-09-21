@@ -92,13 +92,23 @@ mode therefore follows the filters and cannot be asked for:
 | one `place` | one per item, each carrying `place` | `false` |
 | several `place` values | **one per item per named place**, so a shared item appears under each | `false` |
 
+An item that matches the filters but is in **none** of the named places does not appear. It is not
+emitted without a place: a row missing from a place view is visible, a place-less row in one is not
+(that fallback existed once, and its only effect was to hide a filter that had stopped working).
+
 A client that had to opt in would render a visibly wrong page the first time it forgot, which is why
 this is server-side (`CLAUDE.md` rule 5b).
 
 **Paging.** `limit` defaults to 50 and is clamped to 200 — `limit=0` and `limit=10000` are both
-answered rather than rejected, and no response ever carries all 4,646 rows. Paging past the end
-returns an empty `items` with the **true** `total`, so "past the end" stays distinguishable from
-"nothing matches".
+answered rather than rejected. Paging past the end returns an empty `items` with the **true**
+`total`, so "past the end" stays distinguishable from "nothing matches".
+
+⚠️ **In an expanded view, `limit` and `total` count ITEMS, not rows.** Naming *k* places can
+therefore return up to `limit × k` rows, because a shared item appears under each named place — that
+is the whole point of the expanded view. `total` is the number of distinct items matching the
+filters, which is what a pager needs; counting rows would make the page count change depending on
+how many of the selected dungeons happen to share loot. A client rendering rows should page on
+`total` and expect more rows than items.
 
 **Empty results are a 200** with `"items": []` and the full envelope, never a 404: *no item matches*
 is an answer, not a missing resource.

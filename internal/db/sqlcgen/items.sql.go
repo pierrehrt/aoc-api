@@ -241,7 +241,7 @@ SELECT src.item_id, p.slug AS place_slug, p.name AS place_name,
        coalesce(CASE WHEN count(DISTINCT b.name) = 1 THEN min(b.name) END, '')::varchar AS boss_name
 FROM item_sources src
 JOIN places p ON p.id = src.place_id
-LEFT JOIN regions r ON r.id = coalesce(src.region_id, p.region_id)
+LEFT JOIN regions r ON r.id = coalesce(p.region_id, src.region_id)
 LEFT JOIN tiers t ON t.id = src.tier_id
 LEFT JOIN bosses b ON b.id = src.boss_id
 WHERE src.item_id = ANY($1::integer[])
@@ -526,10 +526,15 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
         SELECT 1 FROM item_classes ic
         JOIN classes cl ON cl.id = ic.class_id
         WHERE ic.item_id = i.item_id AND cl.slug = $5::varchar))
-  AND ($6::varchar IS NULL OR EXISTS (
+  -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+  -- single-value parameter made the caller's second choice unrepresentable -- so the service
+  -- passed NULL and the place predicate silently vanished, returning all 4,646 items
+  -- (AOC-012 verify round 1). An empty array is treated as "no filter" by the NULL check.
+  AND ($6::varchar[] IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         JOIN places p ON p.id = src.place_id
-        WHERE src.item_id = i.item_id AND p.slug = $6::varchar))
+        WHERE src.item_id = i.item_id
+          AND p.slug = ANY($6::varchar[])))
   AND ($7::varchar IS NULL OR EXISTS (
         SELECT 1 FROM armour_weights aw
         WHERE aw.id = i.armour_weight_id AND aw.slug = $7::varchar))
@@ -538,7 +543,11 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   AND ($8::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         LEFT JOIN places p ON p.id = src.place_id
-        LEFT JOIN regions r2 ON r2.id = coalesce(src.region_id, p.region_id)
+        -- The PLACE's region wins. 196 item_sources rows disagree with their own place's region
+        -- (AOC-037), and the place row is the stronger fact: it carries name, map and region
+        -- together, with an invariant test behind it, while the per-source region is derived and
+        -- has none. A source with no place still falls back to its own.
+        LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
         WHERE src.item_id = i.item_id AND r2.slug = $8::varchar))
   AND ($9::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
@@ -566,7 +575,7 @@ type ListItemsParams struct {
 	NameQuery     *string
 	EquipLocation *string
 	Class         *string
-	Place         *string
+	PlaceSlugs    []string
 	ArmourWeight  *string
 	Region        *string
 	Tier          *string
@@ -608,7 +617,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.NameQuery,
 		arg.EquipLocation,
 		arg.Class,
-		arg.Place,
+		arg.PlaceSlugs,
 		arg.ArmourWeight,
 		arg.Region,
 		arg.Tier,

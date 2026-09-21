@@ -143,21 +143,13 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		offset = 0
 	}
 
-	// One place named is still a place view -- it just cannot duplicate anything. The query takes
-	// a single place; several named places are filtered in the expansion below, which is where the
-	// per-place rows come from anyway.
-	var place *string
-	if len(f.Places) == 1 {
-		place = &f.Places[0]
-	}
-
 	params := sqlcgen.ListItemsParams{
 		Rarity:        ptrIfSet(f.Rarity),
 		ItemType:      ptrIfSet(f.ItemType),
 		NameQuery:     ptrIfSet(escapeLike(f.Query)),
 		EquipLocation: ptrIfSet(f.EquipLocation),
 		Class:         ptrIfSet(f.Class),
-		Place:         place,
+		PlaceSlugs:    f.Places,
 		ArmourWeight:  ptrIfSet(f.ArmourWeight),
 		Region:        ptrIfSet(f.Region),
 		Tier:          ptrIfSet(f.Tier),
@@ -252,12 +244,17 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			out.Items = append(out.Items, row)
 			matched++
 		}
-		// A place filter that matched through the query but not through this expansion means the
-		// item's link is recorded without a place row we can name. Emit it once rather than
-		// dropping it: losing a row is worse than showing one without its place.
-		if matched == 0 {
-			out.Items = append(out.Items, base)
-		}
+		// ⛔ NO FALLBACK HERE, deliberately. An earlier version emitted the item once with no
+		// place when the expansion matched nothing, reasoning that losing a row is worse than
+		// showing one without its place. Its only live effect was to HIDE a bug: when the place
+		// filter silently vanished, it turned "the query returned all 4,646 items" into 196
+		// plausible-looking rows instead of an obviously wrong page (verify round 1).
+		//
+		// It is also unreachable now: the SQL matched this item through `p.slug = ANY(...)` over
+		// the same join ListItemPlaces uses, so a row that got here HAS a named place. If that
+		// ever stops being true, the item should disappear from a place view it does not belong
+		// to -- which is visible -- rather than appear without a place, which is not.
+		_ = matched
 	}
 
 	return out, nil

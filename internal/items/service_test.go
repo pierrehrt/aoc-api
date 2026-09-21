@@ -100,7 +100,11 @@ func TestTheCollapsingRuleFollowsTheViewNotAFlag(t *testing.T) {
 		{"an aggregate view collapses to one row", nil, 1, nil, true},
 		{"one dungeon shows it once, under that dungeon", []string{"test-cave"}, 1, []string{"test-cave"}, false},
 		{"two dungeons that share it show it under BOTH", []string{"test-cave", "test-lair"}, 2, []string{"test-cave", "test-lair"}, false},
-		{"a dungeon that does not have it still yields the item once, never zero", []string{"test-elsewhere"}, 1, nil, false},
+		// ⛔ Was "still yields the item once, never zero" until verify round 1. That fallback
+		// existed to avoid losing a row, and its only live effect was to HIDE the place filter
+		// vanishing: 196 unrelated items came back with no place instead of an obviously wrong
+		// page. A row that does not belong in a place view must be absent, which is visible.
+		{"an item in none of the named places is absent, not place-less", []string{"test-elsewhere"}, 0, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := NewService(sharedItem()).List(context.Background(), Filters{Places: tc.places})

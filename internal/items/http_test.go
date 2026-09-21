@@ -54,7 +54,14 @@ func TestEveryFilterReachesTheQuery(t *testing.T) {
 		{"class=conqueror", func(p sqlcgen.ListItemsParams) bool { return p.Class != nil && *p.Class == "conqueror" }, "class"},
 		{"region=cimmeria", func(p sqlcgen.ListItemsParams) bool { return p.Region != nil && *p.Region == "cimmeria" }, "region"},
 		{"tier=pve-6", func(p sqlcgen.ListItemsParams) bool { return p.Tier != nil && *p.Tier == "pve-6" }, "tier"},
-		{"place=test-cave", func(p sqlcgen.ListItemsParams) bool { return p.Place != nil && *p.Place == "test-cave" }, "place"},
+		{"place=test-cave", func(p sqlcgen.ListItemsParams) bool {
+			return len(p.PlaceSlugs) == 1 && p.PlaceSlugs[0] == "test-cave"
+		}, "place"},
+		// ⛔ The bug verify round 1 found: two places must reach SQL as TWO, or the predicate
+		// vanishes and the query returns the whole armory.
+		{"place=a&place=b", func(p sqlcgen.ListItemsParams) bool {
+			return len(p.PlaceSlugs) == 2 && p.PlaceSlugs[0] == "a" && p.PlaceSlugs[1] == "b"
+		}, "two places"},
 		{"q=relic", func(p sqlcgen.ListItemsParams) bool { return p.NameQuery != nil && *p.NameQuery == "relic" }, "q"},
 		{"pvp=true", func(p sqlcgen.ListItemsParams) bool { return p.Pvp != nil && *p.Pvp }, "pvp=true"},
 		{"pvp=false", func(p sqlcgen.ListItemsParams) bool { return p.Pvp != nil && !*p.Pvp }, "pvp=false"},
@@ -62,7 +69,7 @@ func TestEveryFilterReachesTheQuery(t *testing.T) {
 		{"limit=7&offset=3", func(p sqlcgen.ListItemsParams) bool { return p.PageSize == 7 && p.PageOffset == 3 }, "paging"},
 		// Absence must stay absent: a zero value here would filter on the empty string.
 		{"", func(p sqlcgen.ListItemsParams) bool {
-			return p.Rarity == nil && p.Pvp == nil && p.Unchained == nil && p.Region == nil
+			return p.Rarity == nil && p.Pvp == nil && p.Unchained == nil && p.Region == nil && len(p.PlaceSlugs) == 0
 		}, "no filters at all"},
 	} {
 		t.Run(tc.what, func(t *testing.T) {
