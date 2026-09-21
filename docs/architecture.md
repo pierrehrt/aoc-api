@@ -503,6 +503,16 @@ same minute: on `www`, Railway reported `currentValue: nnja20lj.up.railway.app` 
 apex, `currentValue` stayed **empty** through every attempt and the certificate never left
 `VALIDATING_OWNERSHIP`. It was not slow. There was nothing there to read.
 
+⏳ **2026-09-21 — the paragraph above is under re-measurement and may be wrong.** `railway domain
+status` also returns a **`verification`** block, separate from the CNAME: `verified: false`, with a
+TXT record to publish at `_railway-verify.www` (and `_railway-verify` for the apex). Neither record
+has ever existed — measured with `dig @1.1.1.1 TXT`. So `www` has a correct, propagated CNAME and
+*still* has no certificate, which the CNAME story does not explain. The CNAME carries
+`purpose: TRAFFIC_ROUTE`; ownership is proved by the TXT, and **a TXT record at a zone apex is
+perfectly legal**. Both "escapes" below are what a host with no certificate looks like either way, so
+neither one proves the apex can never validate. Do not rely on this section until the TXT records
+exist and both certificates have been watched (AOC-014).
+
 Three escapes were tried and each is closed:
 
 | attempt | what happens | why |
@@ -514,16 +524,26 @@ Three escapes were tried and each is closed:
 **Each custom domain gets its own CNAME target.** The apex was issued `nnja20lj…`, `www` was issued
 `8q2yax25…`. Reusing one for the other silently fails verification while looking correct.
 
+**Checking all of this:** `scripts/check-hostnames.sh [canonical-host]` gathers the evidence for
+every hostname criterion — resolution, proxy status, TLS, the canonical host's `/health` and HTML,
+the 301 from the other name, two real tooltip keys checked against their byte counts in
+`armory_snapshot/tooltips_upload_manifest.csv` (one of them URL-encoded, which is the trap), plain
+HTTP on all three names, and that the bucket does not list. It only reads: no DNS change, no Railway
+call, no credential. Exit 0 means every check passed. Watch mode and AOC-026 re-ask exactly these
+questions, which is why it lives in the repo instead of a scratchpad.
+
 ⚠️ **`.app` is HSTS-preloaded at the TLD level.** Browsers refuse plain HTTP to *any* `.app` name
 before a request is made, so there is no "try it over http first" step and no HTTP fallback to fall
 back to. A certificate that has not issued yet does not look like a warning — it looks like the site
 is down. Every hostname above must be HTTPS from its first hit, and every asset URL must be `https`
 or it is blocked rather than mixed-content-warned.
 
-**`www` is a Cloudflare Redirect Rule, not a Railway domain.** It is a proxied DNS record with a
-rule in front of it, so the request is answered at the edge and never reaches the origin. Railway
-bills usage, so a hostname whose only job is to say "go to the apex" should not cost a container
-wake-up — the same reasoning as the cache in AOC-026. It also means Railway issues one certificate
+**The redirecting hostname is a Cloudflare Page Rule, not a Railway domain.** ⚠️ This paragraph
+described `www` redirecting to the apex; since the flip it is the **apex** that redirects to `www`,
+and the mechanism is a **Page Rule** (there is no Dynamic Redirect permission on this account), of
+which the free plan allows three. It is a proxied DNS record with a rule in front of it, so the
+request is answered at the edge and never reaches the origin. Railway bills usage, so a hostname
+whose only job is to say "go to the canonical name" should not cost a container wake-up — the same reasoning as the cache in AOC-026. It also means Railway issues one certificate
 instead of two, for one name instead of a name and its alias.
 
 **Why there is no `api.aoc-codex.app`.** One binary serves both surfaces, so a second hostname would
