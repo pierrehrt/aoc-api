@@ -127,8 +127,20 @@ be more surface to keep correct for a filter nobody asked to combine.
 ### `GET /v1/items/{slug}`
 
 One item with everything its page shows, in one response: stats, every source (place, boss, region,
-tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
+map, tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
 **404 through the central error mapper**, with the standard JSON body — never a bare string.
+
+Each source carries **both a name and a slug** for place, region and map — `"place": "Kyllikki's
+Crypt"` beside `"place_slug": "kyllikki-s-crypt"`. The name is what a person reads; the slug is what
+the list filters take, so an item page can link *"everything else from here"* straight back into
+`/v1/items?place=…`. Without it that link is a dead end: `region=Cimmeria` matches nothing, only
+`region=cimmeria` does.
+
+⚠️ **A source's region and map come from its PLACE**, not from the source row's own columns, in
+every query that publishes them. 196 source rows disagree with their own place, and honouring the
+source row made the item page contradict the list about where the same dungeon is. Which record is
+right is a game question (**AOC-037**); until it is answered, both endpoints at least say the same
+thing. A source with no place still falls back to its own columns.
 
 ### `GET /v1/taxonomies`
 

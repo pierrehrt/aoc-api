@@ -337,16 +337,24 @@ type StatLine struct {
 }
 
 // SourceRef is one place an item comes from, with everything the item page shows beside it.
+//
+// ⭐ Names AND slugs. The name is what a person reads; the slug is what the list filters take, so
+// an item page can link "everything else from here" straight back into /v1/items?place=… . Without
+// the slug that link is a dead end: `region=Cimmeria` matches nothing, only `region=cimmeria` does
+// (verify round 4). Additive, and nothing consumes this yet.
 type SourceRef struct {
 	ID              int64     `json:"id"`
 	AcquisitionType *string   `json:"acquisition_type,omitempty"`
 	Place           *string   `json:"place,omitempty"`
+	PlaceSlug       *string   `json:"place_slug,omitempty"`
 	Boss            *string   `json:"boss,omitempty"`
 	Vendor          *string   `json:"vendor,omitempty"`
 	Quest           *string   `json:"quest,omitempty"`
 	Container       *string   `json:"container,omitempty"`
 	Region          *string   `json:"region,omitempty"`
+	RegionSlug      *string   `json:"region_slug,omitempty"`
 	Map             *string   `json:"map,omitempty"`
+	MapSlug         *string   `json:"map_slug,omitempty"`
 	Tier            *string   `json:"tier,omitempty"`
 	IsRaid          bool      `json:"is_raid"`
 	Unchained       bool      `json:"unchained"`
@@ -453,9 +461,11 @@ func (s *Service) hydrate(ctx context.Context, id int32) (Detail, error) {
 	for _, sr := range srcs {
 		out.Sources = append(out.Sources, SourceRef{
 			ID: sr.ID, AcquisitionType: sr.AcquisitionType,
-			Place: sr.PlaceName, Boss: sr.BossName, Vendor: sr.VendorName,
+			Place: sr.PlaceName, PlaceSlug: sr.PlaceSlug,
+			Boss: sr.BossName, Vendor: sr.VendorName,
 			Quest: sr.QuestName, Container: sr.ContainerName,
-			Region: sr.RegionName, Map: sr.MapName, Tier: sr.Tier,
+			Region: sr.RegionName, RegionSlug: sr.RegionSlug,
+			Map: sr.MapName, MapSlug: sr.MapSlug, Tier: sr.Tier,
 			IsRaid: sr.IsRaid, Unchained: sr.Unchained,
 			Confidence: sr.Confidence, SourceNote: sr.SourceNote,
 			OpenQuestion: sr.OpenQuestion, Costs: costsBySource[sr.ID],

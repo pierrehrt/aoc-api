@@ -70,13 +70,13 @@ ORDER BY cl.name;
 -- 229 with three — so this is a list and never a single row.
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type,
-       src.place_id, p.name AS place_name,
+       src.place_id, p.name AS place_name, p.slug AS place_slug,
        src.boss_id, bo.name AS boss_name,
        src.vendor_id, v.name AS vendor_name,
        src.quest_id, q.name AS quest_name,
        src.container_id, ct.name AS container_name,
-       src.region_id, rg.name AS region_name,
-       src.map_id, mp.name AS map_name,
+       src.region_id, rg.name AS region_name, rg.slug AS region_slug,
+       src.map_id, mp.name AS map_name, mp.slug AS map_slug,
        src.tier_id, tr.slug AS tier,
        src.is_raid, src.coords, src.section_raw, src.unchained,
        c.slug AS confidence, src.source_note, src.open_question
@@ -88,8 +88,15 @@ LEFT JOIN bosses bo ON bo.id = src.boss_id
 LEFT JOIN vendors v ON v.id = src.vendor_id
 LEFT JOIN quests q ON q.id = src.quest_id
 LEFT JOIN containers ct ON ct.id = src.container_id
-LEFT JOIN regions rg ON rg.id = src.region_id
-LEFT JOIN maps mp ON mp.id = src.map_id
+-- ⚠️ THE PLACE DECIDES, here too. AOC-012 verify round 1 settled that a source's place is the
+-- stronger fact than the source's own region, and it was written into ListItems and
+-- ListItemPlaces -- but NOT here, so the item page said Cimmeria for a place the list called
+-- Stygia. 196 rows across 98 items, region and map alike, and a reader got a different answer
+-- depending on which endpoint they landed on (verify round 4).
+--
+-- A read decision has to name EVERY query that publishes the fact, not the ones in front of you.
+LEFT JOIN regions rg ON rg.id = coalesce(p.region_id, src.region_id)
+LEFT JOIN maps mp ON mp.id = coalesce(p.map_id, src.map_id)
 LEFT JOIN tiers tr ON tr.id = src.tier_id
 WHERE src.item_id = $1
 ORDER BY src.id;
