@@ -45,7 +45,7 @@ func adminURL(t *testing.T) string {
 		// databases on production's instance. It would not corrupt data, but "hitting
 		// production takes effort" was not true of this path.
 		// (AOC-005 verify round 1.)
-		if h := hostOf(v); !isLocalHost(h) {
+		if h := db.HostOf(v); !db.IsLocalHost(h) {
 			t.Fatalf("%s points at %q, which is not local.\n"+
 				"These tests CREATE and DROP databases; they will not do that on a remote server.\n"+
 				"Use the local compose database (make db-up), or set TEST_DATABASE_URL to it.", k, h)
@@ -56,35 +56,10 @@ func adminURL(t *testing.T) string {
 	return ""
 }
 
-// hostOf pulls the host[:port] out of a postgres URL without parsing credentials, so a
-// password can never reach a log line or a test failure message.
-func hostOf(url string) string {
-	if i := strings.Index(url, "://"); i >= 0 {
-		url = url[i+3:]
-	}
-	if i := strings.LastIndex(url, "@"); i >= 0 {
-		url = url[i+1:]
-	}
-	if i := strings.IndexAny(url, "/?"); i >= 0 {
-		url = url[:i]
-	}
-	return url
-}
-
-// isLocalHost accepts only what a developer machine or a CI service container looks like.
-// Deliberately an allowlist: a denylist of "known production hostnames" is a list someone
-// forgets to update exactly once.
-func isLocalHost(hostPort string) bool {
-	host := hostPort
-	if i := strings.LastIndex(host, ":"); i >= 0 {
-		host = host[:i]
-	}
-	switch host {
-	case "localhost", "127.0.0.1", "::1", "[::1]", "postgres", "db", "host.docker.internal":
-		return true
-	}
-	return false
-}
+// ⭐ hostOf and isLocalHost used to live here as unexported copies. They are now
+// db.HostOf / db.IsLocalHost, because cmd/import-armory needs exactly the same answer before it
+// DELETEs nine tables — and two definitions of "is this local?" is one more than can stay true.
+// (AOC-011 verify round 1; internal/db/target.go.)
 
 // freshDatabase creates a throwaway database and drops it afterwards, so a test can never
 // disturb the developer's own data and two tests can never collide.
@@ -797,18 +772,18 @@ func TestOnlyLocalHostsAreAccepted(t *testing.T) {
 		"postgres://u:p@10.0.0.5:5432/x",
 	}
 	for _, u := range local {
-		if !isLocalHost(hostOf(u)) {
-			t.Errorf("%s was rejected; it is local", hostOf(u))
+		if !db.IsLocalHost(db.HostOf(u)) {
+			t.Errorf("%s was rejected; it is local", db.HostOf(u))
 		}
 	}
 	for _, u := range remote {
-		if isLocalHost(hostOf(u)) {
-			t.Errorf("%s was ACCEPTED — these tests create and drop databases", hostOf(u))
+		if db.IsLocalHost(db.HostOf(u)) {
+			t.Errorf("%s was ACCEPTED — these tests create and drop databases", db.HostOf(u))
 		}
 	}
-	// hostOf must never leak the password into a message.
-	if h := hostOf("postgres://user:sup3rsecret@localhost:5433/db"); strings.Contains(h, "sup3rsecret") {
-		t.Errorf("hostOf leaked credentials: %q", h)
+	// HostOf must never leak the password into a message.
+	if h := db.HostOf("postgres://user:sup3rsecret@localhost:5433/db"); strings.Contains(h, "sup3rsecret") {
+		t.Errorf("db.HostOf leaked credentials: %q", h)
 	}
 }
 
