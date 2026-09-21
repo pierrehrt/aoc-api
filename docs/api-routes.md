@@ -30,9 +30,102 @@ database (`docs/architecture.md`).
 
 ## `/v1`
 
-The sub-router is mounted and **empty**. Any path under it returns a 404 in the standard error shape.
+Anonymous, read-only, and cached. No route here requires authentication, and first paint of a public
+page depends on no authenticated request.
 
-First real routes arrive with **AOC-012** (public item reads).
+| Route | Returns | `Cache-Control` |
+|---|---|---|
+| `GET /v1/items` | the armory list, paginated and filtered | `public, max-age=300` |
+| `GET /v1/items/{slug}` | one item with stats, sources, costs and set | `public, max-age=300` |
+| `GET /v1/taxonomies` | every filter vocabulary in one call | `public, max-age=3600` |
+
+**Why those windows.** Items are a *preserved* corpus — the source site is dead, so a row changes
+only when a human edits it. Five minutes is short enough that a moderation fix is visible while
+someone is still looking at the page, and long enough that a link from Reddit does not bill us per
+view (Railway charges usage; AOC-026 puts Cloudflare in front of exactly this). Taxonomies change
+only when a migration changes them, which is a deploy — an hour is generous and still bounded,
+because a stale vocabulary offers filters that return nothing.
+
+### `GET /v1/items`
+
+Filters, all optional and all combinable. Every one takes a **slug the taxonomy endpoint returned**,
+never a free-text value a client invented — except `q`, which is a name search.
+
+`rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
+`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `limit` · `offset`
+
+```
+GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
+```
+```json
+{
+  "items": [
+    {
+      "id": 2841,
+      "slug": "achiton-of-illuminant-conviction",
+      "name": "Achiton of Illuminant Conviction",
+      "rarity": "epic",
+      "item_type": "chest",
+      "item_level": 80,
+      "tooltip_image": "https://img.aoc-codex.app/armory/achiton_of_illuminant_conviction.jpg",
+      "confidence": "unconfirmed",
+      "places": [
+        { "slug": "kyllikki-s-crypt", "name": "Kyllikki's Crypt", "region": "cimmeria", "tier": "pve-1", "unchained": false }
+      ]
+    }
+  ],
+  "total": 39,
+  "limit": 2,
+  "offset": 0,
+  "collapsed": true,
+  "attribution": "Data preserved from AoC>TV by Kentarii"
+}
+```
+
+**`collapsed` is not a parameter, and that is the point.** One dungeon shows its loot as it is;
+anything that *contains* several dungeons shows each item **once** (`DECISIONS.md`, 2026-09-13). The
+mode therefore follows the filters and cannot be asked for:
+
+| the caller filtered by | rows | `collapsed` |
+|---|---|---|
+| nothing, or `region` / `tier` — an **aggregate** view | one per item, with `places[]` as context | `true` |
+| one `place` | one per item, each carrying `place` | `false` |
+| several `place` values | **one per item per named place**, so a shared item appears under each | `false` |
+
+A client that had to opt in would render a visibly wrong page the first time it forgot, which is why
+this is server-side (`CLAUDE.md` rule 5b).
+
+**Paging.** `limit` defaults to 50 and is clamped to 200 — `limit=0` and `limit=10000` are both
+answered rather than rejected, and no response ever carries all 4,646 rows. Paging past the end
+returns an empty `items` with the **true** `total`, so "past the end" stays distinguishable from
+"nothing matches".
+
+**Empty results are a 200** with `"items": []` and the full envelope, never a 404: *no item matches*
+is an answer, not a missing resource.
+
+**Rejections.** A *malformed* parameter is a 400 — `limit=abc`, `pvp=maybe`, `offset=-1`. An
+*unknown value* is not: whether `legendaryy` is a rarity is a database question, and the database
+answers it with an empty page.
+
+### `GET /v1/items/{slug}`
+
+One item with everything its page shows, in one response: stats, every source (place, boss, region,
+tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
+**404 through the central error mapper**, with the standard JSON body — never a bare string.
+
+### `GET /v1/taxonomies`
+
+Every filter vocabulary in one call: rarities, item types, equip locations, armour weights, classes,
+tiers, regions, places, currencies. ⭐ **Read from the database, never hardcoded** — a literal list
+of class names in a filter dropdown is the exact bug the content model exists to prevent
+(`reference/content-model.md` § 0).
+
+### Attribution
+
+Every response on every route carries
+`"attribution": "Data preserved from AoC>TV by Kentarii"`. His release was unconditional, which is
+precisely why the credit is in the payload rather than left to a template
+(`DECISIONS.md`, 2026-09-13).
 
 ## Error statuses
 
