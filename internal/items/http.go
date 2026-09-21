@@ -2,6 +2,7 @@ package items
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -129,8 +130,15 @@ func parseFilters(r *http.Request) (Filters, error) {
 	if f.Offset, err = optionalInt(q, "offset"); err != nil {
 		return Filters{}, err
 	}
-	if f.Offset < 0 {
-		return Filters{}, fmt.Errorf("%w: offset must not be negative", httpx.ErrInvalid)
+	// The WHOLE bound, not half of it. Only the negative half was written, and the query's OFFSET
+	// is an int32: offset=4294967296 wrapped to 0 and returned THE FIRST PAGE with 4294967296
+	// echoed back in the envelope — a 200 whose rows contradict what it says about itself, so a
+	// client paging on offset silently restarts and can loop. offset=2147483648 wrapped negative
+	// and became a 500, which is a server error for a client-input problem.
+	//
+	// `limit` needs no equivalent because it is clamped to [1, 200] before its own cast.
+	if f.Offset < 0 || f.Offset > math.MaxInt32 {
+		return Filters{}, fmt.Errorf("%w: offset must be between 0 and %d", httpx.ErrInvalid, math.MaxInt32)
 	}
 	return f, nil
 }

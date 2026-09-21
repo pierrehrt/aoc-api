@@ -113,9 +113,16 @@ how many of the selected dungeons happen to share loot. A client rendering rows 
 **Empty results are a 200** with `"items": []` and the full envelope, never a 404: *no item matches*
 is an answer, not a missing resource.
 
-**Rejections.** A *malformed* parameter is a 400 — `limit=abc`, `pvp=maybe`, `offset=-1`. An
-*unknown value* is not: whether `legendaryy` is a rarity is a database question, and the database
-answers it with an empty page.
+**Rejections.** A *malformed* parameter is a 400 — `limit=abc`, `pvp=maybe`, `offset=-1`, and an
+`offset` above 2,147,483,647 (the query's `OFFSET` is a 32-bit integer, and a value that cannot be
+represented is refused rather than wrapped). An *unknown value* is not rejected: whether
+`legendaryy` is a rarity is a database question, and the database answers it with an empty page.
+
+⚠️ **Only `place` may be repeated.** `?place=a&place=b` is one selection of two dungeons, and
+`?place=a,b` means the same. Every other filter takes a single value: `?rarity=epic&rarity=rare`
+uses the **first** and ignores the rest. That is worth knowing precisely because `place` repeats —
+the rest are single-valued because no page needs them otherwise, and making each one a list would
+be more surface to keep correct for a filter nobody asked to combine.
 
 ### `GET /v1/items/{slug}`
 
