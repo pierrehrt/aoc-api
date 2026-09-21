@@ -229,16 +229,87 @@ func (q *Queries) ListItemEquipLocations(ctx context.Context, itemID int32) ([]E
 	return items, nil
 }
 
+const listItemPlaces = `-- name: ListItemPlaces :many
+SELECT src.item_id, p.slug AS place_slug, p.name AS place_name,
+       -- coalesce, not a bare cast: min() over all-NULL is NULL, and sqlc types a cast as
+       -- non-null, so the scan would fail on exactly the rows that have no region.
+       coalesce(min(r.slug), '')::varchar AS region_slug,
+       coalesce(min(t.slug), '')::varchar AS tier_slug,
+       bool_or(src.unchained OR p.unchained) AS unchained,
+       -- The boss only when it is unambiguous: two bosses in one place would make either name a
+       -- lie, and a blank is honest where a guess is not (CLAUDE.md STEP ZERO).
+       coalesce(CASE WHEN count(DISTINCT b.name) = 1 THEN min(b.name) END, '')::varchar AS boss_name
+FROM item_sources src
+JOIN places p ON p.id = src.place_id
+LEFT JOIN regions r ON r.id = coalesce(p.region_id, src.region_id)
+LEFT JOIN tiers t ON t.id = src.tier_id
+LEFT JOIN bosses b ON b.id = src.boss_id
+WHERE src.item_id = ANY($1::integer[])
+GROUP BY src.item_id, p.slug, p.name
+ORDER BY p.name
+`
+
+type ListItemPlacesRow struct {
+	ItemID     int32
+	PlaceSlug  string
+	PlaceName  string
+	RegionSlug string
+	TierSlug   string
+	Unchained  bool
+	BossName   string
+}
+
+// The per-item place context for a page of results, fetched in ONE round trip for the whole page
+// rather than per row. Used two ways:
+//   - an aggregate view (region/map/tier, or no place filter) renders these as "also drops in",
+//     and the item still appears ONCE -- Pierre's rule, DECISIONS.md 2026-09-13;
+//   - a view that named specific places expands to one row per item per NAMED place, because there
+//     the duplication is the information.
+//
+// The choice is made server-side from the filters, never by a client flag.
+// ⚠️ GROUPED BY PLACE, not by source row. An item can have several item_sources in ONE place --
+// two bosses, or a boss and a container -- and without the grouping the same dungeon appeared
+// twice next to the item, which made a two-dungeon selection render four rows instead of two.
+// Measured on the real data before it was written. The unit of Pierre's rule is the PLACE.
+// Every individual source, with its own boss, is still on the item page via ListItemSources.
+func (q *Queries) ListItemPlaces(ctx context.Context, itemIds []int32) ([]ListItemPlacesRow, error) {
+	rows, err := q.db.Query(ctx, listItemPlaces, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemPlacesRow{}
+	for rows.Next() {
+		var i ListItemPlacesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.PlaceSlug,
+			&i.PlaceName,
+			&i.RegionSlug,
+			&i.TierSlug,
+			&i.Unchained,
+			&i.BossName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItemSources = `-- name: ListItemSources :many
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type,
-       src.place_id, p.name AS place_name,
+       src.place_id, p.name AS place_name, p.slug AS place_slug,
        src.boss_id, bo.name AS boss_name,
        src.vendor_id, v.name AS vendor_name,
        src.quest_id, q.name AS quest_name,
        src.container_id, ct.name AS container_name,
-       src.region_id, rg.name AS region_name,
-       src.map_id, mp.name AS map_name,
+       src.region_id, rg.name AS region_name, rg.slug AS region_slug,
+       src.map_id, mp.name AS map_name, mp.slug AS map_slug,
        src.tier_id, tr.slug AS tier,
        src.is_raid, src.coords, src.section_raw, src.unchained,
        c.slug AS confidence, src.source_note, src.open_question
@@ -250,8 +321,8 @@ LEFT JOIN bosses bo ON bo.id = src.boss_id
 LEFT JOIN vendors v ON v.id = src.vendor_id
 LEFT JOIN quests q ON q.id = src.quest_id
 LEFT JOIN containers ct ON ct.id = src.container_id
-LEFT JOIN regions rg ON rg.id = src.region_id
-LEFT JOIN maps mp ON mp.id = src.map_id
+LEFT JOIN regions rg ON rg.id = coalesce(p.region_id, src.region_id)
+LEFT JOIN maps mp ON mp.id = coalesce(p.map_id, src.map_id)
 LEFT JOIN tiers tr ON tr.id = src.tier_id
 WHERE src.item_id = $1
 ORDER BY src.id
@@ -263,6 +334,7 @@ type ListItemSourcesRow struct {
 	AcquisitionType *string
 	PlaceID         *int32
 	PlaceName       *string
+	PlaceSlug       *string
 	BossID          *int32
 	BossName        *string
 	VendorID        *int32
@@ -273,8 +345,10 @@ type ListItemSourcesRow struct {
 	ContainerName   *string
 	RegionID        *int32
 	RegionName      *string
+	RegionSlug      *string
 	MapID           *int32
 	MapName         *string
+	MapSlug         *string
 	TierID          *int32
 	Tier            *string
 	IsRaid          bool
@@ -288,6 +362,13 @@ type ListItemSourcesRow struct {
 
 // An item page's "where does this come from". 237 items have more than one place — 8 with two and
 // 229 with three — so this is a list and never a single row.
+// ⚠️ THE PLACE DECIDES, here too. AOC-012 verify round 1 settled that a source's place is the
+// stronger fact than the source's own region, and it was written into ListItems and
+// ListItemPlaces -- but NOT here, so the item page said Cimmeria for a place the list called
+// Stygia. 196 rows across 98 items, region and map alike, and a reader got a different answer
+// depending on which endpoint they landed on (verify round 4).
+//
+// A read decision has to name EVERY query that publishes the fact, not the ones in front of you.
 func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItemSourcesRow, error) {
 	rows, err := q.db.Query(ctx, listItemSources, itemID)
 	if err != nil {
@@ -303,6 +384,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.AcquisitionType,
 			&i.PlaceID,
 			&i.PlaceName,
+			&i.PlaceSlug,
 			&i.BossID,
 			&i.BossName,
 			&i.VendorID,
@@ -313,8 +395,10 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.ContainerName,
 			&i.RegionID,
 			&i.RegionName,
+			&i.RegionSlug,
 			&i.MapID,
 			&i.MapName,
+			&i.MapSlug,
 			&i.TierID,
 			&i.Tier,
 			&i.IsRaid,
@@ -442,7 +526,11 @@ JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   AND ($2::varchar IS NULL OR it.slug = $2::varchar)
-  AND ($3::varchar IS NULL OR i.name ILIKE '%' || $3::varchar || '%')
+  -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+  -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+  -- (escapeLike); this names the escape character so Postgres honours them.
+  AND ($3::varchar IS NULL
+       OR i.name ILIKE '%' || $3::varchar || '%' ESCAPE '\')
   AND ($4::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_equip_locations iel
         JOIN equip_locations el ON el.id = iel.equip_location_id
@@ -451,12 +539,50 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
         SELECT 1 FROM item_classes ic
         JOIN classes cl ON cl.id = ic.class_id
         WHERE ic.item_id = i.item_id AND cl.slug = $5::varchar))
-  AND ($6::varchar IS NULL OR EXISTS (
+  -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+  -- single-value parameter made the caller's second choice unrepresentable -- so the service
+  -- passed NULL and the place predicate silently vanished, returning all 4,646 items
+  -- (AOC-012 verify round 1).
+  -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for every
+  -- row. The caller passes nil rather than an empty slice, and derives that from the same
+  -- predicate that decides collapsing, so the two cannot disagree (verify round 2).
+  AND ($6::varchar[] IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         JOIN places p ON p.id = src.place_id
-        WHERE src.item_id = i.item_id AND p.slug = $6::varchar))
+        WHERE src.item_id = i.item_id
+          AND p.slug = ANY($6::varchar[])))
+  AND ($7::varchar IS NULL OR EXISTS (
+        SELECT 1 FROM armour_weights aw
+        WHERE aw.id = i.armour_weight_id AND aw.slug = $7::varchar))
+  -- region and tier live on item_sources, not on the item: an item is "in Kheshatta" because
+  -- something that drops it is. Both are aggregate views, so they collapse (see ListItemPlaces).
+  AND ($8::varchar IS NULL OR EXISTS (
+        SELECT 1 FROM item_sources src
+        LEFT JOIN places p ON p.id = src.place_id
+        -- The PLACE's region wins. 196 item_sources rows disagree with their own place's region
+        -- (AOC-037), and the place row is the stronger fact: it carries name, map and region
+        -- together, with an invariant test behind it, while the per-source region is derived and
+        -- has none. A source with no place still falls back to its own.
+        LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+        WHERE src.item_id = i.item_id AND r2.slug = $8::varchar))
+  AND ($9::varchar IS NULL OR EXISTS (
+        SELECT 1 FROM item_sources src
+        JOIN tiers t ON t.id = src.tier_id
+        WHERE src.item_id = i.item_id AND t.slug = $9::varchar))
+  -- ⭐ unchained is true on EITHER the source row or the place it points at. The importer sets it
+  -- on the source when the armory said so, and on the place when the place itself is the Unchained
+  -- version -- so testing one alone silently loses the other half.
+  AND ($10::boolean IS NULL OR EXISTS (
+        SELECT 1 FROM item_sources src
+        LEFT JOIN places p ON p.id = src.place_id
+        WHERE src.item_id = i.item_id
+          AND (src.unchained OR coalesce(p.unchained, false)) = $10::boolean))
+  -- pvp is three independent facts on the item, and "pvp=true" means any of them. Collapsing them
+  -- into one column would lose which one is true, which the item page shows separately.
+  AND ($11::boolean IS NULL
+       OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean)
 ORDER BY i.name, i.item_id
-LIMIT $8::integer OFFSET $7::integer
+LIMIT $13::integer OFFSET $12::integer
 `
 
 type ListItemsParams struct {
@@ -465,7 +591,12 @@ type ListItemsParams struct {
 	NameQuery     *string
 	EquipLocation *string
 	Class         *string
-	Place         *string
+	PlaceSlugs    []string
+	ArmourWeight  *string
+	Region        *string
+	Tier          *string
+	Unchained     *bool
+	Pvp           *bool
 	PageOffset    int32
 	PageSize      int32
 }
@@ -502,7 +633,12 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.NameQuery,
 		arg.EquipLocation,
 		arg.Class,
-		arg.Place,
+		arg.PlaceSlugs,
+		arg.ArmourWeight,
+		arg.Region,
+		arg.Tier,
+		arg.Unchained,
+		arg.Pvp,
 		arg.PageOffset,
 		arg.PageSize,
 	)

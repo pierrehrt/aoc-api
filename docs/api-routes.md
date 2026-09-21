@@ -30,9 +30,131 @@ database (`docs/architecture.md`).
 
 ## `/v1`
 
-The sub-router is mounted and **empty**. Any path under it returns a 404 in the standard error shape.
+Anonymous, read-only, and cached. No route here requires authentication, and first paint of a public
+page depends on no authenticated request.
 
-First real routes arrive with **AOC-012** (public item reads).
+| Route | Returns | `Cache-Control` |
+|---|---|---|
+| `GET /v1/items` | the armory list, paginated and filtered | `public, max-age=300` |
+| `GET /v1/items/{slug}` | one item with stats, sources, costs and set | `public, max-age=300` |
+| `GET /v1/taxonomies` | every filter vocabulary in one call | `public, max-age=3600` |
+
+**Why those windows.** Items are a *preserved* corpus — the source site is dead, so a row changes
+only when a human edits it. Five minutes is short enough that a moderation fix is visible while
+someone is still looking at the page, and long enough that a link from Reddit does not bill us per
+view (Railway charges usage; AOC-026 puts Cloudflare in front of exactly this). Taxonomies change
+only when a migration changes them, which is a deploy — an hour is generous and still bounded,
+because a stale vocabulary offers filters that return nothing.
+
+### `GET /v1/items`
+
+Filters, all optional and all combinable. Every one takes a **slug the taxonomy endpoint returned**,
+never a free-text value a client invented — except `q`, which is a name search.
+
+`rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
+`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `limit` · `offset`
+
+```
+GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
+```
+```json
+{
+  "items": [
+    {
+      "id": 2841,
+      "slug": "achiton-of-illuminant-conviction",
+      "name": "Achiton of Illuminant Conviction",
+      "rarity": "epic",
+      "item_type": "chest",
+      "item_level": 80,
+      "tooltip_image": "https://img.aoc-codex.app/armory/achiton_of_illuminant_conviction.jpg",
+      "confidence": "unconfirmed",
+      "places": [
+        { "slug": "kyllikki-s-crypt", "name": "Kyllikki's Crypt", "region": "cimmeria", "tier": "pve-1", "unchained": false }
+      ]
+    }
+  ],
+  "total": 39,
+  "limit": 2,
+  "offset": 0,
+  "collapsed": true,
+  "attribution": "Data preserved from AoC>TV by Kentarii"
+}
+```
+
+**`collapsed` is not a parameter, and that is the point.** One dungeon shows its loot as it is;
+anything that *contains* several dungeons shows each item **once** (`DECISIONS.md`, 2026-09-13). The
+mode therefore follows the filters and cannot be asked for:
+
+| the caller filtered by | rows | `collapsed` |
+|---|---|---|
+| nothing, or `region` / `tier` — an **aggregate** view | one per item, with `places[]` as context | `true` |
+| one `place` | one per item, each carrying `place` | `false` |
+| several `place` values | **one per item per named place**, so a shared item appears under each | `false` |
+
+An item that matches the filters but is in **none** of the named places does not appear. It is not
+emitted without a place: a row missing from a place view is visible, a place-less row in one is not
+(that fallback existed once, and its only effect was to hide a filter that had stopped working).
+
+A client that had to opt in would render a visibly wrong page the first time it forgot, which is why
+this is server-side (`CLAUDE.md` rule 5b).
+
+**Paging.** `limit` defaults to 50 and is clamped to 200 — `limit=0` and `limit=10000` are both
+answered rather than rejected. Paging past the end returns an empty `items` with the **true**
+`total`, so "past the end" stays distinguishable from "nothing matches".
+
+⚠️ **In an expanded view, `limit` and `total` count ITEMS, not rows.** Naming *k* places can
+therefore return up to `limit × k` rows, because a shared item appears under each named place — that
+is the whole point of the expanded view. `total` is the number of distinct items matching the
+filters, which is what a pager needs; counting rows would make the page count change depending on
+how many of the selected dungeons happen to share loot. A client rendering rows should page on
+`total` and expect more rows than items.
+
+**Empty results are a 200** with `"items": []` and the full envelope, never a 404: *no item matches*
+is an answer, not a missing resource.
+
+**Rejections.** A *malformed* parameter is a 400 — `limit=abc`, `pvp=maybe`, `offset=-1`, and an
+`offset` above 2,147,483,647 (the query's `OFFSET` is a 32-bit integer, and a value that cannot be
+represented is refused rather than wrapped). An *unknown value* is not rejected: whether
+`legendaryy` is a rarity is a database question, and the database answers it with an empty page.
+
+⚠️ **Only `place` may be repeated.** `?place=a&place=b` is one selection of two dungeons, and
+`?place=a,b` means the same. Every other filter takes a single value: `?rarity=epic&rarity=rare`
+uses the **first** and ignores the rest. That is worth knowing precisely because `place` repeats —
+the rest are single-valued because no page needs them otherwise, and making each one a list would
+be more surface to keep correct for a filter nobody asked to combine.
+
+### `GET /v1/items/{slug}`
+
+One item with everything its page shows, in one response: stats, every source (place, boss, region,
+map, tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
+**404 through the central error mapper**, with the standard JSON body — never a bare string.
+
+Each source carries **both a name and a slug** for place, region and map — `"place": "Kyllikki's
+Crypt"` beside `"place_slug": "kyllikki-s-crypt"`. The name is what a person reads; the slug is what
+the list filters take, so an item page can link *"everything else from here"* straight back into
+`/v1/items?place=…`. Without it that link is a dead end: `region=Cimmeria` matches nothing, only
+`region=cimmeria` does.
+
+⚠️ **A source's region and map come from its PLACE**, not from the source row's own columns, in
+every query that publishes them. 196 source rows disagree with their own place, and honouring the
+source row made the item page contradict the list about where the same dungeon is. Which record is
+right is a game question (**AOC-037**); until it is answered, both endpoints at least say the same
+thing. A source with no place still falls back to its own columns.
+
+### `GET /v1/taxonomies`
+
+Every filter vocabulary in one call: rarities, item types, equip locations, armour weights, classes,
+tiers, regions, places, currencies. ⭐ **Read from the database, never hardcoded** — a literal list
+of class names in a filter dropdown is the exact bug the content model exists to prevent
+(`reference/content-model.md` § 0).
+
+### Attribution
+
+Every response on every route carries
+`"attribution": "Data preserved from AoC>TV by Kentarii"`. His release was unconditional, which is
+precisely why the credit is in the payload rather than left to a template
+(`DECISIONS.md`, 2026-09-13).
 
 ## Error statuses
 

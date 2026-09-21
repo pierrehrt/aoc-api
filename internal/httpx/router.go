@@ -22,12 +22,24 @@ import (
 //     browser holding a cached bundle. Domain routers mount INSIDE v1
 //     (v1.Mount("/items", items.Routes(...))), never on the root.
 //
+// V1Routes mounts the JSON domain sub-routers inside /v1. Nil means "no domains yet", which is
+// what most of httpx's own tests want — they are about the router's shape, not about items.
+//
+// It takes the sub-router rather than a concrete handler so that httpx does not import a domain
+// package: domains depend on httpx for error mapping, and the arrow must point one way.
+type V1Routes func(chi.Router)
+
 // SiteRoutes mounts the HTML surface. Nil means "JSON only", which is what the tests
 // of the API surface use and what the service did before AOC-024.
 type SiteRoutes func(chi.Router)
 
 // NewRouter keeps the JSON-only shape every existing caller expects.
 func NewRouter(b Build) *chi.Mux { return NewRouterWithSite(b, nil, nil) }
+
+// NewRouterWithAPI is NewRouterWithSite plus the /v1 domain routers.
+func NewRouterWithAPI(b Build, site SiteRoutes, assets http.Handler, v1 V1Routes) *chi.Mux {
+	return newRouter(b, site, assets, v1)
+}
 
 // NewRouterWithSite additionally mounts the server-rendered site and its assets.
 //
@@ -42,6 +54,10 @@ func NewRouter(b Build) *chi.Mux { return NewRouterWithSite(b, nil, nil) }
 // The test is the PATH, not the Accept header. Accept is a negotiation a bot or a proxy
 // can get wrong, while the path is a fact about which contract was addressed.
 func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
+	return newRouter(b, site, assets, nil)
+}
+
+func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Order matters, and it is the opposite of what it first looks like.
@@ -81,6 +97,9 @@ func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
 	v1 := chi.NewRouter()
 	// Domain sub-routers mount here as they arrive: items (AOC-012), content,
 	// moderation, users. Nothing else goes on the root router.
+	if mountV1 != nil {
+		mountV1(v1)
+	}
 	r.Mount("/v1", v1)
 
 	if assets != nil {
