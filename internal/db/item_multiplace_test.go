@@ -68,3 +68,40 @@ func TestNamingTwoPlacesFiltersToThoseTwoPlaces(t *testing.T) {
 		}
 	}
 }
+
+// AOC-012, verify round 2. The other direction of the same bug, one layer up.
+//
+// Filters.Aggregate() is len(f.Places) == 0, so an EMPTY selection is by definition an aggregate
+// view — "no place filter, show everything". The service contradicts its own predicate: it hands
+// f.Places straight to sqlc, and a non-nil empty slice reaches Postgres as '{}' rather than NULL,
+// so `p.slug = ANY('{}')` is false for every row and the answer is zero items with
+// collapsed=true. The query's own comment claims "an empty array is treated as no filter by the
+// NULL check"; it is not.
+//
+// Unreachable through /v1 today — parseFilters drops blanks, so ?place= leaves f.Places nil. It is
+// reachable from the OTHER surface, which is the one this layer exists for (CLAUDE.md rule 5b):
+// the HTML armory page will build Filters{Places: selected} from a multi-select, and an empty
+// multi-select is that page's DEFAULT state.
+func TestAnEmptyPlaceSelectionIsNotAPlaceFilter(t *testing.T) {
+	pool := readPool(t)
+	ctx := context.Background()
+	s := items.NewService(sqlcgen.New(pool))
+
+	unfiltered, err := s.List(ctx, items.Filters{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := s.List(ctx, items.Filters{Places: []string{}, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !empty.Collapsed {
+		t.Error("an empty selection reports collapsed=false; Aggregate() says otherwise")
+	}
+	if empty.Total != unfiltered.Total {
+		t.Errorf("Places: []string{} returned total %d, a nil Places returned %d — "+
+			"an empty selection names no place, so it must not filter by place",
+			empty.Total, unfiltered.Total)
+	}
+}
