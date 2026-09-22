@@ -86,9 +86,18 @@ SIZE="$(wc -c < "$DUMP" | tr -d ' ')"
 # ⭐ The check that actually matters. A dump that cannot be listed is not a backup — the
 # runbook's own rule. This also catches a well-formed dump of NOTHING: a database with no
 # tables produces a valid file with an empty TOC, and two zeroes are not a match (AOC-006).
-TOC_ENTRIES="$(pg_restore -l "$DUMP" | grep -cvE '^;|^$' || true)"
-[ "$TOC_ENTRIES" -gt 0 ] \
-  || die "the dump has an EMPTY table of contents — it restores to nothing. Either the database is empty or pg_dump wrote a stub. Not uploading it."
+#
+# ⚠️ The two failures are told apart on purpose. Folding them together means a CORRUPT dump is
+# reported as an "empty" one, which sends the reader to look at the database instead of at the
+# file — and at 03:00 a wrong explanation costs more than no explanation.
+if ! TOC_LISTING="$(pg_restore -l "$DUMP" 2>&1)"; then
+  echo "$TOC_LISTING" >&2
+  die "pg_restore could not read the dump it just took — the file is CORRUPT, not empty. Not uploading it."
+fi
+
+TOC_ENTRIES="$(printf '%s\n' "$TOC_LISTING" | grep -cvE '^;|^$' || true)"
+[ "${TOC_ENTRIES:-0}" -gt 0 ] \
+  || die "the dump has an EMPTY table of contents — it restores to nothing. The database has no tables, or pg_dump wrote a stub. Not uploading it."
 
 echo "  ${SIZE} bytes, ${TOC_ENTRIES} TOC entries"
 
