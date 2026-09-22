@@ -677,6 +677,20 @@ cannot `CreateBucket`, and rclone tries to ensure the bucket exists before its f
 without it the upload fails at `CreateBucket` with 403 and never reaches `PutObject`. Measured in
 AOC-007; see § Object storage.
 
+#### ⛔ MEASURED: Railway reports a FAILED run as SUCCESS
+
+**2026-09-22, the first real deployment of this service.** `backup.sh` hit its env guard, printed
+`BACKUP FAILED: R2_ACCESS_KEY_ID is not set. Refusing to guess.` and **exited 1**. Railway's API
+reported that deployment's status as **`SUCCESS`**, and still did on a later re-query.
+
+Do not design around Railway's deployment status for this service. For a cron job it appears to
+describe *"the container was deployed and started"*, not *"the command succeeded"* — so **the
+dashboard being green tells you nothing about whether a backup exists.**
+
+This is the strongest argument for the alarm below, and it is the reason the alarm asks the
+**bucket** rather than the **scheduler**. The only trustworthy evidence that a backup happened is a
+recent, plausible object sitting in R2.
+
 #### The alarm, which is the other half
 
 A backup job fails **quietly**, and the day you find out is the day you needed it. So the
