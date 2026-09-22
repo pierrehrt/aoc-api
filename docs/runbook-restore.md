@@ -4,15 +4,16 @@
 
 Read this at 2 a.m. with no context. It assumes nothing except a Mac with Homebrew.
 
-> ⚠️ **THIS DATABASE HAS NO OTHER BACKUP.** Railway's scheduled backups are a **Pro-plan**
-> feature and this project is on Hobby. The dumps this runbook produces are the **only** copies
-> that exist, and they are made **by hand, by a person who remembered**. It will also hold the
-> only structured copy of the AoC>TV dataset that will ever exist (the source host lapses
-> ~February 2027).
+> ✅ **THERE IS NOW A SCHEDULED BACKUP (AOC-030).** A second Railway service dumps to R2 daily
+> over the private network, and a GitHub Action goes red if it stops. **Section 6 is the path you
+> want in a real disaster** — it restores from a dump the *job* made.
 >
-> 🎯 **AOC-030 is the ticket that fixes this** — a scheduled `pg_dump` inside the Railway project
-> writing to R2, plus an alarm that fires when it stops. Until it ships, everything below is the
-> whole backup story. **It must be working before AOC-011 imports the armory.**
+> Railway's scheduled backups remain a **Pro-plan** feature and this project is on Hobby, so
+> sections 1–3 below (the by-hand dump) are still the right thing before a risky migration, and
+> still the fallback if the bucket is unreachable.
+>
+> ⚠️ This database holds the only structured copy of the AoC>TV dataset that will ever exist
+> (the source host lapses ~February 2027).
 
 ---
 
@@ -193,6 +194,118 @@ PGPASSWORD=aoc psql -h 127.0.0.1 -p 5433 -U aoc -d aoc_prod_restore -tAc "$HASH"
 
 ---
 
+## 6. Restore from the AUTOMATED backup (AOC-030) — the real disaster path
+
+⭐ **Start here when production is gone.** Sections 1–3 take a *new* dump, which requires a
+production that still answers. This section needs only the bucket.
+
+### What you need
+
+The **read-only** R2 credentials — `R2_READONLY_ACCESS_KEY_ID` / `R2_READONLY_SECRET_ACCESS_KEY`
+in `~/.config/aoc-codex/r2.env`, plus `R2_S3_ENDPOINT` and the backups bucket name. Use the
+read-only pair: nothing in a restore should be able to damage the thing you are restoring from.
+
+⚠️ **`rclone` is not installed on this machine** (checked 2026-09-22) and there is no
+`~/.config/rclone/rclone.conf`. Install it, or use the S3 API directly — the bucket is plain S3.
+`brew install rclone`, then configure a remote from the values in `r2.env`:
+
+```bash
+set -a; . ~/.config/aoc-codex/r2.env; set +a
+export RCLONE_CONFIG_R2RO_TYPE=s3
+export RCLONE_CONFIG_R2RO_PROVIDER=Cloudflare
+export RCLONE_CONFIG_R2RO_ENDPOINT="$R2_S3_ENDPOINT"
+export RCLONE_CONFIG_R2RO_ACCESS_KEY_ID="$R2_READONLY_ACCESS_KEY_ID"
+export RCLONE_CONFIG_R2RO_SECRET_ACCESS_KEY="$R2_READONLY_SECRET_ACCESS_KEY"
+export RCLONE_S3_NO_CHECK_BUCKET=true     # the token is bucket-scoped; see below
+```
+
+⚠️ **`RCLONE_S3_NO_CHECK_BUCKET=true` is required, not optional.** A bucket-scoped token cannot
+`CreateBucket`, and rclone tries to ensure the bucket exists first. Without it you get a `403` that
+looks like a bad credential and is not one (AOC-007).
+
+### List what exists, newest last
+
+```bash
+rclone lsl "r2ro:$R2_BACKUP_BUCKET/prod/" | sort -k2
+```
+
+**Look at the dates and the sizes before trusting the newest.** If the newest dump is corrupt, an
+older one is the whole fallback. A row that is suspiciously small is a failed job, not a backup.
+
+### Fetch it and CHECK IT BEFORE USING IT
+
+```bash
+mkdir -p tmp/dumps
+NEWEST="$(rclone lsf --format p "r2ro:$R2_BACKUP_BUCKET/prod/" | sort | tail -1)"
+echo "fetching: $NEWEST"
+rclone copyto "r2ro:$R2_BACKUP_BUCKET/prod/$NEWEST" "tmp/dumps/$NEWEST"
+
+export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
+pg_restore -l "tmp/dumps/$NEWEST" | head
+```
+
+⚠️ **A dump that cannot be listed is not a backup.** If `pg_restore -l` errors or prints an empty
+table of contents, go to the next-oldest file — do not try to restore it.
+
+### Restore it
+
+`make db-restore` already picks the newest file in `tmp/dumps/`, which is what you just put there:
+
+```bash
+make db-restore
+```
+
+Then **prove it** with section 5's two queries. ⚠️ **Two zeroes are not a match.**
+
+### ⚠️ The exit code, again
+
+Same warning as section 4, and it is the one that has actually bitten: **watch the exit code, not
+the absence of output.** A `pg_restore` that never connected prints almost nothing and leaves an
+empty database, which then "matches" an empty production and looks like success.
+
+### ⭐ Drill record — 2026-09-22 (AOC-030), the first end-to-end restore of a JOB-MADE dump
+
+Not a hand-made dump: the container, the script and the real bucket, start to finish.
+
+| Step | Result |
+|---|---|
+| `backup.sh` ran in the image against a 30-table database | **534,634 bytes, 302 TOC entries**, uploaded and size-verified **from the bucket** |
+| Fetched with the **read-only** credential | 534,634 bytes, `pg_restore -l` → 302 entries |
+| Restored into a scratch database | `pg_restore` **exit 0**, **1 s** |
+| Tables | source **30**, restored **30** — and not two zeroes |
+| Rows | **every one of the 30 tables' `count(*)` identical**, 50,141 rows total |
+| `places` content hash | `md5` identical on both sides, 86 rows |
+
+⛔ **What this drill did NOT prove: a restore of PRODUCTION data.** Production held **zero tables**
+on this date, so the job's production run correctly **refused to upload** an 860-byte dump ("that is
+not a database"). The dump restored above is the **dev** database. **Re-run this drill once AOC-034
+imports the armory**, and record the real duration then — a restore time nobody has measured is a
+restore time you discover during the outage.
+
+---
+
+## The alarm, and how it can itself go silent
+
+`.github/workflows/backup-freshness.yml` runs daily and fails when the newest object under `prod/`
+is older than 48 h, smaller than 1 KB, or absent. **Its failure email is the alarm** — there is
+nothing else subscribed.
+
+**To prove the alarm still works** (do this during the six-monthly drill — a check nobody has seen
+fail is a check nobody has tested):
+
+> Actions → **Backup freshness** → *Run workflow* → set **prefix** to `does-not-exist/` → it must
+> go **red** with `NO OBJECTS`. Then run it again with the prefix blank and confirm it goes green.
+
+⚠️⚠️ **GitHub disables scheduled workflows in a repository with no activity for 60 days.** This
+project is touched in bursts months apart, so that is a real state, not a theoretical one. When it
+happens GitHub emails the repository owner and the Actions tab shows the workflow as disabled —
+**re-enable it there**, and the daily check resumes. Any push also resets the clock.
+
+This is the one hole in the dead man's switch and it is written here on purpose: nobody should
+discover it at the same moment they discover a missing backup.
+
+---
+
 ## What this rehearsal did and did NOT prove (2026-09-17)
 
 | Proven | How |
@@ -218,7 +331,13 @@ Next due: **2027-03-17** — six months after the 2026-09-17 rehearsal. (This sa
 2026-09-18: a date six months in the **past**, which a reader would either trip over or, worse,
 treat as already handled.)
 
-⚠️ **Nothing fires on that date.** A reminder that depends on someone remembering to look at a
-runbook is not a reminder. **AOC-030** replaces it with a scheduled job that opens an issue by
-itself — and, before that date arrives, **AOC-011** forces the earlier re-run this page already
-asks for, because that is when production stops being empty.
+✅ **Something fires on that date now.** `.github/workflows/restore-drill-reminder.yml` runs on
+17 March and 17 September and **opens an issue** labelled `restore-drill`, with the checklist. It
+skips opening a second one while the first is still open. A reminder that depends on someone
+remembering to look at a runbook is not a reminder; this one arrives by itself.
+
+⚠️ **Use a dump the JOB produced, not a hand-made one** (section 6). The automated path is the one
+that has to work, and rehearsing the manual path proves nothing about it.
+
+⚠️ **This reminder is subject to the same 60-day dormancy rule as the alarm** — see § The alarm
+can itself go silent, below.

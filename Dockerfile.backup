@@ -1,0 +1,75 @@
+# The scheduled backup job (AOC-030). Railway builds this as a SECOND service in the same
+# project, with a cronSchedule and no public domain. It is not the site; it shares only the
+# repo and the private network.
+#
+# It reaches Postgres over Railway's PRIVATE network, so no public database endpoint is ever
+# created — the same property that made SSH the right answer in AOC-006.
+#
+# ---- why these two pins ------------------------------------------------------
+#
+# postgres:18.6-alpine — the EXACT version production runs. `pg_dump` older than the server
+# refuses to dump at all, which is the trap AOC-006 hit on the laptop, and it fails at run
+# time on a schedule nobody is watching. Bumping production's Postgres means bumping THIS tag,
+# docker-compose.yml, the Makefile's POSTGRES_MAJOR and .github/workflows/ci.yml, in the same
+# commit. That rule is already written in ci.yml; this is now the fifth place it applies.
+#
+# rclone — pinned by version AND SHA-256, the pattern this repo already uses for Tailwind, and
+# for goose/sqlc through `go run pkg@version`. A build tool that changes under us silently is
+# how a backup starts producing an empty file.
+
+# ---- fetch rclone -----------------------------------------------------------
+# A separate stage so curl and unzip never reach the image that holds a production credential.
+FROM alpine:3.22 AS rclone
+
+ARG RCLONE_VERSION=v1.75.1
+# From https://downloads.rclone.org/${RCLONE_VERSION}/SHA256SUMS, fetched 2026-09-22.
+ARG RCLONE_SHA256_AMD64=982b5aa772841168f8e380f139e9e787b2a105403e32b94da8676a0e1c0a13ab
+ARG RCLONE_SHA256_ARM64=03f2504174034b6d004152ed7369251c9a9ec1f7e0836eda420f5c7a5ec0dff9
+
+# ⚠️ The architecture comes from `uname -m` INSIDE the stage, not from BuildKit's TARGETARCH.
+# TARGETARCH is only populated by BuildKit; the classic builder leaves it unset, and the build
+# then dies with "parameter not set" (measured locally, 2026-09-22). Which builder Railway uses
+# is not something this image should have an opinion about — and `uname -m` is right on both.
+# Railway builds amd64; Pierre's Mac builds arm64, and being able to build and run this image
+# locally is what lets scripts/backup.sh be tested without touching Railway.
+
+RUN set -eu; \
+    apk add --no-cache curl unzip; \
+    case "$(uname -m)" in \
+      x86_64)  arch=amd64; sha="$RCLONE_SHA256_AMD64" ;; \
+      aarch64) arch=arm64; sha="$RCLONE_SHA256_ARM64" ;; \
+      *) echo "no pinned rclone checksum for $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    url="https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-${arch}.zip"; \
+    echo "downloading $url"; \
+    curl -fsSL --retry 3 -o /tmp/rclone.zip "$url"; \
+    got="$(sha256sum /tmp/rclone.zip | cut -d' ' -f1)"; \
+    if [ "$got" != "$sha" ]; then \
+      echo "checksum mismatch for rclone ($arch):" >&2; \
+      echo "  want $sha" >&2; \
+      echo "  got  $got" >&2; \
+      exit 1; \
+    fi; \
+    unzip -q -j /tmp/rclone.zip '*/rclone' -d /out; \
+    chmod +x /out/rclone; \
+    /out/rclone version | head -1
+
+# ---- the job ----------------------------------------------------------------
+FROM postgres:18.6-alpine
+
+# bash, because scripts/backup.sh relies on `set -o pipefail` to catch a pg_dump that fails
+# INSIDE a pipe — the same defect AOC-029 describes. busybox ash's support for it is not
+# something this job should depend on discovering at 03:00.
+RUN apk add --no-cache bash
+
+COPY --from=rclone /out/rclone /usr/local/bin/rclone
+COPY scripts/backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
+
+# The postgres image's own unprivileged user. This job connects out and writes one temp file;
+# it needs nothing that root provides.
+USER postgres
+
+# A cron service MUST exit. Railway skips the next run while one is still Active, so a job that
+# lingers turns into a backup that silently stops happening.
+ENTRYPOINT ["/usr/local/bin/backup.sh"]

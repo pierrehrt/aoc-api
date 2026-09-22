@@ -1,0 +1,68 @@
+name: Restore drill reminder
+
+# AOC-006 ended with "re-rehearse every 6 months" written in a runbook, and AOC-030's ticket
+# says the quiet part: nothing fires on that date. A reminder that depends on someone
+# remembering to read a runbook is not a reminder.
+#
+# This opens an issue by itself. The issue is the reminder.
+#
+# ⚠️ Same 60-day inactivity caveat as backup-freshness.yml — GitHub disables scheduled
+# workflows in a dormant repository. Documented in docs/runbook-restore.md § The alarm.
+
+on:
+  schedule:
+    # 17 March and 17 September, 09:00 UTC — six months apart, anchored on the 2026-09-17
+    # rehearsal that docs/runbook-restore.md records.
+    - cron: "0 9 17 3,9 *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: open the drill issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Don't stack a second issue on top of an unfinished one — two open reminders read
+          # as noise, and noise is how a reminder stops being read.
+          existing="$(gh issue list --label restore-drill --state open --json number --jq 'length')"
+          if [ "$existing" != "0" ]; then
+            echo "a restore-drill issue is already open — not opening another."
+            exit 0
+          fi
+
+          # The label may not exist yet on a fresh repo; create it once, ignore "already exists".
+          gh label create restore-drill \
+            --description "Six-monthly database restore rehearsal (AOC-006, AOC-030)" \
+            --color B60205 2>/dev/null || true
+
+          gh issue create \
+            --title "Restore drill due — rehearse the production restore ($(date -u +%Y-%m))" \
+            --label restore-drill \
+            --body "$(cat <<'BODY'
+          Six months have passed since the last rehearsal. **A backup nobody has restored is a belief.**
+
+          Follow `docs/runbook-restore.md` **literally**, and fix every step that turns out to be
+          ambiguous — the runbook is read at 2 a.m. by someone with no context.
+
+          Use a dump **the scheduled job produced**, not a hand-made one. That is the whole point:
+          the automated path is the one that has to work.
+
+          - [ ] List the backup bucket; pick the newest object
+          - [ ] Download it and `pg_restore -l` it — a dump that cannot be listed is not a backup
+          - [ ] Restore into a scratch local database (never over `aoc_dev`)
+          - [ ] Compare schema and row counts against production. ⚠️ Two zeroes are not a match
+          - [ ] Record the date, the duration and the dump size in `docs/runbook-restore.md`
+          - [ ] Fix anything in the runbook that was wrong or unclear, in a PR
+
+          Close this issue only when the restore actually completed and the runbook is updated.
+          BODY
+          )"

@@ -546,8 +546,9 @@ integration tests while reporting success is the failure shape this project keep
 > that exist. Production is reached over **SSH** (`ssh -L` to the Postgres container's own
 > loopback) — there is deliberately **no public database endpoint**. (AOC-006)
 >
-> ⚠️ **Nothing schedules a backup today.** Every dump that exists was taken by hand. **AOC-030**
-> adds a cron service that dumps to R2 over the private network, with an alarm when it stops.
+> ✅ **A backup is scheduled (AOC-030).** A second Railway service dumps to R2 over the private
+> network daily, and a GitHub Action goes red when the newest object is stale, tiny or absent —
+> see § The backup service. Railway's own scheduled backups are still Pro-only and still unused.
 
 **One hosted environment.** No `dev`, no `staging` — Pierre's call, 2026-09-16: no revenue, so no
 second Postgres to pay for (`product_management/DECISIONS.md`). The safety that a second
@@ -643,6 +644,79 @@ that matters is the one this repo pins.
 subdirectories, so the volume mounts at `/var/lib/postgresql`, not `/var/lib/postgresql/data`, and
 an existing volume from an older image must be dropped (`make db-reset`).
 
+### The backup service (AOC-030)
+
+**A second Railway service in the same project**, and the first thing here that is not the site.
+It shares the repo and the private network with `api` and nothing else: no public domain, no
+inbound traffic, no route.
+
+| | |
+|---|---|
+| Image | `Dockerfile.backup` — `postgres:18.6-alpine` + `rclone`, both pinned |
+| Schedule | Railway `cronSchedule`, **UTC**, daily at 03:00 |
+| Entry point | `scripts/backup.sh` — dump, check the dump, upload, check the upload |
+| Database | `${{Postgres.DATABASE_URL}}` — a **reference**, so no credential is copied by hand or reaches this repo |
+| Destination | the **backups** R2 bucket, write-scoped token. ⛔ NOT the tooltip bucket — opposite retention policy, and `backup.sh` refuses by name |
+| Restart policy | **never**. A cron service must EXIT; Railway skips the next run while one is still `Active`, so a job that lingers turns into a backup that silently stops |
+
+⚠️ **`postgres:18.6-alpine` is pinned to the EXACT version production runs.** A `pg_dump` older
+than the server refuses to dump at all — the trap AOC-006 hit on the laptop — and here it would
+fail on a schedule nobody is watching. **Bumping production's Postgres means bumping five things in
+one commit:** Railway, `docker-compose.yml`, the Makefile's `POSTGRES_MAJOR`, `ci.yml`'s service
+image, and this Dockerfile.
+
+**The script never reports a success it has not looked at.** It uploads only after checking the
+dump locally — non-zero size *and* a non-empty `pg_restore -l` table of contents, because a dump of
+a database with no tables is a perfectly valid file that restores to nothing (two zeroes are not a
+match, AOC-006). Then it reads the object's size back **out of the bucket** and compares it: a 200
+is not evidence the bytes arrived. Every failure path exits non-zero with a sentence a person can
+act on at 03:00.
+
+⚠️ `RCLONE_S3_NO_CHECK_BUCKET=true` is **required, not an optimisation.** A bucket-scoped token
+cannot `CreateBucket`, and rclone tries to ensure the bucket exists before its first `PUT` — so
+without it the upload fails at `CreateBucket` with 403 and never reaches `PutObject`. Measured in
+AOC-007; see § Object storage.
+
+#### ⛔ MEASURED: Railway reports a FAILED run as SUCCESS
+
+**2026-09-22, the first real deployment of this service.** `backup.sh` hit its env guard, printed
+`BACKUP FAILED: R2_ACCESS_KEY_ID is not set. Refusing to guess.` and **exited 1**. Railway's API
+reported that deployment's status as **`SUCCESS`**, and still did on a later re-query.
+
+Do not design around Railway's deployment status for this service. For a cron job it appears to
+describe *"the container was deployed and started"*, not *"the command succeeded"* — so **the
+dashboard being green tells you nothing about whether a backup exists.**
+
+This is the strongest argument for the alarm below, and it is the reason the alarm asks the
+**bucket** rather than the **scheduler**. The only trustworthy evidence that a backup happened is a
+recent, plausible object sitting in R2.
+
+#### The alarm, which is the other half
+
+A backup job fails **quietly**, and the day you find out is the day you needed it. So the
+deliverable is not a job that runs — it is a job that runs **plus something that goes red when it
+does not**.
+
+`.github/workflows/backup-freshness.yml` lists the bucket daily with a **read-only** credential and
+**fails** when the newest object is older than 48 h, implausibly small, or absent. Its failure
+notification is the alarm.
+
+**It runs on GitHub, not on Railway, deliberately:** a dead man's switch must not share fate with
+the thing it watches. If Railway is the reason the backup stopped, a checker running on Railway
+stops with it and nobody hears anything.
+
+The decision itself (`scripts/check_backup_freshness.py`, `judge()`) is a pure function with unit
+tests that CI runs on every PR, because a script that decides whether the backup happened is
+exactly the code this project does not trust to reasoning alone. **An empty listing is a FAILURE,
+not a vacuous pass**, and missing credentials exit **2** rather than 0 — "I could not look" must
+never read as "it is fine" (AOC-032).
+
+⚠️⚠️ **The one way the alarm can itself go silent, written down rather than hoped about:** GitHub
+**disables scheduled workflows in a repository with no activity for 60 days**, and this project is
+explicitly touched in bursts months apart. GitHub emails the owner when it does so, and
+`workflow_dispatch` re-arms it, but a reader must not discover this at the same moment they
+discover the missing backup. It is repeated in `runbook-restore.md`.
+
 ### Rollback
 
 **Proved on 2026-09-16, not assumed.** The builder was pointed at a Dockerfile that does not
@@ -673,9 +747,19 @@ the old code cannot tolerate ships in two deploys, not one.
 
 ## Object storage
 
-**Cloudflare R2, one bucket: `aoc-codex-enam`.** It holds the things that must not live in Postgres and
-must not live on one SSD — the 4,645 armory tooltip images (AOC-008), and later the scheduled
-`pg_dump` backups (AOC-030). R2 was chosen over S3 and B2 for one reason: **egress is free at any
+**Cloudflare R2, two buckets.** `aoc-codex-enam` holds the 4,645 armory tooltip images (AOC-008);
+`aoc-codex-backups-enam` holds the scheduled `pg_dump` backups (AOC-030). **Two buckets, not one,
+because their retention policies are opposites**: tooltips are kept forever and read by the site,
+dumps are private and expire after 30 days. Both are `enam`, both private, each with its own
+read-write and read-only token pair scoped to it alone.
+
+| Bucket | Created | Location | Retention | Tokens |
+|---|---|---|---|---|
+| `aoc-codex-enam` | AOC-007 | ENAM | forever | read-write + read-only |
+| `aoc-codex-backups-enam` | AOC-030 | ENAM, no jurisdiction | **30 days** on `prod/`, plus the default 7-day multipart abort | read-write (the job) + read-only (the alarm) |
+
+⚠️ `scripts/backup.sh` **refuses by name** to write into the tooltip bucket, because the two
+lifecycle rules would each be wrong for the other's contents. R2 was chosen over S3 and B2 for one reason: **egress is free at any
 volume**, so a link on Reddit cannot turn into an invoice on a project with no revenue
 (`product_management/DECISIONS.md`, 2026-09-13).
 
@@ -747,7 +831,16 @@ both `chmod 600`:
 | File | Holds |
 |---|---|
 | `~/.config/aoc-codex/r2.env` | account id, bucket, endpoint, and the R2 API token key pairs |
-| `~/.config/rclone/rclone.conf` | two remotes, `[r2]` (read-write) and `[r2ro]` (read-only), both `type = s3`, `provider = Cloudflare` |
+
+⚠️ **There is no `~/.config/rclone/rclone.conf` any more, and nothing needs one.** This table used
+to list it, holding `[r2]` (read-write) and `[r2ro]` (read-only) remotes. That was true while
+AOC-007 was proving the round trip; the file and the `rclone` binary are both **gone from the
+machine** (checked 2026-09-22, AOC-030). Nothing regressed, because nothing depended on them:
+**AOC-008 never used rclone** — `armory_snapshot/upload_tooltips.py` signs SigV4 with the Python
+standard library — and the backup job configures rclone **entirely from environment variables**
+(`RCLONE_CONFIG_R2_*`), so no config file ever holds a credential. Recreate the remotes only if
+you want them interactively; the commands recorded below were run against a config that existed
+at the time.
 
 The **Access Key ID** (32 hex) and **Secret Access Key** (64 hex) come from *R2 → Manage R2 API
 Tokens → Create API token*, and the secret is displayed **once**. The S3 endpoint URL shown on that
@@ -808,6 +901,12 @@ rclone deletefile r2ro:<bucket>/t1.txt                                # DeleteOb
    because it tries to ensure the bucket exists and a scoped token cannot see it.
    `--s3-no-check-bucket` skips that. A `CreateBucket 403` looks like a passing test and proves
    nothing about writing objects.
+3. ⭐ **A third one, found in AOC-030 (2026-09-22): overwriting with IDENTICAL bytes exits 0 and
+   proves nothing.** `rclone copyto` compares size and modtime first, so when the source matches
+   the object already there it **skips the transfer** and returns success — with a read-only
+   token, which never attempted a `PutObject` at all. Read naively that says *"the overwrite was
+   allowed"*. **Always overwrite with a DIFFERENT size and content**; then the same token answers
+   `403 AccessDenied`, and the object is verifiably unchanged afterwards.
 
 Afterwards the bucket was re-listed with `[r2]`: `forbidden.txt` **absent**, `t1.txt` **unchanged**,
 six objects exactly as uploaded. The denied writes left nothing behind.
