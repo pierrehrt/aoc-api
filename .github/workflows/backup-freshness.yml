@@ -1,0 +1,89 @@
+name: Backup freshness
+
+# ⭐ THE ALARM (AOC-030). The backup job runs on Railway; this runs here, on purpose.
+# A dead man's switch must not share fate with the thing it watches — if Railway is the reason
+# the backup stopped, a check running on Railway stops with it and nobody hears anything.
+#
+# This job's FAILURE NOTIFICATION is the alarm. There is nothing else to configure: GitHub
+# emails the repo owner when a scheduled workflow fails.
+#
+# ⚠️⚠️ THE ONE WAY THIS ALARM CAN ITSELF GO SILENT, WRITTEN DOWN RATHER THAN HOPED ABOUT:
+# GitHub DISABLES scheduled workflows in a repository with no activity for 60 days. This
+# project is explicitly "touched in bursts months apart" (Dockerfile), so that is a real state,
+# not a theoretical one. GitHub emails the owner when it disables a workflow, and re-enabling
+# is one button — but the failure mode is exactly the shape this ticket exists to remove, so:
+#   * it is documented in docs/runbook-restore.md § The alarm,
+#   * `workflow_dispatch` below re-arms it by hand,
+#   * and any push to the repo resets the 60-day clock.
+# Do not let a reader discover this at the same moment they discover the missing backup.
+
+on:
+  schedule:
+    # 06:00 UTC daily — a few hours after the backup job's own 03:00 UTC run, so a slow dump
+    # is finished and a failed one has had time to be noticed as missing rather than in flight.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      prefix:
+        description: "Bucket prefix to check (override it to PROVE the alarm fails — AOC-030 criterion 7)"
+        required: false
+        default: ""
+      max_age_hours:
+        description: "Staleness limit in hours"
+        required: false
+        default: "48"
+
+permissions:
+  contents: read
+
+jobs:
+  # The decision logic is tested before it is trusted, every run. It costs a second, and the
+  # alternative is an alarm whose judgement changed under us without anyone looking.
+  logic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: the alarm's own tests
+        run: python3 -m unittest discover -s scripts -p 'test_check*.py' -v
+
+  freshness:
+    needs: logic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: is there a recent, plausible backup?
+        env:
+          # Read-only credentials. A checker that can delete what it checks is one typo away
+          # from being the outage (AOC-007 proved this token pair is scoped per bucket).
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+          R2_READONLY_ACCESS_KEY_ID: ${{ secrets.R2_READONLY_ACCESS_KEY_ID }}
+          R2_READONLY_SECRET_ACCESS_KEY: ${{ secrets.R2_READONLY_SECRET_ACCESS_KEY }}
+          # Through env, not interpolated into the script body: a `${{ }}` pasted straight into
+          # bash is a shell-injection seam, and these two are attacker-free today only because
+          # nobody but Pierre can dispatch the workflow.
+          PREFIX_IN: ${{ inputs.prefix }}
+          MAX_AGE_IN: ${{ inputs.max_age_hours }}
+        run: |
+          set -euo pipefail
+
+          # ⚠️ `if`, not `[ -n "$x" ] && args+=(...)`. GitHub runs this with `bash -e`, so a
+          # one-liner ending in a FALSE test exits non-zero and fails the step — which on the
+          # scheduled run (where both inputs are empty) would fire the alarm every single day
+          # and teach everyone to ignore it. An alarm that cries wolf is worse than none.
+          args=()
+          if [ -n "${PREFIX_IN}" ]; then args+=(--prefix "${PREFIX_IN}"); fi
+          if [ -n "${MAX_AGE_IN}" ]; then args+=(--max-age-hours "${MAX_AGE_IN}"); fi
+
+          python3 scripts/check_backup_freshness.py ${args[@]+"${args[@]}"}
+
+      # ⚠️ No `continue-on-error`, no `|| true`, and the check exits 2 rather than 0 when it
+      # could not look at all. "I could not check" must never be reported as "the backup is
+      # fine" — that is the defect AOC-032 removed from bin/gate, and it would be worse here.

@@ -115,3 +115,19 @@ jobs:
 
       - name: golangci-lint
         run: golangci-lint run ./...
+
+  # ⭐ The backup alarm's decision logic (AOC-030). It lives in Python next to the scripts it
+  # judges, so `make test` (Go) cannot see it — and an alarm whose judgement changed without
+  # anyone looking is the failure this project keeps removing. Every PR runs it.
+  #
+  # The three mutations that prove these tests bite (empty listing passes / size floor ignored /
+  # staleness limit raised) were run by hand in AOC-030 and each turned the suite red.
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: backup alarm tests
+        run: python3 -m unittest discover -s scripts -p 'test_check*.py' -v

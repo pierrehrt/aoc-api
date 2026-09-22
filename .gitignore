@@ -24,3 +24,7 @@
 # Downloaded build tools (Tailwind standalone). Pinned by version + SHA-256 in the
 # Makefile and re-downloaded on demand, so there is no reason to commit 74 MB.
 .tools/
+
+# Python bytecode from scripts/ (the backup alarm's tests import check_backup_freshness).
+__pycache__/
+*.pyc
