@@ -263,6 +263,25 @@ Same warning as section 4, and it is the one that has actually bitten: **watch t
 the absence of output.** A `pg_restore` that never connected prints almost nothing and leaves an
 empty database, which then "matches" an empty production and looks like success.
 
+### ⭐ Drill record — 2026-09-22 (AOC-030), the first end-to-end restore of a JOB-MADE dump
+
+Not a hand-made dump: the container, the script and the real bucket, start to finish.
+
+| Step | Result |
+|---|---|
+| `backup.sh` ran in the image against a 30-table database | **534,634 bytes, 302 TOC entries**, uploaded and size-verified **from the bucket** |
+| Fetched with the **read-only** credential | 534,634 bytes, `pg_restore -l` → 302 entries |
+| Restored into a scratch database | `pg_restore` **exit 0**, **1 s** |
+| Tables | source **30**, restored **30** — and not two zeroes |
+| Rows | **every one of the 30 tables' `count(*)` identical**, 50,141 rows total |
+| `places` content hash | `md5` identical on both sides, 86 rows |
+
+⛔ **What this drill did NOT prove: a restore of PRODUCTION data.** Production held **zero tables**
+on this date, so the job's production run correctly **refused to upload** an 860-byte dump ("that is
+not a database"). The dump restored above is the **dev** database. **Re-run this drill once AOC-034
+imports the armory**, and record the real duration then — a restore time nobody has measured is a
+restore time you discover during the outage.
+
 ---
 
 ## The alarm, and how it can itself go silent

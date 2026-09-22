@@ -747,9 +747,19 @@ the old code cannot tolerate ships in two deploys, not one.
 
 ## Object storage
 
-**Cloudflare R2, one bucket: `aoc-codex-enam`.** It holds the things that must not live in Postgres and
-must not live on one SSD — the 4,645 armory tooltip images (AOC-008), and later the scheduled
-`pg_dump` backups (AOC-030). R2 was chosen over S3 and B2 for one reason: **egress is free at any
+**Cloudflare R2, two buckets.** `aoc-codex-enam` holds the 4,645 armory tooltip images (AOC-008);
+`aoc-codex-backups-enam` holds the scheduled `pg_dump` backups (AOC-030). **Two buckets, not one,
+because their retention policies are opposites**: tooltips are kept forever and read by the site,
+dumps are private and expire after 30 days. Both are `enam`, both private, each with its own
+read-write and read-only token pair scoped to it alone.
+
+| Bucket | Created | Location | Retention | Tokens |
+|---|---|---|---|---|
+| `aoc-codex-enam` | AOC-007 | ENAM | forever | read-write + read-only |
+| `aoc-codex-backups-enam` | AOC-030 | ENAM, no jurisdiction | **30 days** on `prod/`, plus the default 7-day multipart abort | read-write (the job) + read-only (the alarm) |
+
+⚠️ `scripts/backup.sh` **refuses by name** to write into the tooltip bucket, because the two
+lifecycle rules would each be wrong for the other's contents. R2 was chosen over S3 and B2 for one reason: **egress is free at any
 volume**, so a link on Reddit cannot turn into an invoice on a project with no revenue
 (`product_management/DECISIONS.md`, 2026-09-13).
 
@@ -891,6 +901,12 @@ rclone deletefile r2ro:<bucket>/t1.txt                                # DeleteOb
    because it tries to ensure the bucket exists and a scoped token cannot see it.
    `--s3-no-check-bucket` skips that. A `CreateBucket 403` looks like a passing test and proves
    nothing about writing objects.
+3. ⭐ **A third one, found in AOC-030 (2026-09-22): overwriting with IDENTICAL bytes exits 0 and
+   proves nothing.** `rclone copyto` compares size and modtime first, so when the source matches
+   the object already there it **skips the transfer** and returns success — with a read-only
+   token, which never attempted a `PutObject` at all. Read naively that says *"the overwrite was
+   allowed"*. **Always overwrite with a DIFFERENT size and content**; then the same token answers
+   `403 AccessDenied`, and the object is verifiably unchanged afterwards.
 
 Afterwards the bucket was re-listed with `[r2]`: `forbidden.txt` **absent**, `t1.txt` **unchanged**,
 six objects exactly as uploaded. The denied writes left nothing behind.
