@@ -64,8 +64,12 @@ jobs:
           # from being the outage (AOC-007 proved this token pair is scoped per bucket).
           R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
           R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
-          R2_READONLY_ACCESS_KEY_ID: ${{ secrets.R2_READONLY_ACCESS_KEY_ID }}
-          R2_READONLY_SECRET_ACCESS_KEY: ${{ secrets.R2_READONLY_SECRET_ACCESS_KEY }}
+          # ⛔ The BACKUPS bucket's read-only pair, not AOC-007's tooltip pair. Those two were
+          # both called R2_READONLY_* until AOC-030 verify round 1 found the disaster runbook
+          # reaching for the wrong one and getting a 403. One name, one meaning, everywhere:
+          # stored as R2_BACKUP_READONLY_*, mapped here onto the generic name the script reads.
+          R2_READONLY_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_READONLY_ACCESS_KEY_ID }}
+          R2_READONLY_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_READONLY_SECRET_ACCESS_KEY }}
           # Through env, not interpolated into the script body: a `${{ }}` pasted straight into
           # bash is a shell-injection seam, and these two are attacker-free today only because
           # nobody but Pierre can dispatch the workflow.

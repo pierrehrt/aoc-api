@@ -29,6 +29,12 @@ Env:
     R2_S3_ENDPOINT, R2_BACKUP_BUCKET,
     R2_READONLY_ACCESS_KEY_ID, R2_READONLY_SECRET_ACCESS_KEY
     BACKUP_PREFIX (default "prod/")
+
+⚠️ Those two credential names are GENERIC here — "the read-only pair for whichever bucket we are
+checking". They are NOT the names anything is stored under. The backups bucket's pair lives in
+`r2.env` and in GitHub secrets as **R2_BACKUP_READONLY_***; AOC-007's tooltip pair is the one
+called R2_READONLY_*. Feeding this the tooltip pair yields 403 against the backups bucket, which
+is how AOC-030 verify round 1 found the disaster runbook broken. Pass them in explicitly.
 """
 import argparse
 import datetime as dt
