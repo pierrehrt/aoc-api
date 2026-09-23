@@ -1,0 +1,70 @@
+# The one-off production import (AOC-040). Railway builds this as a THIRD service in the same
+# project — beside the site and the backup job — with NO cronSchedule: it runs when asked.
+#
+# ⭐ WHY THIS EXISTS AT ALL, in one measurement. The production database has no public endpoint
+# by design, so the only route in from a laptop is the SSH tunnel of docs/runbook-restore.md § 1.
+# Through that tunnel one round trip costs 273 ms, and the importer writes ~49,800 rows one
+# statement at a time: ≈ 3.8 hours in a single transaction riding on an SSH connection. The dry
+# run died at item 418 of 4,648 on the binary's own 10-minute deadline (AOC-034, 2026-09-23).
+# Raising the deadline buys a longer way to fail. Running beside the database removes the tunnel.
+#
+# ---- how the snapshot gets in, which is the whole design question -----------
+#
+# `items_clean.json` is 10 MB and lives in a SEPARATE, PRIVATE repo
+# (github.com/pierrehrt/aoc-armory-snapshot). Railway builds from a repo that does not contain
+# it. This image is therefore deployed with `railway up <context>` from a machine that holds
+# both checkouts — the build context is assembled, not cloned. See docs/architecture.md § Deploy.
+#
+# Rejected, and why (AOC-040, DECISIONS.md 2026-09-23):
+#   * fetch from R2 at runtime — the backups bucket EXPIRES objects after 30 days, so the
+#     snapshot would silently vanish; and the tooltip bucket is served publicly at
+#     img.aoc-codex.app, so putting the corpus there publishes it.
+#   * clone the private repo at build time — a GitHub token inside a Railway build, which is a
+#     credential in a third place. AOC-030's design went out of its way to avoid exactly that.
+#   * commit the snapshot into this repo — 10 MB in the app repo and a SECOND copy of the corpus
+#     free to drift from the canonical one. That is the "two descriptions of one fact" shape that
+#     produced AOC-037 and all five AOC-012 defects.
+
+# ---- build ------------------------------------------------------------------
+# Pinned to match go.mod (go 1.23) and Dockerfile — bumping Go means bumping all three, in the
+# same commit.
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" \
+      -o /out/import-armory ./cmd/import-armory
+
+# ---- the job ----------------------------------------------------------------
+# alpine rather than the site's `scratch`, and the reason is the same one that makes
+# Dockerfile.backup alpine: this is a JOB whose arguments change between runs. The dry run and
+# the real run differ by one flag, and Railway's start command needs a shell to override it.
+# Forcing a rebuild to change a flag is how a dry run gets skipped "just this once".
+FROM alpine:3.22
+
+# TLS roots. The importer talks to Postgres over the private network, but pgx negotiates TLS and
+# a missing root fails at RUN time, not build time — the worst moment to find out.
+RUN apk add --no-cache ca-certificates
+
+COPY --from=build /out/import-armory /usr/local/bin/import-armory
+
+# The corpus, from the assembled build context. ⚠️ Baked in on purpose: the image digest then
+# pins exactly which snapshot produced a given import, which is what makes the run reproducible
+# (AOC-034 — "everything the import writes is reproducible from armory_snapshot/").
+COPY armory_snapshot/items_clean.json /snapshot/items_clean.json
+
+# Connects out and writes nothing to disk; it needs nothing root provides.
+USER 65532:65532
+
+# ⛔ THE DEFAULT IS A DRY RUN, deliberately. Committing to production requires overriding this
+# start command in Railway, which is a visible, separate act rather than a redeploy that happens
+# to write. `-confirm-host` is the importer's own guard and is not optional on a non-local host.
+#
+# A job MUST exit. Railway's restartPolicyType is NEVER on this service for the same reason the
+# backup job has it: a job that lingers is a job nobody can tell has finished.
+ENTRYPOINT ["/usr/local/bin/import-armory"]
+CMD ["-dry-run", "-snapshot", "/snapshot/items_clean.json", "-confirm-host", "postgres.railway.internal:5432"]
