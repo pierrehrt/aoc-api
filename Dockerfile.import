@@ -3,9 +3,13 @@
 #
 # ⭐ WHY THIS EXISTS, with the numbers that were actually completed rather than extrapolated.
 # The production database has no public endpoint by design, so the only route in from a laptop is
-# the SSH tunnel of docs/runbook-restore.md § 1, where one round trip costs 273 ms. The importer
-# writes ~49,800 rows one statement at a time, and through the tunnel the dry run died on its
-# deadline at item 418 of 4,648 (AOC-034).
+# the SSH tunnel of docs/runbook-restore.md § 1, where one round trip costs ~250 ms. Through that
+# tunnel the dry run died on its deadline at item 418 of 4,648 (AOC-034).
+#
+# ⚠️ Of the ~49,800 rows, only ~12,900 are written one statement at a time — item_sources,
+# item_costs, sets, vendors. The other ~36,900 (items, item_stats, item_spell_effects,
+# item_equip_locations, item_classes) ALREADY go through tx.CopyFrom. See the comment on
+# insertSources in internal/items/import_children.go, which says so.
 #
 # Measured, full runs, same snapshot, same code:
 #   dev over localhost ............  4.2 seconds

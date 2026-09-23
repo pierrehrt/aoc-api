@@ -75,7 +75,8 @@ refused every way tried (2026-09-17). The loopback of the Postgres container its
 
 ⛔ **THE TUNNEL IS FOR INSPECTION AND RESTORE — NEVER FOR BULK WRITES.** Measured 2026-09-23: one
 round trip through it costs **273 ms**. Anything that issues tens of thousands of statements will
-not finish. The armory import (~49,800 rows) died at item **418 of 4,648** in ten minutes this way,
+not finish. The armory import (~12,900 statements, the rest going through `CopyFrom`) died at item
+**418 of 4,648** in ten minutes this way,
 while the same job run **inside Railway** on the private network completed in **15.0 minutes**.
 If you need to write in bulk, deploy a job beside the database — `docs/architecture.md`
 § The import service (AOC-040) — rather than reaching in from here.

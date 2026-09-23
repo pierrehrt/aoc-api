@@ -801,13 +801,37 @@ Completed runs, same snapshot, same code:
 | here, Railway private network | **15.0 minutes** |
 | down the SSH tunnel | **never finished** — 418 of 4,648 items in 10 minutes |
 
-The importer writes ~49,800 rows one statement at a time, so where it runs dominates everything.
 `-timeout` is therefore a flag (default 10 minutes, so a dev run still fails fast) and this service
 passes **2h**.
 
+⚠️ **Only ~12,900 of the ~49,800 rows are written one statement at a time** — `item_sources`,
+`item_costs`, `sets`, `vendors`. The other ~36,900 (`items`, `item_stats`, `item_spell_effects`,
+`item_equip_locations`, `item_classes`) **already go through `tx.CopyFrom`**, and have since
+AOC-011. The comment on `insertSources` in `internal/items/import_children.go` says so.
+
+⛔ **Which means the 15 minutes is not explained.** 900 s over ~12,900 statements is **~70 ms each**,
+against **0.33 ms** on localhost. 70 ms is not an intra-datacenter round trip, so something other
+than network latency dominates — and **what, is not known and was not measured.** Anyone optimising
+this should start by finding out, not by reaching for `COPY`, which is already there for 74% of the
+rows.
+
 ⚠️ **Do not size a run from a partial one.** A first attempt here reached item 921 in ten minutes,
-implying ~50 minutes, and the run that finished took 15. **Why that attempt was ~5× slower is not
-known and was not measured.**
+implying ~50 minutes, and the run that finished took 15. **Why that attempt was ~5× slower is also
+not known and was not measured.**
+
+#### What happens if two runs overlap
+
+Observed 2026-09-23, not assumed: triggering a second deployment **stops the first mid-transaction**
+(`Stopping Container`, six seconds after the new one started). The first run's transaction therefore
+**rolls back** — safe, but it means a stray redeploy during a real import aborts it rather than
+corrupting it. Confirmed afterwards from `pg_stat_user_tables`: `items.n_tup_ins` was exactly
+**3 × 4,646** with `n_live_tup 0`, i.e. three runs reached the write phase and all three rolled back.
+
+⚠️ **The start-command override is untested.** `AOC-034` will drop `-dry-run` by overriding the
+start command, and no override has ever been run against this image. **Prove it with a dry run
+first.** The failure mode is at least loud: Go's `flag` stops at the first non-flag argument, so a
+mangled override leaves `-confirm-host` empty and `db.ConfirmTarget` refuses to touch a non-local
+host.
 
 ### Rollback
 

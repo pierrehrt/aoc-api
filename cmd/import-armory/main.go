@@ -44,11 +44,15 @@ func run() error {
 	snapshot := flag.String("snapshot", "../armory_snapshot/items_clean.json", "path to items_clean.json")
 	dryRun := flag.Bool("dry-run", false, "resolve everything and roll back instead of committing")
 	confirmHost := flag.String("confirm-host", "", "the non-local host you mean to write to, typed out")
-	// ⏱ Why this is a flag rather than the constant it used to be (AOC-040). The importer writes
-	// ~49,800 rows one statement at a time, and how long that takes depends entirely on where it
-	// runs. Completed runs, same snapshot, same code: 4.2 SECONDS against localhost, 15.0 MINUTES
-	// from inside Railway over the private network, and never at all down the SSH tunnel, which
-	// died at item 418 of 4,648 on the old 10-minute constant.
+	// ⏱ Why this is a flag rather than the constant it used to be (AOC-040). Completed runs, same
+	// snapshot, same code: 4.2 SECONDS against localhost, 15.0 MINUTES from inside Railway over the
+	// private network, and never at all down the SSH tunnel, which died at item 418 of 4,648 on the
+	// old 10-minute constant.
+	//
+	// ⚠️ ~12,900 rows go one statement at a time (item_sources, item_costs, sets, vendors); the
+	// other ~36,900 already use CopyFrom. That works out at ~70 ms per statement inside Railway
+	// against 0.33 ms on localhost — which is FAR more than an intra-datacenter round trip should
+	// cost, so the 15 minutes is NOT explained by network latency and the cause was not measured.
 	//
 	// The default stays at 10 minutes so a dev run still fails fast instead of hanging; anything
 	// remote passes a generous value explicitly, which also documents the expectation at the call
