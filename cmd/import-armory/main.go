@@ -44,6 +44,16 @@ func run() error {
 	snapshot := flag.String("snapshot", "../armory_snapshot/items_clean.json", "path to items_clean.json")
 	dryRun := flag.Bool("dry-run", false, "resolve everything and roll back instead of committing")
 	confirmHost := flag.String("confirm-host", "", "the non-local host you mean to write to, typed out")
+	// ⏱ Why this is a flag rather than the constant it used to be (AOC-040). The importer writes
+	// ~49,800 rows one statement at a time, and 10 minutes is not enough for the real corpus
+	// anywhere: it reached item 418 of 4,648 through the SSH tunnel and item 921 of 4,648 inside
+	// Railway, on the private network. Measured, not estimated — removing the tunnel bought 2.2×,
+	// not the order of magnitude the round-trip latency suggested it would.
+	//
+	// A full import is therefore ≈ 50 minutes beside the database. The default stays at 10 minutes
+	// so a dev run against a fixture still fails fast rather than hanging; the production run passes
+	// a generous value explicitly, which is also a note to whoever reads the command later.
+	timeout := flag.Duration("timeout", 10*time.Minute, "overall deadline for the whole import")
 	flag.Parse()
 
 	// ---- which database? before anything else, including reading the snapshot ---------------
@@ -60,7 +70,7 @@ func run() error {
 	}
 	fmt.Printf("snapshot: %s — %d items\n", *snapshot, len(its))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
 	pool, err := db.New(ctx, db.DefaultConfig(url))

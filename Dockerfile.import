@@ -1,12 +1,21 @@
 # The one-off production import (AOC-040). Railway builds this as a THIRD service in the same
 # project — beside the site and the backup job — with NO cronSchedule: it runs when asked.
 #
-# ⭐ WHY THIS EXISTS AT ALL, in one measurement. The production database has no public endpoint
-# by design, so the only route in from a laptop is the SSH tunnel of docs/runbook-restore.md § 1.
-# Through that tunnel one round trip costs 273 ms, and the importer writes ~49,800 rows one
-# statement at a time: ≈ 3.8 hours in a single transaction riding on an SSH connection. The dry
-# run died at item 418 of 4,648 on the binary's own 10-minute deadline (AOC-034, 2026-09-23).
-# Raising the deadline buys a longer way to fail. Running beside the database removes the tunnel.
+# ⭐ WHY THIS EXISTS, stated the way the measurements actually came out rather than the way they
+# were first guessed. The production database has no public endpoint by design, so the only route
+# in from a laptop is the SSH tunnel of docs/runbook-restore.md § 1, where one round trip costs
+# 273 ms. The importer writes ~49,800 rows one statement at a time, and the dry run died on its
+# 10-minute deadline at item 418 of 4,648 (AOC-034).
+#
+# ⛔ The tunnel was NOT the cause, and assuming it was is the mistake this comment exists to stop
+# the next person repeating. Run inside Railway on the private network, the same dry run reached
+# item 921 of 4,648 in the same ten minutes — 2.2×, not the order of magnitude the latency
+# arithmetic promised. The cost is the ~49,800 round trips themselves; the network only scales it.
+# A full import is ≈ 50 minutes either way, which is why -timeout below is 2h.
+#
+# The job still belongs here, for the reasons that survived the correction: no SSH connection to
+# drop, no laptop to sleep, and a database credential that is a Railway reference rather than a
+# copied string. A 50-minute job beside the database is ordinary; 3.8 hours down a tunnel was not.
 #
 # ---- how the snapshot gets in, which is the whole design question -----------
 #
@@ -67,4 +76,7 @@ USER 65532:65532
 # A job MUST exit. Railway's restartPolicyType is NEVER on this service for the same reason the
 # backup job has it: a job that lingers is a job nobody can tell has finished.
 ENTRYPOINT ["/usr/local/bin/import-armory"]
-CMD ["-dry-run", "-snapshot", "/snapshot/items_clean.json", "-confirm-host", "postgres.railway.internal:5432"]
+# ⏱ -timeout 2h, not the 10-minute default. Measured (AOC-040): a full import reaches item 921 of
+# 4,648 in ten minutes INSIDE Railway, so the real run is ≈ 50 minutes. 2h is generous on purpose —
+# the failure this guards against is a deadline firing at minute 49 of a 50-minute job.
+CMD ["-dry-run", "-snapshot", "/snapshot/items_clean.json", "-confirm-host", "postgres.railway.internal:5432", "-timeout", "2h"]
