@@ -381,6 +381,20 @@ Three structural facts the rest of the app inherits:
    so that "everything in Stygia" is one join; `TestEveryPlacesRegionMatchesItsMap` is what makes
    that redundancy safe. An Unchained dungeon is **its own row**, not a flag on its twin — the
    two share no loot at all.
+
+   ⛔ **A source does not repeat a geography its place already supplies (AOC-037).**
+   `item_sources.region_id` / `map_id` are written **only when the place cannot supply them** —
+   no `place_id` at all, or a place with no map. They exist for the 1,732 sources that have a
+   region and no place, not as a second opinion about a place that has one.
+   **This is not tidiness, it is a defect that shipped:** 196 rows published `cimmeria` for two
+   dungeons that are in Kheshatta, in Stygia. Every one arrived through the container
+   `Acheronian Cache`, whose observed sources straddle two regions, so its geography was resolved
+   **once — from the first of them —** and stamped onto every item it holds. The rows imported
+   and the counts matched, because *the disagreement was the bug and each column was individually
+   plausible*. Worse, the wrong value wore the **highest** confidence: it was attributed to
+   `reference_geography.json`, so the importer marked it `verified` while the correct `derived`
+   value sat in the sibling rows. `TestNoSourceContradictsItsPlacesGeography` now asserts that
+   **nothing** disagrees, rather than sampling rows that happen to agree.
 3. **Every content row carries its provenance**: `confidence_id` →`confidence_levels`
    (`verified` / `corroborated` / `unconfirmed` / `disputed`, the vocabulary in
    `product_management/reference/sourcing-standards.md` § 3), `source_note` naming which source
