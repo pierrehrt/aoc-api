@@ -89,11 +89,43 @@ func insertSources(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 				openQ = &j
 			}
 
+			// ⭐ ONE FACT, ONE COLUMN (AOC-037). A source writes its own region/map only when its
+			// place cannot supply them. The place is the stronger fact — it has a name, a map and
+			// a region, and TestEveryPlacesRegionMatchesItsMap holds it to its map — while the
+			// per-source copy has no invariant on it and no reader that needs it.
+			//
+			// ⛔ This is not a preference between two plausible values. 196 rows published
+			// `cimmeria` for two dungeons that are in Kheshatta, in Stygia (Pierre, 2026-09-23,
+			// Tier A): every one arrived through the container `Acheronian Cache`, whose observed
+			// sources straddle two regions, so the container's geography was resolved ONCE — from
+			// the first of them — and stamped onto every item it contains.
+			//
+			// Leaving the column NULL wherever a place exists also makes the read correct under
+			// EITHER spelling of the coalesce, which matters while AOC-012 is unmerged.
+			regionID := lookupPtr(s.Region, l.Regions)
+			sourceMapID := mapID
+			if placeID != nil {
+				if geo, ok := l.PlaceGeo[*placeID]; ok {
+					if geo.RegionID != nil {
+						regionID = nil
+					}
+					if geo.MapID != nil {
+						sourceMapID = nil
+					}
+				}
+			}
+
 			// ⭐ region_source says whether the region came from the armory or from Pierre.
 			// Pierre's geography is Tier A; the armory's is derived. That difference belongs in
 			// the row's provenance, not thrown away (AOC-010 verify carried this forward).
+			//
+			// ⚠️ Only while the row actually KEEPS that region. Claiming "region from Pierre's
+			// reference_geography.json" on a row whose region_id was just dropped would describe a
+			// value that is not there — and it was exactly this elevation that put `verified`, the
+			// pipeline's highest confidence, onto the wrong value while the correct `derived` one
+			// sat beside it (AOC-037).
 			confidence, note := conf, "armory_snapshot/items_clean.json (Tier A*, OCR of AoC>TV)"
-			if s.RegionSource != nil && *s.RegionSource == "pierre" {
+			if s.RegionSource != nil && *s.RegionSource == "pierre" && regionID != nil {
 				if id, ok := l.Confidence["verified"]; ok {
 					confidence = id
 				}
@@ -112,8 +144,8 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id
 				lookupPtr(s.Vendor, vendorIDs),
 				lookupPtr(s.Quest, l.Quests),
 				lookupPtr(s.Container, l.Containers),
-				lookupPtr(s.Region, l.Regions),
-				mapID,
+				regionID,
+				sourceMapID,
 				lookupPtr(s.Tier, l.Tiers),
 				s.IsRaid, coordsText(s.Coords), s.SectionRaw, s.Unchained,
 				confidence, note, openQ,

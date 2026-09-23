@@ -40,6 +40,7 @@ type Lookups struct {
 	Bosses           map[string]int32
 	Quests           map[string]int32 // keyed on armory_label: quests.name is deliberately null
 	Places           map[PlaceKey]int32
+	PlaceGeo         map[int32]PlaceGeo
 	SlotFits         map[string]int32
 	Confidence       map[string]int32
 }
@@ -47,6 +48,15 @@ type Lookups struct {
 // PlaceKey is how a source row finds its place: the PAIR the armory used, never a name.
 // `places_armory_key` is UNIQUE on it with NULLS NOT DISTINCT (AOC-009).
 type PlaceKey struct{ Instance, Dungeon string }
+
+// PlaceGeo is what a place can say about its own geography, keyed by place id.
+//
+// ⭐ It exists for one rule (AOC-037): a source writes its OWN region/map only when its place
+// cannot supply them. The place is the stronger fact — it has a name, a map and a region, and
+// `TestEveryPlacesRegionMatchesItsMap` holds it to its map — while the per-source copy has no
+// invariant on it. Two columns describing one fact, free to disagree, is how 196 rows came to
+// publish `cimmeria` for a dungeon in Stygia.
+type PlaceGeo struct{ RegionID, MapID *int32 }
 
 // knownDecision records a value we cannot resolve and have already decided what to do about.
 type knownDecision struct {
@@ -142,7 +152,9 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 
 	// ⭐ places join on the PAIR, never a name — the armory's own (instance, dungeon).
 	l.Places = map[PlaceKey]int32{}
-	rows, err := q.Query(ctx, `SELECT coalesce(armory_instance,''), coalesce(armory_dungeon,''), id
+	l.PlaceGeo = map[int32]PlaceGeo{}
+	rows, err := q.Query(ctx, `SELECT coalesce(armory_instance,''), coalesce(armory_dungeon,''), id,
+	                                  region_id, map_id
 	                           FROM places
 	                           WHERE armory_instance IS NOT NULL OR armory_dungeon IS NOT NULL`)
 	if err != nil {
@@ -152,10 +164,12 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 	for rows.Next() {
 		var k PlaceKey
 		var id int32
-		if err := rows.Scan(&k.Instance, &k.Dungeon, &id); err != nil {
+		var geo PlaceGeo
+		if err := rows.Scan(&k.Instance, &k.Dungeon, &id, &geo.RegionID, &geo.MapID); err != nil {
 			return nil, err
 		}
 		l.Places[k] = id
+		l.PlaceGeo[id] = geo
 	}
 	return l, rows.Err()
 }
