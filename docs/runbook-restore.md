@@ -73,6 +73,20 @@ container — do not go looking at your key.
 `postgres.railway.internal`.** Railway's docs say private-network targets are allowed; they were
 refused every way tried (2026-09-17). The loopback of the Postgres container itself works.
 
+⛔ **THE TUNNEL IS FOR INSPECTION AND RESTORE — NEVER FOR BULK WRITES.** Measured 2026-09-23: one
+round trip through it costs **273 ms**. Anything that issues tens of thousands of statements will
+not finish. The armory import (~49,800 rows) died at item **418 of 4,648** in ten minutes this way,
+while the same job run **inside Railway** on the private network completed in **15.0 minutes**.
+If you need to write in bulk, deploy a job beside the database — `docs/architecture.md`
+§ The import service (AOC-040) — rather than reaching in from here.
+
+⚠️ **And the guard you rely on does not work through this tunnel.** The Makefile's `require_db`
+prints `⚠️ NOT LOCAL — this is a real database` for a real host, but production answers on
+`127.0.0.1:15432` here, so it prints **`(local)`** for every command you run down the tunnel —
+including `migrate-up`. The failure it exists to prevent is *"running a migration against
+production while believing it is local"*, and this procedure produces exactly that appearance.
+**Read the port, not the reassurance.**
+
 Check it is up:
 
 ```bash

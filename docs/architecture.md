@@ -747,6 +747,68 @@ explicitly touched in bursts months apart. GitHub emails the owner when it does 
 `workflow_dispatch` re-arms it, but a reader must not discover this at the same moment they
 discover the missing backup. It is repeated in `runbook-restore.md`.
 
+### The import service (AOC-040)
+
+**A third Railway service**, and the second that is not the site. Like the backup job it shares
+only the repo and the private network — no public domain, no route, no inbound traffic. Unlike it,
+it has **no `cronSchedule`**: it runs when a person asks.
+
+| | |
+|---|---|
+| Image | `Dockerfile.import` — `golang:1.23-alpine` build, `alpine:3.22` runtime |
+| Schedule | **none.** A job, not a timer |
+| Entry point | `cmd/import-armory`, with the corpus baked in at `/snapshot/items_clean.json` |
+| Database | `${{Postgres.DATABASE_URL}}` — a **reference**, so no credential is copied by hand or reaches this repo |
+| Restart policy | **NEVER**, the same rule as the backup job: a job must exit |
+| Default command | ⛔ **`-dry-run`.** Committing requires overriding the start command, which is a separate visible act |
+
+#### How it is deployed, and why it is not built from GitHub
+
+`items_clean.json` is **10 MB** and lives in a **separate, private** repo
+(`pierrehrt/aoc-armory-snapshot`). Railway builds this repo, which does not contain it. So this one
+service is deployed with **`railway up` from an assembled build context** — this repo's tracked
+files (`git archive HEAD`) plus the snapshot, from a machine holding both checkouts.
+
+```bash
+CTX=$(mktemp -d)
+git archive HEAD | tar -x -C "$CTX"
+mkdir -p "$CTX/armory_snapshot"
+cp ../armory_snapshot/items_clean.json "$CTX/armory_snapshot/"
+cd "$CTX" && git init -q && git add -A && git -c user.email=a@b -c user.name=c commit -qm ctx
+railway up -d -s import -e production
+```
+
+⚠️ **`git init` is not decoration.** `railway up` refuses a context that is not git-rooted, with the
+unhelpful message **`prefix not found`** (measured 2026-09-23).
+
+⚠️ **`railway add` can create the service and then fail**, reporting `Project not found` as though
+nothing happened. It had in fact created `import`; a later create failed with "a service named
+import already exists". Check before creating twice.
+
+Rejected alternatives, and why (`DECISIONS.md`, 2026-09-23): **fetching the snapshot from R2** — the
+backups bucket expires objects after 30 days so it would silently vanish, and the tooltip bucket is
+served publicly at `img.aoc-codex.app` so it would publish the corpus; **cloning the private repo
+at build time** — a GitHub token inside a Railway build, a credential in a third place; **committing
+the snapshot into this repo** — a second copy of the corpus, free to drift from the canonical one.
+
+#### ⏱ How long it takes, measured, because this decides the deadline
+
+Completed runs, same snapshot, same code:
+
+| Where | Duration |
+|---|---|
+| dev, over localhost | **4.2 seconds** |
+| here, Railway private network | **15.0 minutes** |
+| down the SSH tunnel | **never finished** — 418 of 4,648 items in 10 minutes |
+
+The importer writes ~49,800 rows one statement at a time, so where it runs dominates everything.
+`-timeout` is therefore a flag (default 10 minutes, so a dev run still fails fast) and this service
+passes **2h**.
+
+⚠️ **Do not size a run from a partial one.** A first attempt here reached item 921 in ten minutes,
+implying ~50 minutes, and the run that finished took 15. **Why that attempt was ~5× slower is not
+known and was not measured.**
+
 ### Rollback
 
 **Proved on 2026-09-16, not assumed.** The builder was pointed at a Dockerfile that does not

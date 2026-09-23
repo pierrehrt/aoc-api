@@ -45,14 +45,14 @@ func run() error {
 	dryRun := flag.Bool("dry-run", false, "resolve everything and roll back instead of committing")
 	confirmHost := flag.String("confirm-host", "", "the non-local host you mean to write to, typed out")
 	// ⏱ Why this is a flag rather than the constant it used to be (AOC-040). The importer writes
-	// ~49,800 rows one statement at a time, and 10 minutes is not enough for the real corpus
-	// anywhere: it reached item 418 of 4,648 through the SSH tunnel and item 921 of 4,648 inside
-	// Railway, on the private network. Measured, not estimated — removing the tunnel bought 2.2×,
-	// not the order of magnitude the round-trip latency suggested it would.
+	// ~49,800 rows one statement at a time, and how long that takes depends entirely on where it
+	// runs. Completed runs, same snapshot, same code: 4.2 SECONDS against localhost, 15.0 MINUTES
+	// from inside Railway over the private network, and never at all down the SSH tunnel, which
+	// died at item 418 of 4,648 on the old 10-minute constant.
 	//
-	// A full import is therefore ≈ 50 minutes beside the database. The default stays at 10 minutes
-	// so a dev run against a fixture still fails fast rather than hanging; the production run passes
-	// a generous value explicitly, which is also a note to whoever reads the command later.
+	// The default stays at 10 minutes so a dev run still fails fast instead of hanging; anything
+	// remote passes a generous value explicitly, which also documents the expectation at the call
+	// site for whoever reads the command later.
 	timeout := flag.Duration("timeout", 10*time.Minute, "overall deadline for the whole import")
 	flag.Parse()
 
