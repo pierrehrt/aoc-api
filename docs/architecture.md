@@ -677,6 +677,22 @@ cannot `CreateBucket`, and rclone tries to ensure the bucket exists before its f
 without it the upload fails at `CreateBucket` with 403 and never reaches `PutObject`. Measured in
 AOC-007; see § Object storage.
 
+#### ⚠️ The job's token can DELETE, and that is a limit we accepted knowingly
+
+The ticket asked for a **write-only** credential. **R2 has no write-only permission group** — the
+choice is *Object Read & Write* or *Object Read only* — and there is no object lock and no bucket
+versioning to fall back on. Criterion 5 also *requires* reading the object back after upload, which
+a write-only token could not do. So **Object Read & Write is the least privilege that does the
+job**, and it means the backup service's credential could delete the whole archive.
+
+Measured, not assumed: `DELETE` with the job's token returns **204**.
+
+Compensating controls, such as they are: the credential exists only as a Railway variable on one
+service that runs for a few seconds a day; the 30-day lifecycle means a deletion is not the only
+way objects disappear anyway; and the freshness alarm turns a wiped prefix into a red run within
+24 h. **This is recorded rather than fixed because there is nothing to fix it with** — revisit if
+R2 ever ships object lock. (AOC-030 verify round 1, Finding B.)
+
 #### ⛔ MEASURED: Railway reports a FAILED run as SUCCESS
 
 **2026-09-22, the first real deployment of this service.** `backup.sh` hit its env guard, printed

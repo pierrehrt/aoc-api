@@ -201,21 +201,49 @@ production that still answers. This section needs only the bucket.
 
 ### What you need
 
-The **read-only** R2 credentials — `R2_READONLY_ACCESS_KEY_ID` / `R2_READONLY_SECRET_ACCESS_KEY`
-in `~/.config/aoc-codex/r2.env`, plus `R2_S3_ENDPOINT` and the backups bucket name. Use the
-read-only pair: nothing in a restore should be able to damage the thing you are restoring from.
+The bucket is **`aoc-codex-backups-enam`** — written out here on purpose, so this page still works
+if an environment variable is missing or wrong. It is **not** `aoc-codex-enam`, which holds the
+tooltip images.
 
-⚠️ **`rclone` is not installed on this machine** (checked 2026-09-22) and there is no
-`~/.config/rclone/rclone.conf`. Install it, or use the S3 API directly — the bucket is plain S3.
-`brew install rclone`, then configure a remote from the values in `r2.env`:
+The **read-only** credentials for it are `R2_BACKUP_READONLY_ACCESS_KEY_ID` /
+`R2_BACKUP_READONLY_SECRET_ACCESS_KEY` in `~/.config/aoc-codex/r2.env`. Use the read-only pair:
+nothing in a restore should be able to damage the thing you are restoring from.
+
+⛔ **DO NOT USE `R2_READONLY_ACCESS_KEY_ID` / `R2_READONLY_SECRET_ACCESS_KEY` HERE.** Those are
+AOC-007's **tooltip-bucket** pair. They are scoped to `aoc-codex-enam` and answer
+**`403 AccessDenied`** against the backups bucket — a 403 that looks exactly like the harmless one
+described below, on the page you are reading because production is gone. This page named the wrong
+pair until AOC-030 verify round 1 caught it.
+
+| Want to read… | Use |
+|---|---|
+| `aoc-codex-backups-enam` (database dumps) | `R2_BACKUP_READONLY_*` |
+| `aoc-codex-enam` (tooltip images) | `R2_READONLY_*` |
+
+✅ **`rclone` v1.75.1 is installed** (`brew install rclone`, 2026-09-22 — the same version
+`Dockerfile.backup` pins). There is deliberately **no `~/.config/rclone/rclone.conf`**: the remote
+is configured from environment variables below, so no file on disk holds a credential. rclone
+prints a harmless `NOTICE: Config file ... not found - using defaults`; ignore it.
+
+⚠️ If `rclone` is missing on a rebuilt machine, `brew install rclone` and carry on — the bucket is
+plain S3, so the AWS CLI or a signed request works too.
 
 ```bash
 set -a; . ~/.config/aoc-codex/r2.env; set +a
+
+# Fail loudly rather than expanding to "r2ro:/prod/" and listing nothing, which is how a
+# missing variable turns into "there are no backups" (AOC-030 verify round 1).
+: "${R2_S3_ENDPOINT:?not set - check ~/.config/aoc-codex/r2.env}"
+: "${R2_BACKUP_READONLY_ACCESS_KEY_ID:?not set - this is the BACKUPS pair, not R2_READONLY_*}"
+: "${R2_BACKUP_READONLY_SECRET_ACCESS_KEY:?not set}"
+BUCKET="${R2_BACKUP_BUCKET:-aoc-codex-backups-enam}"
+echo "restoring from bucket: $BUCKET"
+
 export RCLONE_CONFIG_R2RO_TYPE=s3
 export RCLONE_CONFIG_R2RO_PROVIDER=Cloudflare
 export RCLONE_CONFIG_R2RO_ENDPOINT="$R2_S3_ENDPOINT"
-export RCLONE_CONFIG_R2RO_ACCESS_KEY_ID="$R2_READONLY_ACCESS_KEY_ID"
-export RCLONE_CONFIG_R2RO_SECRET_ACCESS_KEY="$R2_READONLY_SECRET_ACCESS_KEY"
+export RCLONE_CONFIG_R2RO_ACCESS_KEY_ID="$R2_BACKUP_READONLY_ACCESS_KEY_ID"
+export RCLONE_CONFIG_R2RO_SECRET_ACCESS_KEY="$R2_BACKUP_READONLY_SECRET_ACCESS_KEY"
 export RCLONE_S3_NO_CHECK_BUCKET=true     # the token is bucket-scoped; see below
 ```
 
@@ -226,7 +254,7 @@ looks like a bad credential and is not one (AOC-007).
 ### List what exists, newest last
 
 ```bash
-rclone lsl "r2ro:$R2_BACKUP_BUCKET/prod/" | sort -k2
+rclone lsl "r2ro:$BUCKET/prod/" | sort -k2
 ```
 
 **Look at the dates and the sizes before trusting the newest.** If the newest dump is corrupt, an
@@ -236,9 +264,10 @@ older one is the whole fallback. A row that is suspiciously small is a failed jo
 
 ```bash
 mkdir -p tmp/dumps
-NEWEST="$(rclone lsf --format p "r2ro:$R2_BACKUP_BUCKET/prod/" | sort | tail -1)"
+NEWEST="$(rclone lsf --format p "r2ro:$BUCKET/prod/" | sort | tail -1)"
+[ -n "$NEWEST" ] || echo "NO OBJECTS under prod/ - wrong bucket, wrong credential, or the job never ran"
 echo "fetching: $NEWEST"
-rclone copyto "r2ro:$R2_BACKUP_BUCKET/prod/$NEWEST" "tmp/dumps/$NEWEST"
+rclone copyto "r2ro:$BUCKET/prod/$NEWEST" "tmp/dumps/$NEWEST"
 
 export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 pg_restore -l "tmp/dumps/$NEWEST" | head
