@@ -466,6 +466,7 @@ tables have.
 DATABASE_URL=… go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json -dry-run
 DATABASE_URL=… go run ./cmd/import-armory -snapshot ../armory_snapshot/items_clean.json
 DATABASE_URL=… go run ./cmd/import-armory -confirm-host <host:port>     # a non-local target
+DATABASE_URL=… go run ./cmd/import-armory -allow-shrink                 # the corpus really did shrink
 ```
 
 Wiring only, like `cmd/api`: every decision about what the data means lives in `internal/items`.
@@ -489,6 +490,30 @@ refused on a remote target too: it rolls back, but it still takes locks on nine 
 database. The same `HostOf`/`IsLocalHost` pair decides the migration tests' refusal to run
 anywhere but a developer machine — **one definition of "is this local?", not two**.
 (AOC-005 established the property; AOC-011 verify round 1 found this command bypassing it.)
+
+⛔ **It refuses to shrink the corpus (AOC-042).** The full replace above cannot tell *a smaller
+dataset* from *a broken one*. Before this guard existed, a **well-formed 40-item snapshot** would
+delete 4,646 items, insert 40, print a tidy report and **exit 0**.
+
+`internal/items.Import` therefore counts `items` **inside the transaction, before the `DELETE`**, and
+refuses if the incoming corpus is under **`items.ShrinkFloorPercent` (90%)** of what is already
+there. The refusal names both numbers and nothing is deleted.
+
+| situation | what happens |
+|---|---|
+| the table is **empty** | always allowed — the first import, and every dev run and test |
+| incoming ≥ 90% of existing | allowed; the armory moves by single items, not tenths of itself |
+| incoming < 90% of existing | **refused**, both counts printed, `-allow-shrink` named as the way out |
+| `-allow-shrink` passed | allowed — the legitimate case, typed once by a person |
+
+⚠️ **Truncation was never the danger.** A file cut mid-JSON fails to decode and `DecodeSnapshot`
+already refuses an empty one. The dangerous input is a **valid short file** — exactly what a
+`--limit N` smoke test produces, which is the same trap AOC-031 describes one layer up.
+
+📌 **The guard lives in `internal/items`, not in `cmd/import-armory`**, so a second caller cannot
+route around it (CLAUDE.md rule 5b). `TestTheFloorGuardsImportItselfNotTheCommand` calls
+`items.Import` directly to pin exactly that, and the boundary is pinned from both sides because
+"roughly 90%" is not a specification.
 
 **It refuses to guess.** Before a single row is written it resolves every name in the snapshot
 against AOC-009's seeds. An unrecognised value prints and stops the import, because it means
@@ -761,6 +786,7 @@ it has **no `cronSchedule`**: it runs when a person asks.
 | Database | `${{Postgres.DATABASE_URL}}` — a **reference**, so no credential is copied by hand or reaches this repo |
 | Restart policy | **NEVER**, the same rule as the backup job: a job must exit |
 | Default command | ⛔ **`-dry-run`.** Committing requires overriding the start command, which is a separate visible act |
+| Corpus floor | ⛔ refuses to replace the corpus with under 90% of itself (AOC-042); `-allow-shrink` is the only way past |
 
 #### How it is deployed, and why it is not built from GitHub
 
@@ -777,6 +803,14 @@ cp ../armory_snapshot/items_clean.json "$CTX/armory_snapshot/"
 cd "$CTX" && git init -q && git add -A && git -c user.email=a@b -c user.name=c commit -qm ctx
 railway up -d -s import -e production
 ```
+
+⭐ **A safety consequence worth keeping deliberately: a push to `main` cannot rebuild or trigger this
+service.** `api` and `backup` both carry `source.repo = pierrehrt/aoc-api`, so a merge redeploys
+them; `import` has **no source repo at all**, because it only ever moves when someone runs
+`railway up`. Measured 2026-09-24, when merging a PR rebuilt `backup` (`buildOnly: true`, cron
+untouched) and left `import` sitting on its previous deployment. It is the fourth independent
+safeguard on a service that deletes nine tables — beside `-dry-run` in the start command, no
+`cronSchedule`, and `-confirm-host`. **Do not "tidy this up" by connecting the service to the repo.**
 
 ⚠️ **`git init` is not decoration.** `railway up` refuses a context that is not git-rooted, with the
 unhelpful message **`prefix not found`** (measured 2026-09-23).

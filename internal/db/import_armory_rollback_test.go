@@ -19,6 +19,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/pierrehrt/aoc-api/internal/items"
 )
 
 func TestAFailureAfterTheDeletesPutsTheOldRowsBack(t *testing.T) {
@@ -83,7 +85,12 @@ func TestAnItemMissingFromTheNextSnapshotIsRemoved(t *testing.T) {
  "binding":null,"no_longer_available":false,"tooltip_image":null,"tooltip_source_url":null,
  "sources":[]}]`
 
-	if r := runImport(t, pool, onlyTheRing); r.err != nil {
+	// ⭐ AllowShrink, and it is not a workaround — it is this test meeting AOC-042's floor honestly.
+	// Going from 2 items to 1 is a 50% drop, exactly the shape the floor exists to stop, and this
+	// test is the legitimate case the flag was added for: the shrink is the thing being proved.
+	// 📌 Worth noticing that the floor caught a real shrink already present in this suite the moment
+	// it was added.
+	if r := runImportWith(t, pool, onlyTheRing, items.Options{AllowShrink: true}); r.err != nil {
 		t.Fatalf("shrunken import: %v", r.err)
 	}
 	if got := count(t, d, "items"); got != 1 {
