@@ -17,6 +17,7 @@ package db_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -79,6 +80,11 @@ type importResult struct {
 
 func runImport(t *testing.T, pool *pgxpool.Pool, body string) importResult {
 	t.Helper()
+	return runImportWith(t, pool, body, items.Options{})
+}
+
+func runImportWith(t *testing.T, pool *pgxpool.Pool, body string, opt items.Options) importResult {
+	t.Helper()
 	ctx := context.Background()
 	its, err := items.DecodeSnapshot(strings.NewReader(body))
 	if err != nil {
@@ -94,7 +100,7 @@ func runImport(t *testing.T, pool *pgxpool.Pool, body string) importResult {
 	if err != nil {
 		t.Fatalf("lookups: %v", err)
 	}
-	rep, err := items.Import(ctx, tx, its, l)
+	rep, err := items.Import(ctx, tx, its, l, opt)
 	if err == nil {
 		if cerr := tx.Commit(ctx); cerr != nil {
 			t.Fatalf("commit: %v", cerr)
@@ -241,4 +247,174 @@ func snapshotCounts(t *testing.T, pool *pgxpool.Pool, d *sql.DB) map[string]int 
 		out[table] = count(t, d, table)
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------------------------
+// AOC-042 — the corpus floor.
+//
+// A full replace cannot tell a smaller dataset from a broken one. Before this guard a VALID
+// 40-item snapshot deleted 4,646 items, inserted 40 and exited 0. Genuine truncation was never the
+// danger — a cut file fails to decode — so every fixture below is well-formed and simply short,
+// which is exactly what a `--limit N` smoke test produces.
+//
+// ⚠️ These assert THE ROW COUNT AFTERWARDS, not the error message. AOC-012's five defects all
+// passed tests that checked the half being thought about; an error string proves the function
+// returned, not that the corpus is still there.
+
+// minimalItem builds a well-formed item with no stats, sources, set or vendor — the shape of
+// fixture 9002 — so a corpus of any size can be built without inventing a game fact. Every name is
+// obviously fake (CLAUDE.md STEP ZERO).
+func minimalItem(id int) string {
+	return fmt.Sprintf(`{"item_id":%d,"name":"Test Filler Item %d","rarity":"Rare","item_type":"Back",
+ "pvp_source":false,"has_pvp_stats":false,"pvp_penalty":false,"classes":[],
+ "armour_weight":null,"equip_location":"None","item_level":70,"requires_level":70,
+ "armor":null,"critigation":null,"dps":null,"damage_range":null,
+ "stats":[],"spell_effect":[],"set":null,"set_pieces":null,"faction":null,"faction_rank":null,
+ "binding":null,"no_longer_available":false,"tooltip_image":null,"tooltip_source_url":null,
+ "sources":[]}`, id, id)
+}
+
+// corpusOf builds a snapshot of exactly n importable items.
+func corpusOf(n int) string {
+	parts := make([]string, 0, n)
+	for i := range n {
+		parts = append(parts, minimalItem(9100+i))
+	}
+	return "[" + strings.Join(parts, ",\n") + "]"
+}
+
+// ⭐ THE ONE THAT MATTERS. A short but perfectly valid snapshot must not be allowed to replace a
+// populated corpus, and the proof is that the corpus is STILL THERE afterwards.
+func TestAShortSnapshotCannotReplaceAPopulatedCorpus(t *testing.T) {
+	pool, d := importTarget(t)
+
+	if r := runImport(t, pool, corpusOf(100)); r.err != nil {
+		t.Fatalf("seeding the corpus: %v", r.err)
+	}
+	if got := count(t, d, "items"); got != 100 {
+		t.Fatalf("setup: items = %d, want 100", got)
+	}
+
+	r := runImport(t, pool, corpusOf(40))
+	if r.err == nil {
+		t.Fatal("a 40-item snapshot replaced a 100-item corpus and reported success")
+	}
+
+	// The assertion that actually matters: nothing was deleted.
+	if got := count(t, d, "items"); got != 100 {
+		t.Errorf("items = %d after a REFUSED import, want the original 100 — the delete ran anyway", got)
+	}
+	// And the refusal says enough to act on: both numbers and the way out.
+	for _, want := range []string{"100", "40", "-allow-shrink"} {
+		if !strings.Contains(r.err.Error(), want) {
+			t.Errorf("the refusal does not mention %q: %v", want, r.err)
+		}
+	}
+}
+
+// The first import has nothing to protect, and every dev run starts here. An empty table must
+// never trip the floor, however small the snapshot.
+func TestTheFirstImportIntoAnEmptyDatabaseIsNeverRefused(t *testing.T) {
+	pool, d := importTarget(t)
+
+	if got := count(t, d, "items"); got != 0 {
+		t.Fatalf("setup: items = %d, want an empty table", got)
+	}
+	if r := runImport(t, pool, corpusOf(1)); r.err != nil {
+		t.Fatalf("a 1-item first import was refused: %v", r.err)
+	}
+	if got := count(t, d, "items"); got != 1 {
+		t.Errorf("items = %d, want 1", got)
+	}
+}
+
+// The escape hatch has to work, or the guard is a wall rather than a question.
+func TestAllowShrinkPermitsTheReplacement(t *testing.T) {
+	pool, d := importTarget(t)
+
+	if r := runImport(t, pool, corpusOf(100)); r.err != nil {
+		t.Fatalf("seeding the corpus: %v", r.err)
+	}
+	r := runImportWith(t, pool, corpusOf(40), items.Options{AllowShrink: true})
+	if r.err != nil {
+		t.Fatalf("-allow-shrink did not permit the import: %v", r.err)
+	}
+	if got := count(t, d, "items"); got != 40 {
+		t.Errorf("items = %d, want 40 — the override did not actually replace the corpus", got)
+	}
+}
+
+// The boundary, pinned from both sides, because "roughly 90%" is not a specification. At exactly
+// the floor the import proceeds; one item below it, it does not.
+func TestTheFloorBoundaryIsNotOffByOne(t *testing.T) {
+	if items.ShrinkFloorPercent != 90 {
+		t.Fatalf("this test is written against a 90%% floor, but the constant is %d",
+			items.ShrinkFloorPercent)
+	}
+	for _, tc := range []struct {
+		name           string
+		existing, next int
+		wantRefused    bool
+	}{
+		{"exactly at the floor proceeds", 100, 90, false},
+		{"one below the floor refuses", 100, 89, true},
+		{"growth is never questioned", 100, 400, false},
+		{"an unchanged corpus is never questioned", 100, 100, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, d := importTarget(t)
+			if r := runImport(t, pool, corpusOf(tc.existing)); r.err != nil {
+				t.Fatalf("seeding %d items: %v", tc.existing, r.err)
+			}
+			r := runImport(t, pool, corpusOf(tc.next))
+
+			if tc.wantRefused {
+				if r.err == nil {
+					t.Fatalf("%d -> %d was allowed, want refused", tc.existing, tc.next)
+				}
+				if got := count(t, d, "items"); got != tc.existing {
+					t.Errorf("items = %d after a refused import, want %d", got, tc.existing)
+				}
+				return
+			}
+			if r.err != nil {
+				t.Fatalf("%d -> %d was refused, want allowed: %v", tc.existing, tc.next, r.err)
+			}
+			if got := count(t, d, "items"); got != tc.next {
+				t.Errorf("items = %d, want %d", got, tc.next)
+			}
+		})
+	}
+}
+
+// ⚠️ The floor must be reached through Import, not only through the command. A second caller that
+// went straight to internal/items would otherwise route around it — the reason the guard does not
+// live in cmd/import-armory (CLAUDE.md rule 5b).
+func TestTheFloorGuardsImportItselfNotTheCommand(t *testing.T) {
+	pool, d := importTarget(t)
+	if r := runImport(t, pool, corpusOf(100)); r.err != nil {
+		t.Fatalf("seeding the corpus: %v", r.err)
+	}
+
+	// Calling items.Import directly, exactly as a future second caller would.
+	ctx := context.Background()
+	its, err := items.DecodeSnapshot(strings.NewReader(corpusOf(10)))
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	l, err := items.LoadLookups(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := items.Import(ctx, tx, its, l, items.Options{}); err == nil {
+		t.Error("items.Import accepted a 10-item snapshot over a 100-item corpus")
+	}
+	if got := count(t, d, "items"); got != 100 {
+		t.Errorf("items = %d, want the original 100", got)
+	}
 }

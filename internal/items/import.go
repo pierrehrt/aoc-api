@@ -39,9 +39,63 @@ var deleteOrder = []string{
 	"item_equip_locations", "item_classes", "items", "vendors", "sets",
 }
 
+// ShrinkFloorPercent is how much of the existing corpus an import must at least reproduce before it
+// is allowed to replace it. Below this, Import refuses and nothing is deleted.
+//
+// ⭐ WHY A FLOOR EXISTS AT ALL (AOC-042). The import is a full replace: deleteOrder empties nine
+// tables and rebuilds them. That is the right shape — a diff that is subtly wrong leaves a database
+// nobody can reason about — but it means the number of items is stated in two places, the snapshot
+// and the table, and until this guard nothing compared them. A WELL-FORMED 40-item snapshot would
+// delete 4,646 items, insert 40, print a tidy report and exit 0.
+//
+// ⚠️ The dangerous input is not a truncated file. A file cut mid-JSON fails to decode, and
+// DecodeSnapshot already refuses an empty one. The dangerous input is a VALID SHORT file — exactly
+// what a `--limit N` smoke test produces (the same trap AOC-031 describes one layer up).
+//
+// 90 rather than a rounder number is a judgement, and the reason is worth keeping: the armory's item
+// count moves by single items when a data-quality ticket lands, never by a tenth of the corpus. A
+// drop past 10% is therefore not a smaller dataset, it is a different one.
+const ShrinkFloorPercent = 90
+
+// Options are the import's deliberate, typed-out permissions. It is a struct rather than a bare
+// bool argument because `Import(ctx, tx, its, l, true)` is a line that deletes nine tables, and it
+// should not be possible to read it without knowing what the `true` means.
+type Options struct {
+	// AllowShrink lets an import proceed that would leave the corpus below ShrinkFloorPercent of
+	// what is already there. It exists for the legitimate case — the armory really did lose a large
+	// block of items — and it is a thing a person types once, for the same reason -confirm-host is.
+	AllowShrink bool
+}
+
+// checkFloor refuses an import that would replace the corpus with a fraction of itself.
+//
+// It reads `items` INSIDE the caller's transaction and BEFORE any delete, so the number it compares
+// against is the corpus as it stands. An empty table is always allowed: that is the first import,
+// and every test and dev run that starts from nothing.
+func checkFloor(ctx context.Context, tx pgx.Tx, incoming int, allowShrink bool) error {
+	var existing int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM items").Scan(&existing); err != nil {
+		return fmt.Errorf("counting the items already present, before replacing them: %w", err)
+	}
+	if existing == 0 || allowShrink {
+		return nil
+	}
+	// Integer arithmetic on purpose — a float boundary here would be one more thing to argue about
+	// in a guard whose whole job is to be unambiguous.
+	if incoming*100 >= existing*ShrinkFloorPercent {
+		return nil
+	}
+	return fmt.Errorf(
+		"REFUSING TO SHRINK THE CORPUS: the database holds %d items and this snapshot would leave "+
+			"%d (%d%% of it, floor is %d%%).\nNothing has been deleted. A full replace cannot tell "+
+			"a smaller dataset from a broken one, so it asks.\nIf the armory genuinely lost that "+
+			"much, re-run with -allow-shrink",
+		existing, incoming, incoming*100/existing, ShrinkFloorPercent)
+}
+
 // Import loads the snapshot. The caller owns the transaction so a failure anywhere leaves the
 // database exactly as it was.
-func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups) (*Report, error) {
+func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options) (*Report, error) {
 	rep := &Report{
 		Counts:       map[string]int{},
 		AppliedNulls: map[string]int{},
@@ -53,12 +107,9 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups) (*Report, er
 		return nil, fmt.Errorf("confidence_levels has no 'unconfirmed' row — AOC-009's seed is not present")
 	}
 
-	for _, t := range deleteOrder {
-		if _, err := tx.Exec(ctx, "DELETE FROM "+t); err != nil { // #nosec G202 -- literals above
-			return nil, fmt.Errorf("clearing %s: %w", t, err)
-		}
-	}
-
+	// ⭐ WHICH ITEMS WILL ACTUALLY LAND, computed BEFORE the delete — because the floor below has to
+	// compare against it, and after the delete there is nothing left to compare with. Nothing in
+	// this loop touches the database; it is a pure read of the snapshot.
 	live := make([]Item, 0, len(its))
 	for _, it := range its {
 		if reason, ex := it.Excluded(); ex {
@@ -67,6 +118,16 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups) (*Report, er
 		}
 		rep.HeldSources += len(it.Sources) - len(it.LiveSources())
 		live = append(live, it)
+	}
+
+	if err := checkFloor(ctx, tx, len(live), opt.AllowShrink); err != nil {
+		return nil, err
+	}
+
+	for _, t := range deleteOrder {
+		if _, err := tx.Exec(ctx, "DELETE FROM "+t); err != nil { // #nosec G202 -- literals above
+			return nil, fmt.Errorf("clearing %s: %w", t, err)
+		}
 	}
 
 	setIDs, err := insertSets(ctx, tx, live, l, confUnconfirmed)

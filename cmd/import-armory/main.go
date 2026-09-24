@@ -58,6 +58,13 @@ func run() error {
 	// remote passes a generous value explicitly, which also documents the expectation at the call
 	// site for whoever reads the command later.
 	timeout := flag.Duration("timeout", 10*time.Minute, "overall deadline for the whole import")
+	// ⛔ The floor, and why overriding it is a typed flag rather than a config value (AOC-042). A
+	// full replace cannot tell a smaller dataset from a broken one: a valid 40-item snapshot would
+	// delete 4,646 items and exit 0. internal/items refuses that unless this is set — see
+	// items.ShrinkFloorPercent. Like -confirm-host, it is meant to be typed by a person who has just
+	// read the two numbers in the refusal.
+	allowShrink := flag.Bool("allow-shrink", false,
+		"permit an import that leaves far fewer items than the database already holds")
 	flag.Parse()
 
 	// ---- which database? before anything else, including reading the snapshot ---------------
@@ -113,7 +120,7 @@ func run() error {
 	}
 	fmt.Println("pre-flight: every name resolves, and every recorded decision still applies")
 
-	rep, err := items.Import(ctx, tx, its, lookups)
+	rep, err := items.Import(ctx, tx, its, lookups, items.Options{AllowShrink: *allowShrink})
 	if err != nil {
 		return err
 	}
