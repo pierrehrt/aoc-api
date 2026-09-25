@@ -1005,8 +1005,10 @@ is not known; the Worker avoids it. Full evidence: `product_management/tickets/A
 - A bucket error is `503` with `no-store`, so an outage is never cached as if it were the image.
 - `x-aoc-cache: hit | miss` on every response, for measuring.
 
-⚠️ **On `workers.dev` the Cache API does nothing**, so a check there measures the binding only.
-The edge cache applies once the Worker is attached to `img.aoc-codex.app`.
+**Measured on `workers.dev` after the first deploy (2026-09-25):** a first fetch reports
+`x-aoc-cache: miss`, and the same path with a different `?cb=` then reports `hit`, so the edge cache
+works there as well as on the real hostname. `Content-Length` survives the cache split, HEAD sends
+headers only, a matching `If-None-Match` is `304`, and non-`armory/` paths and POST are refused.
 
 **Tests:** `make worker-test` — Node's built-in runner, no packages, run by CI's `worker` job.
 `bin/gate api` is Go-only and does not run them. Each guard is pinned by mutation (build, AOC-041).
