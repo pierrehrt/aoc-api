@@ -131,3 +131,16 @@ jobs:
           python-version: "3.12"
       - name: backup alarm tests
         run: python3 -m unittest discover -s scripts -p 'test_check*.py' -v
+
+  # The img Worker (AOC-041) is the one piece of this repo that is not Go. Its tests use Node's
+  # built-in runner and no packages -- Node runs the tests here and nothing else. bin/gate api is
+  # Go-only, so without this job these tests would be tests nothing runs.
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: img Worker tests
+        run: make worker-test

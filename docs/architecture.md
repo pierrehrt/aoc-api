@@ -22,6 +22,7 @@ internal/db/           pgx pool + sqlc output + queries/   (empty until AOC-005)
 internal/items/        the Armory bounded area              (empty until AOC-010/012)
 migrations/            goose files                          (empty until AOC-005)
 docs/                  this file, api-routes.md, database-schema.sql
+workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
 
 Each `internal/` package carries a `doc.go` saying what belongs in it and what does not. That is the
@@ -915,11 +916,11 @@ volume**, so a link on Reddit cannot turn into an invoice on a project with no r
 
 | | |
 |---|---|
-| Bucket | `aoc-codex-enam`, **private** — public access **off** and **zero custom domains**, confirmed off the dashboard 2026-09-19. Nothing is world-readable |
+| Bucket | `aoc-codex-enam`, **private**: public access **off**, `r2.dev` **off**. The one public route is `img.aoc-codex.app` — AOC-014 bound it as an R2 custom domain; AOC-041 moves it onto the `img` Worker (below), after which the bucket has **zero custom domains** again and is reached only through the Worker's binding |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
 | Location hint | **`enam`** (Eastern North America) — **read back from the API**: `GET ?location=` → `<LocationConstraint>ENAM</LocationConstraint>` (see *Reading a bucket's location hint*) |
 | Jurisdiction | **none**, deliberately — see below |
-| Public URL | ⏳ **none yet.** `img.aoc-codex.app` is the *planned* custom domain and **AOC-014 binds it**; today the bucket has no public route at all. Never `r2.dev` |
+| Public URL | `https://img.aoc-codex.app/armory/<source filename>` — served by the `img` Worker (AOC-041). Never `r2.dev` |
 | Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
 | Free tier | 10 GB-month. The planned payload is ~175 MB — **1.7%** |
 
@@ -972,6 +973,55 @@ become a lie, because the property it names cannot change while the bucket exist
 ⚠️ It is **not** kept because the region is otherwise unreadable — an earlier version of this
 section claimed exactly that, and it was false. The name is a convenience, not the system of record.
 The name is never public either way: the images will be served from `img.aoc-codex.app` (AOC-014).
+
+### Serving the images: the `img` Worker (AOC-041)
+
+`img.aoc-codex.app` is a **Cloudflare Worker** (`workers/img/worker.mjs`, script name `aoc-img`)
+that reads `aoc-codex-enam` through an **R2 binding** named `BUCKET`. It is the one deployable in
+this repo that is not the Go binary, and it exists because the simpler setup was measured broken.
+
+**Why not R2's own custom domain.** From 2026-09-23 the custom domain stalled on cache misses at
+Cloudflare's Singapore edge: connections that opened and never answered, and bodies that stopped on
+8 KiB boundaries. On 2026-09-25, pinned to that same edge with the same objects, interleaved:
+
+| Path | Whole images |
+|---|---|
+| R2 custom domain | 119 / 160 |
+| Worker through the R2 binding | **160 / 160** |
+| R2 S3 API | 160 / 160 |
+
+The custom domain failed 41 times where the Worker delivered, never the reverse. Every other probed
+location in the world was served correctly either way. What goes wrong inside the custom-domain path
+is not known; the Worker avoids it. Full evidence: `product_management/tickets/AOC-041-*.md`.
+
+**What it does, and nothing else**
+
+- GET and HEAD of keys under `armory/`. Anything else is 404 (path) or 405 (method).
+- One edge-cache entry per object via the Cache API, keyed on the **path only**, so a
+  `?cb=` cache-buster can neither multiply entries nor force a bucket read.
+- `Cache-Control` comes from the object's own metadata — the uploader sets
+  `public, max-age=31536000, immutable` — with that same value as the fallback.
+- `ETag` from the object; `If-None-Match` → `304`.
+- A bucket error is `503` with `no-store`, so an outage is never cached as if it were the image.
+- `x-aoc-cache: hit | miss` on every response, for measuring.
+
+⚠️ **On `workers.dev` the Cache API does nothing**, so a check there measures the binding only.
+The edge cache applies once the Worker is attached to `img.aoc-codex.app`.
+
+**Tests:** `make worker-test` — Node's built-in runner, no packages, run by CI's `worker` job.
+`bin/gate api` is Go-only and does not run them. Each guard is pinned by mutation (build, AOC-041).
+
+**Deploying — the Cloudflare API with curl; no Node, no wrangler** (the same reason the stack uses
+the standalone Tailwind CLI). All three read `~/.config/aoc-codex/cloudflare.env`:
+
+| Script | What it changes |
+|---|---|
+| `workers/img/deploy.sh` | uploads `aoc-img` with its binding, enables it on `workers.dev`. Does not touch the hostname |
+| `workers/img/switch.sh` | detaches the R2 custom domain from `img.aoc-codex.app`, removes its leftover `public.r2.dev` CNAME (and stops on any other record), attaches the Worker. Seconds of downtime |
+| `workers/img/rollback.sh` | detaches the Worker, re-attaches the R2 custom domain |
+
+Each call prints ✅ or the API's errors and stops the script on the first failure. The token needs
+Workers Scripts edit, Workers Routes edit, R2 edit and DNS edit on this zone.
 
 ### Credentials
 
