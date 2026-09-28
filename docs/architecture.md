@@ -228,8 +228,15 @@ One **Cache Rule** on `aoc-codex.app` (zone ruleset, phase `http_request_cache_s
 - **browser TTL: respect origin** — ⚠️ the zone's `browser_cache_ttl` is **14400** (read
   2026-09-28), which would otherwise stretch pages' `max-age=60` for browsers.
 
-The rule and the zone's `min_tls_version` are applied by a script Pierre runs, because Cloudflare
-writes are refused from the assistant. ⚠️ **Not yet applied.** Until it is, the edge caches only
+The rule and the zone's `min_tls_version` (1.0 → **1.2**) are applied by
+**`scripts/cloudflare-cache.sh`** — `check` (read only), `apply --dry-run` (every read, no write),
+`apply`, `purge <url>`, `rollback`. Pierre runs the writing modes, because Cloudflare writes are
+refused from the assistant. It looks before every write (safe to re-run; stops, unchanged, if the
+cache phase holds a rule it did not make) and judges success by HTTP status, not reply shape.
+Needs the token's **Zone → Cache Rules → Edit**, **Zone → Zone Settings → Edit** and, for `purge`,
+**Zone → Cache Purge**. Read access to the cache phase is confirmed (it answers "no entrypoint",
+where phases the token lacks answer "not authorized"); edit and purge are not provable without a
+write. ⚠️ **Not yet applied.** Until it is, the edge caches only
 what Cloudflare caches by default — static file extensions, which already include the hashed
 assets (`MISS` then `HIT`, measured 2026-09-28) — and every page answers `cf-cache-status: DYNAMIC`.
 Once the rule is live, a page from a build **without** this policy answers `BYPASS` (eligible, but
