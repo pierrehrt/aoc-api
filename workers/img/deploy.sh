@@ -9,4 +9,4 @@ cf "upload script with binding BUCKET -> $BUCKET" -X PUT "$API/accounts/$ACCOUNT
 cf "enable on workers.dev" -X POST "$API/accounts/$ACCOUNT/workers/scripts/$SCRIPT/subdomain" \
   -H 'Content-Type: application/json' --data '{"enabled":true,"previews_enabled":false}'
 SUB=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API/accounts/$ACCOUNT/workers/subdomain" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["subdomain"])')
-echo "check: https://$SCRIPT.$SUB.workers.dev/armory/<file>   (no edge cache on workers.dev)"
+echo "check: https://$SCRIPT.$SUB.workers.dev/armory/<file>"

@@ -26,6 +26,7 @@ test:
 # The img Worker (AOC-041): Node's built-in test runner, no packages. CI runs it in its own job.
 worker-test:
 	node --test workers/img/worker.test.mjs
+	bash workers/img/scripts.test.sh
 
 lint:
 	go vet ./...

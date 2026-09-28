@@ -1010,8 +1010,14 @@ is not known; the Worker avoids it. Full evidence: `product_management/tickets/A
 works there as well as on the real hostname. `Content-Length` survives the cache split, HEAD sends
 headers only, a matching `If-None-Match` is `304`, and non-`armory/` paths and POST are refused.
 
-**Tests:** `make worker-test` — Node's built-in runner, no packages, run by CI's `worker` job.
+**Tests:** `make worker-test` — Node's built-in runner for the Worker, no packages, plus
+`workers/img/scripts.test.sh` for `switch.sh` and `rollback.sh`; run by CI's `worker` job.
 `bin/gate api` is Go-only and does not run them. Each guard is pinned by mutation (build, AOC-041).
+The script test runs the real scripts against a fake `curl` that plays the Cloudflare API from a
+state file, and asserts the exact writes each starting state produces. ⚠️ On a Mac run it as
+`PYTHON=/usr/bin/python3 make worker-test`: Pierre's shell resolves Apple's Python **3.9**, and a
+3.12-only f-string stopped `switch.sh` halfway in production on 2026-09-28 because every earlier run
+had used Homebrew's 3.13. CI's Python is newer, so it cannot catch that class of fault alone.
 
 **Deploying — the Cloudflare API with curl; no Node, no wrangler** (the same reason the stack uses
 the standalone Tailwind CLI). All three read `~/.config/aoc-codex/cloudflare.env`:
@@ -1019,10 +1025,15 @@ the standalone Tailwind CLI). All three read `~/.config/aoc-codex/cloudflare.env
 | Script | What it changes |
 |---|---|
 | `workers/img/deploy.sh` | uploads `aoc-img` with its binding, enables it on `workers.dev`. Does not touch the hostname |
-| `workers/img/switch.sh` | detaches the R2 custom domain from `img.aoc-codex.app`, removes its leftover `public.r2.dev` CNAME (and stops on any other record), attaches the Worker. Seconds of downtime |
-| `workers/img/rollback.sh` | detaches the Worker, re-attaches the R2 custom domain |
+| `workers/img/switch.sh` | detaches the R2 custom domain from `img.aoc-codex.app`, removes its leftover `public.r2.dev` CNAME, attaches the Worker. Seconds of downtime |
+| `workers/img/rollback.sh` | detaches the Worker, waits for its `AAAA 100::` record to go, re-attaches the R2 custom domain |
 
-Each call prints ✅ or the API's errors and stops the script on the first failure. The token needs
+Each call prints ✅ or the API's errors and stops the script on the first failure. **Both are safe
+to re-run:** each step looks before it writes, so a run that stopped halfway is finished by running
+it again, and a run with nothing to do writes nothing. **Both refuse before their first write** if the
+hostname carries a DNS record they did not make (switch expects R2's CNAME or nothing, rollback the
+Worker's AAAA or nothing), and a lookup the API does not answer stops the script rather than read as
+"nothing there". The token needs
 Workers Scripts edit, Workers Routes edit, R2 edit and DNS edit on this zone.
 
 ### Credentials
