@@ -15,6 +15,11 @@
   because a path is a fact about which contract was addressed where `Accept` is a negotiation a
   proxy can get wrong. See `docs/architecture.md` § *Rejections have two shapes*.
 - **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
+- **Every response carries `Cache-Control`, set by `httpx.Cache` and by nothing else** (AOC-026):
+  pages `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`, `/v1/*`
+  `public, max-age=60, s-maxage=600`, assets a year and `immutable`, 404/410 a minute, `/health`,
+  errors, writes and HTMX `no-store`, and anything with a session, a `Set-Cookie` or an
+  `Authorization` header `private, no-store`. Full table: `docs/architecture.md` § Caching.
 - **Errors share one body shape**: `{"error": "...", "request_id": "..."}`.
 - Every list endpoint will be paginated (none exist yet).
 
@@ -61,7 +66,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | GET | `/` | Home page, HTML |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
-| GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable`. A wrong hash is 404 |
+| GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |
 
 **Rejection shape follows the path**, for **404 and 405 alike**: `/v1/*`, `/health` and
 `/assets/*` are JSON; everything else is a small HTML page. `/health` is included because it is

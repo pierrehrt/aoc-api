@@ -132,7 +132,13 @@ stale, not the behaviour.
 
 ## Middleware, in order
 
-`RequestID` → `Log` → `Recover`.
+`RequestID` → `Log` → `Cache` → `Recover` → `GetHead`.
+
+`Cache` (AOC-026, § Caching below) sits **inside `Log` and outside `Recover`**: the 500 that
+`Recover` writes for a panic passes through it and leaves as `no-store`, where the other way round
+it would leave with no header at all. Its writer implements `Wrote()`, because `Recover` asks the
+writer it holds whether the response has begun — without it, a panic after a partial write would get
+a JSON error appended. A test drives the production router through both.
 
 The order is load-bearing, and it is the opposite of what it first looks like. `RequestID` is
 outermost so everything downstream can log the id. **`Log` then wraps `Recover`, not the other way
@@ -158,6 +164,99 @@ JSON-escaped in both the response body and the log.
 The `Log` middleware wraps the `ResponseWriter` to record the status. It implements `Unwrap`, so
 `http.ResponseController` still reaches `Flush`, `Hijack` and the deadline setters: wrapping a
 writer must not quietly remove capabilities from everything downstream.
+
+## Caching (AOC-026)
+
+Cloudflare's free plan sits in front of the site. The origin decides what it may keep, through one
+header on every response, set in **one place**: `internal/httpx/cache.go`.
+
+**Why it matters more than speed:** Railway bills usage. An uncached origin turns a viral Reddit
+link into an invoice; a cached page costs the same whether ten people read it or ten thousand.
+
+### The policy
+
+| Response | `Cache-Control` | At the edge |
+|---|---|---|
+| `/assets/*`, 200 or 304 (content-hashed) | `public, max-age=31536000, immutable` | a year |
+| Public pages (`/`, and everything outside `/v1`, `/assets`, `/health`), 200 / 301 / 304 / 308 | `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400` | an hour |
+| `/v1/*` GETs, 200 / 301 / 304 / 308 | `public, max-age=60, s-maxage=600` | ten minutes |
+| 404 or 410, except under `/assets` | `public, max-age=60, s-maxage=60` | a minute |
+| `/health`; any other status (400s, 405, 429, 5xx); any method but GET/HEAD; any `HX-Request: true` request; a 404 under `/assets` | `no-store` | never |
+| ⛔ `MarkPrivate` called, a `Set-Cookie` on the response, or `Authorization` on the request | `private, no-store` | **never** |
+
+The last row **wins over every other**, including a value a handler set by hand.
+
+- **Browsers recheck pages after a minute**, so a correction reaches a reader who reloads; the edge
+  keeps an hour, and a purge makes a change immediate.
+- **A 404 is cached for a minute**, so a burst for a missing URL cannot all reach the origin, and a
+  newly published page is visible within a minute. **Not under `/assets`:** there a 404 is a stale
+  hash or a deploy racing its own HTML, and caching it would leave a page unstyled at that edge.
+- **An error is never cached.** An outage must not be served as though it were the page.
+- **An HTMX fragment is never cached** by a shared cache, under any URL. That closes the dangerous
+  case — a bare fragment handed to a browser that asked for the page — **whether or not the edge
+  honours `Vary`**, which is not assumed. Handlers that branch on HTMX still send
+  `Vary: HX-Request`, for browsers.
+- **The request's `Cookie` header is not a trigger.** Cloudflare's bot-management cookies ride on
+  ordinary requests; keying on them would switch caching off for everyone.
+
+### ⛔ The hard rule, and how it is enforced
+
+A response that depends on who is asking must never reach a shared cache — that is how one user sees
+another's session. Nothing here relies on remembering it:
+
+1. **`httpx.MarkPrivate(r)`** marks the response private. ⚠️ **EP-06:** the session accessor must
+   call it, so no handler can read a session without it. It **panics** if the `Cache` middleware is
+   not on the route, or if the response has already begun — fail closed, found by the first test.
+2. A `Set-Cookie` on the response or an `Authorization` on the request makes it private **with no
+   call at all.**
+3. **No handler sets the header.** `Cache` replaces whatever a handler set, and
+   `TestOnlyCacheGoNamesTheHeader` parses every non-test Go file and fails if any file but
+   `cache.go` names `Cache-Control` in a string literal. `TestHeaderScanSeesAPlantedHandler` plants
+   offenders to prove the scan can see one.
+
+Tests: `internal/httpx/cache_test.go` — 52 policy cases, the planted offenders, the production
+router (panic, partial write, 404, 405, `/health`), a real server for 1xx. **30 mutants of the
+policy and the router order, all killed; 5 of the scan, all killed** (AOC-026 build).
+
+### The edge (Cloudflare)
+
+One **Cache Rule** on `aoc-codex.app` (zone ruleset, phase `http_request_cache_settings`):
+
+- **eligible for cache** — Cloudflare does not cache HTML otherwise;
+- **edge TTL: use `Cache-Control` if present, bypass if not** — so a response without the header is
+  never cached. The origin always sends one; this is the fail-closed backstop;
+- **browser TTL: respect origin** — ⚠️ the zone's `browser_cache_ttl` is **14400** (read
+  2026-09-28), which would otherwise stretch pages' `max-age=60` for browsers.
+
+The rule and the zone's `min_tls_version` are applied by a script Pierre runs, because Cloudflare
+writes are refused from the assistant. ⚠️ **Not yet applied.** Until it is, the edge caches only
+what Cloudflare caches by default — static file extensions, which already include the hashed
+assets (`MISS` then `HIT`, measured 2026-09-28) — and every page answers `cf-cache-status: DYNAMIC`.
+Once the rule is live, a page from a build **without** this policy answers `BYPASS` (eligible, but
+no header to cache by), which is how the rule can be seen working before the code deploys.
+
+### Purging
+
+A content change is visible to readers within the edge window (an hour for pages). To make it
+immediate, purge the URLs — dashboard: *Caching → Configuration → Purge Cache → Custom Purge*, or:
+
+```bash
+set -a; source ~/.config/aoc-codex/cloudflare.env; set +a
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/9a60a586d20fe4ed78079b158b19cb1e/purge_cache" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
+  --data '{"files":["https://aoc-codex.app/"]}'
+```
+
+It needs the token's **Zone → Cache Purge** permission.
+
+### Bypassing the cache, for debugging
+
+- **The origin directly:** `https://aoc-armory-snapshot-production.up.railway.app` is the `api`
+  service's Railway domain — no Cloudflare in front (`server: railway-hikari`, no `cf-ray`).
+- **Through Cloudflare, uncached:** add a throwaway query string (`?cb=<random>`); it is part of the
+  cache key, so the request goes to the origin.
+- `cf-cache-status` on any response says what the edge did (`HIT`, `MISS`, `EXPIRED`, `BYPASS`,
+  `DYNAMIC`).
 
 ## Server lifecycle
 
@@ -202,7 +301,7 @@ the page works with JavaScript off, and HTMX only removes the reload.
 | Title ≤ **60**, description ≤ **155**, truncated on a **word boundary** | A search result cut mid-word. Counts runes — boss names carry accents |
 | Assets **content-hashed**, `immutable`, wrong hash ⇒ 404 | A stale stylesheet cached for a year, or a stale URL looking valid forever |
 | `Load()` **refuses** empty or absent assets | A build that "succeeded" and produced nothing: a site that serves fine and looks broken |
-| Both HTMX branches send `Vary: HX-Request` | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
+| Both HTMX branches send `Vary: HX-Request`, and an HTMX response is `no-store` (§ Caching) | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
 | Canonical built from **`PUBLIC_BASE_URL`**, never the request host | The same page declaring two canonicals when reached by two hostnames |
 
 ### Rejections have two shapes, chosen by PATH
