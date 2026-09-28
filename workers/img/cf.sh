@@ -14,15 +14,26 @@ ACCOUNT=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API/zones/$
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["account"]["id"])')
 
 # cf <label> <curl args...> : run one API call, print success or the errors, stop on failure.
+# Success is the HTTP status (2xx), and a JSON body must not say success:false. Not "the body is
+# JSON with success:true": detaching a Workers domain answers with a body that is not JSON while
+# the detach takes effect, and that misreading stopped rollback.sh halfway (AOC-041, 2026-09-28).
 cf() {
   local label=$1; shift
-  local out; out=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$@")
-  if printf '%s' "$out" | python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get("success") else 1)' 2>/dev/null; then
-    echo "   ✅ $label"; CF_OUT=$out
+  local out code
+  out=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$@")
+  code=${out##*$'\n'}; out=${out%$'\n'*}
+  if printf '%s' "$out" | python3 -c 'import sys,json
+body=sys.stdin.read()
+if not sys.argv[1].startswith("2"): sys.exit(1)
+try: d=json.loads(body)
+except ValueError: sys.exit(0)
+sys.exit(0 if not isinstance(d, dict) or d.get("success", True) else 1)' "$code"; then
+    echo "   ✅ $label"
   else
-    echo "   ❌ $label"; printf '%s' "$out" | python3 -c 'import sys,json
-try: d=json.load(sys.stdin); print("     ", d.get("errors"))
-except Exception: print("      (not JSON)")'
+    echo "   ❌ $label (HTTP $code)"; printf '%s' "$out" | python3 -c 'import sys,json
+body=sys.stdin.read()
+try: print("     ", json.loads(body).get("errors"))
+except Exception: print("      body:", repr(body[:200]))'
     exit 1
   fi
 }

@@ -21,14 +21,19 @@ printf '#!/bin/sh\nexit 0\n' > "$work/bin/sleep"; chmod +x "$work/bin/sleep"
 # Worker exists), dns (records on the host), linger / wlinger (detaching R2 / the Worker leaves its
 # record in the next n DNS answers; 99 = for good), appear (records that show up when R2 is
 # detached, as if someone added one mid-run), broken ({path: n} — that GET answers n times, then
-# success:false, so a lookup can fail partway through a run). Writes refuse to overwrite, as a conservative stand-in for
+# success:false, so a lookup can fail partway through a run), reply ({"METHOD path": [status,
+# body]} — that call still takes effect but answers exactly this, so a script that carries on past
+# a failure reply shows up in the writes that follow). With -w it appends the status, as
+# curl does. Detaching a Workers domain answers 200 with an empty body: live, the reply was not
+# JSON and the detach took effect (2026-09-28); the status itself was not captured. Writes refuse to overwrite, as a conservative stand-in for
 # Cloudflare: attaching over a live record or binding fails.
 cat > "$work/bin/curl" <<'PY'
 #!/usr/bin/env python3
 import json, os, sys, urllib.parse
-args = sys.argv[1:]; method = "GET"; url = ""
+args = sys.argv[1:]; method = "GET"; url = ""; wfmt = ""
 for i, a in enumerate(args):
     if a == "-X": method = args[i + 1]
+    if a == "-w": wfmt = args[i + 1]
     if a.startswith("https://"): url = a
 path = urllib.parse.urlparse(url).path.replace("/client/v4", "", 1)
 query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
@@ -40,6 +45,10 @@ WD = "/accounts/%s/workers/domains" % ACC
 DNS = "/zones/%s/dns_records" % ZONE
 def ok(result=None): return {"success": True, "errors": [], "result": result}
 def no(msg): return {"success": False, "errors": [{"message": msg}], "result": None}
+EMPTY = object()
+def answer(out):
+    status, body = (200, "") if out is EMPTY else (200 if out["success"] else 400, json.dumps(out))
+    sys.stdout.write(body + ("\n%d" % status if "%{http_code}" in wfmt else ""))
 seen = st.setdefault("seen", {}); seen[path] = seen.get(path, 0) + 1
 if method == "GET" and path in st["broken"] and seen[path] > st["broken"][path]:
     out = no("simulated outage")
@@ -70,7 +79,7 @@ elif method == "PUT" and path == WD:
 elif method == "DELETE" and path == WD + "/wd1":
     if not st["worker"]: out = no("not found")
     else:
-        st["worker"] = False; out = ok({})
+        st["worker"] = False; out = EMPTY
         for r in st["dns"]:
             if r["id"] == "wkaaaa": r["left"] = st["wlinger"]
         st["dns"] = [r for r in st["dns"] if r.get("left", 1) > 0]
@@ -86,7 +95,11 @@ elif method == "DELETE" and path.startswith(DNS + "/"):
 else:
     out = no("fake curl: no route for %s %s" % (method, path))
 json.dump(st, open(os.environ["STUB_STATE"], "w"))
-print(json.dumps(out))
+if "%s %s" % (method, path) in st["reply"]:
+    status, body = st["reply"]["%s %s" % (method, path)]
+    sys.stdout.write(body + ("\n%d" % status if "%{http_code}" in wfmt else ""))
+else:
+    answer(out)
 PY
 chmod +x "$work/bin/curl"
 
@@ -116,9 +129,11 @@ print("%d %s %s %s" % (int(sys.argv[3]), str(st["r2"]).lower(), str(st["worker"]
     printf '%s\n' "$out" | sed 's/^/     | /'
   fi
 }
-# s <r2> <worker> <script> <dns records> <linger> <wlinger> <broken> [appear]
-s() { printf '{"r2":%s,"worker":%s,"script":%s,"dns":[%s],"linger":%s,"wlinger":%s,"broken":{%s},"appear":[%s]}' \
-  "$1" "$2" "$3" "$4" "$5" "$6" "$7" "${8:-}"; }
+# s <r2> <worker> <script> <dns records> <linger> <wlinger> <broken> [appear] [reply]
+s() { printf '{"r2":%s,"worker":%s,"script":%s,"dns":[%s],"linger":%s,"wlinger":%s,"broken":{%s},"appear":[%s],"reply":{%s}}' \
+  "$1" "$2" "$3" "$4" "$5" "$6" "$7" "${8:-}" "${9:-}"; }
+BAD200='"DELETE /accounts/acct/workers/domains/wd1":[200,"{\"success\":false,\"errors\":[]}"]'
+BAD500='"DELETE /accounts/acct/workers/domains/wd1":[500,""]'
 
 echo "python3 under test: $("$PYTHON" --version 2>&1)"
 run "switch: from the R2 custom domain"               switch.sh   "$(s true  false true  "$CNAME" 0 0 '')" 0 false true "DELETE PUT"
@@ -140,6 +155,8 @@ run "rollback: already on R2, writes nothing"          rollback.sh "$(s true  fa
 run "rollback: a record it did not make, nothing"      rollback.sh "$(s false true  true  "$WREC,$OTHER" 0 0 '')" 1 false true ""
 run "rollback: Worker's record takes a few looks"     rollback.sh "$(s false true  true  "$WREC"  0 3 '')" 0 true  false "DELETE POST"
 run "rollback: Worker's record lingers, no attach"     rollback.sh "$(s false true  true  "$WREC"  0 99 '')" 1 false false "DELETE"
+run "rollback: detach says 200 success:false, stops"  rollback.sh "$(s false true  true  "$WREC"  0 0 '' '' "$BAD200")" 1 false false "DELETE"
+run "rollback: detach says 500 and no body, stops"     rollback.sh "$(s false true  true  "$WREC"  0 0 '' '' "$BAD500")" 1 false false "DELETE"
 run "rollback: Workers list unanswered, nothing"       rollback.sh "$(s false true  true  "$WREC"  0 0 "$WDP:0")" 1 false true ""
 run "rollback: R2 list unanswered, nothing"            rollback.sh "$(s false true  true  "$WREC"  0 0 "$R2P:0")" 1 false true ""
 run "rollback: DNS dies after the detach, no attach"   rollback.sh "$(s false true  true  "$WREC"  0 0 "$DNSP:1")" 1 false false "DELETE"

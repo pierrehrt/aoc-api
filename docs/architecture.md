@@ -1028,7 +1028,10 @@ the standalone Tailwind CLI). All three read `~/.config/aoc-codex/cloudflare.env
 | `workers/img/switch.sh` | detaches the R2 custom domain from `img.aoc-codex.app`, removes its leftover `public.r2.dev` CNAME, attaches the Worker. Seconds of downtime |
 | `workers/img/rollback.sh` | detaches the Worker, waits for its `AAAA 100::` record to go, re-attaches the R2 custom domain |
 
-Each call prints ✅ or the API's errors and stops the script on the first failure. **Both are safe
+Each call prints ✅ or the API's errors and stops the script on the first failure. A call succeeds
+on an HTTP 2xx whose body, if JSON, does not say `success:false` — not on "JSON with
+`success:true`": detaching a Workers domain answers with a body that is not JSON, and reading that
+as failure stopped `rollback.sh` halfway in production (2026-09-28). **Both are safe
 to re-run:** each step looks before it writes, so a run that stopped halfway is finished by running
 it again, and a run with nothing to do writes nothing. **Both refuse before their first write** if the
 hostname carries a DNS record they did not make (switch expects R2's CNAME or nothing, rollback the
