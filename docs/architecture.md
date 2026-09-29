@@ -394,11 +394,12 @@ gitignored or stale.
 ### The shell (AOC-046)
 
 `base.html` renders the same chrome around every page: a header (the logo home, and a
-`<nav aria-label="Sections">` of the site's sections), `<main>`, and a footer carrying the two
-lines this site owes on every page — the data credit (`items.Attribution`, "Data preserved from
-AoC>TV by Kentarii") and the Funcom non-affiliation notice. **No contact line**, by Pierre's
-decision (2026-09-29; to revisit before the site is announced). Both come through `View.Nav` and
-`View.Attribution`, filled by `pages.(*Handler).view`, so a handler cannot forget them.
+`<nav aria-label="Sections">` of the site's sections), `<main>`, and a footer. **The footer carries
+no credit, no notice and no contact** (Pierre, 2026-09-29, `DECISIONS.md`): the site names no
+source and no other creator anywhere; where the data came from is said once, on the Info page
+(`/info`, AOC-056). AOC-046 shipped the credit and a Funcom notice there; AOC-055 removed them.
+`TestEveryPageCarriesTheShell` asserts their **absence**. The nav comes through `View.Nav`, filled by
+`pages.(*Handler).view`.
 
 - **The nav lists only routes that exist.** `pages.siteNav` is the list;
   `TestEveryNavLinkIsARegisteredRoute` follows every href through the real router and wants 200.

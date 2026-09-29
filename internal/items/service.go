@@ -13,13 +13,14 @@ import (
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
-// Attribution is carried on every response derived from the armory.
+// Attribution is carried on every /v1 response derived from the armory.
 //
-// Kentarii's release was unconditional, which is exactly why this is a constant in the service
-// rather than a line in a template: an unconditional release is what makes a credit easy to
-// quietly drop later (DECISIONS.md, 2026-09-13). The JSON surface and the HTML surface read the
-// same constant, so neither can drift from the other.
-const Attribution = "Data preserved from AoC>TV by Kentarii"
+// ⛔ It names AoC Codex and the Info page, and no other site or person (Pierre, 2026-09-29,
+// DECISIONS.md — the site shows no source and no other creator anywhere; origins are explained
+// once, on /info, in his words). The field stays — same name, type and meaning — because removing
+// it would be a breaking change to a public contract (CLAUDE.md 5c) for no gain. Where the data
+// originally came from is recorded internally (dossiers, the sources table, sourcing-standards.md).
+const Attribution = "AoC Codex — https://aoc-codex.app/info"
 
 // Page bounds. limit=0 and limit=10000 are both clamped rather than rejected: a caller that omits
 // the parameter and a caller that asks for everything are both making a reasonable request, and

@@ -10,9 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ### Added
 
-- The site shell: header with the section nav, footer with the AoC>TV/Kentarii credit and the
-  Funcom notice, the dark theme as tested tokens (IBM Plex, AA contrast); rarity colours and class
-  short names are database rows, served by `/v1/taxonomies` (AOC-046)
+- The site shell: header with the section nav and a footer, the dark theme as tested tokens
+  (IBM Plex, AA contrast); rarity colours and class short names are database rows, served by
+  `/v1/taxonomies` (AOC-046)
+
+### Changed
+
+- The footer names no source and no other creator, and `/v1`'s `attribution` field now reads
+  "AoC Codex — https://aoc-codex.app/info" (same field, same type); where the data came from is
+  said once, on the Info page (AOC-055)
 
 ## [0.1.0] - 2026-09-29
 

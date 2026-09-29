@@ -84,7 +84,7 @@ GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
   "limit": 2,
   "offset": 0,
   "collapsed": true,
-  "attribution": "Data preserved from AoC>TV by Kentarii"
+  "attribution": "AoC Codex — https://aoc-codex.app/info"
 }
 ```
 
@@ -162,10 +162,11 @@ Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
 
 ### Attribution
 
-Every response on every route carries
-`"attribution": "Data preserved from AoC>TV by Kentarii"`. His release was unconditional, which is
-precisely why the credit is in the payload rather than left to a template
-(`DECISIONS.md`, 2026-09-13).
+Every response on every route carries `"attribution": "AoC Codex — https://aoc-codex.app/info"`.
+It names AoC Codex and the Info page and no other site or person (Pierre, 2026-09-29: the site
+shows no source and no other creator anywhere; origins are explained once, on `/info`). The field
+**stays** — same name, type and meaning as in 0.1.0 — because removing it would be a breaking change
+to this contract (CLAUDE.md 5c) for no gain; only its value changed (AOC-055).
 
 ## Error statuses
 
