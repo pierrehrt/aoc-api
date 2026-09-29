@@ -25,12 +25,15 @@ internal/templates/    html/template engine: parse once, View contract, fragment
 internal/pages/        the HTML handlers (AOC-024)
 internal/assets/       the committed, content-hashed CSS/JS/images and their handler (AOC-024)
 migrations/            goose files (AOC-005 onwards)
+scripts/               operational scripts: backup, the backup alarm, cloudflare-cache.sh
+web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx) — not served
 docs/                  this file, api-routes.md, database-schema.sql, runbook-restore.md
 workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
 
-Each `internal/` package carries a `doc.go` saying what belongs in it and what does not. That is the
-cheapest defence against the layout eroding into a pile of helpers, and it costs one file per package.
+`internal/db`, `internal/httpx` and `internal/items` carry a `doc.go` saying what belongs in each and
+what does not — the cheapest defence against the layout eroding into a pile of helpers. The other
+packages (`version`, `templates`, `pages`, `assets`) state it in their package comment instead.
 
 **A domain package owns its handlers, its service and its tests.** It does not own HTTP concerns
 beyond a thin handler (those are `httpx`) or raw SQL (that is `internal/db/queries`).
@@ -868,7 +871,7 @@ Set in Railway's variables and nowhere else. `.env.example` lists every name wit
 | `PORT` | assigned by Railway; the server reads it, 8080 locally |
 | `ENV` | `production` on Railway, `local` otherwise — **reported by `/health` as `env`**. Defaults to `local` when unset, so nothing ever claims to be production by accident |
 | `DATABASE_URL` | ⚠️ Railway's **private** hostname. The public proxy URL bills egress and adds latency for nothing |
-| `VERSION` | build arg → `/health` |
+| `VERSION` | ⚠️ **not** a variable any more: the repo's `VERSION` file is the version (§ Build identity, AOC-015). A Railway service variable of that name still exists and is unused — the Dockerfile declares no `ARG VERSION`, so Docker reports it "not consumed" |
 | `COMMIT` | ⚠️ **not** a build arg. `${{RAILWAY_GIT_COMMIT_SHA}}` resolves to an empty string at build time — Railway injects its git variables into the deployed **container**, not into the set `${{…}}` references resolve against. `version.Resolve()` reads it at runtime instead (PR #4) |
 | `PUBLIC_BASE_URL` | the origin canonical URLs and `og:image` are built from |
 

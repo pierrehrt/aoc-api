@@ -35,7 +35,7 @@ The first tagged release: everything built since the repo was created, shipped a
   as the tooltip bucket's only public name (AOC-014)
 - The HTML rendering foundation: embedded templates, HTMX, content-hashed assets and a smoke page
   (AOC-024)
-- One cache policy for every response, so Cloudflare serves public pages from its edge while
+- One cache policy for every response, so Cloudflare can serve public pages from its edge while
   anything with a session, a response that sets a cookie, or a request with an `Authorization`
   header is never stored; the zone now refuses TLS 1.0 and 1.1 (AOC-026)
 - Automated daily off-site backups to R2, with an alarm when the newest one is stale, tiny or
@@ -57,5 +57,6 @@ The first tagged release: everything built since the repo was created, shipped a
   sources can no longer disagree about the region (AOC-037)
 - The import refuses a snapshot holding under 90% of the corpus, before it deletes anything
   (AOC-042)
-- The tests that read the real imported armory are tagged `corpus`: CI never runs them, which is
-  why CI was red on the item endpoints since they were written, and the gate always does (AOC-044)
+- The tests that read the real imported armory are tagged `corpus`, so CI no longer runs them —
+  they skipped there, which kept CI red on the item endpoints since they were written — and the
+  gate always does (AOC-044)
