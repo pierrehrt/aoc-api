@@ -234,27 +234,27 @@ The rule and the zone's `min_tls_version` (1.0 → **1.2**) are applied by
 refused from the assistant. It looks before every write (safe to re-run; stops, unchanged, if the
 cache phase holds a rule it did not make) and judges success by HTTP status, not reply shape.
 Needs the token's **Zone → Cache Rules → Edit**, **Zone → Zone Settings → Edit** and, for `purge`,
-**Zone → Cache Purge**. Read access to the cache phase is confirmed (it answers "no entrypoint",
-where phases the token lacks answer "not authorized"); edit and purge are not provable without a
-write. ⚠️ **Not yet applied.** Until it is, the edge caches only
-what Cloudflare caches by default — static file extensions, which already include the hashed
-assets (`MISS` then `HIT`, measured 2026-09-28) — and every page answers `cf-cache-status: DYNAMIC`.
-Once the rule is live, a page from a build **without** this policy answers `BYPASS` (eligible, but
-no header to cache by), which is how the rule can be seen working before the code deploys.
+**Zone → Cache Purge** — all three proven by a real write on 2026-09-29.
+
+**Applied 2026-09-29** (Pierre ran `apply`: TLS 1.0 → 1.2, the rule added). Measured after:
+TLS 1.0 and 1.1 are refused with the server's `protocol version` alert, 1.2 and 1.3 answer 200; `/`,
+`/health` and `/v1/items` answer `cf-cache-status: BYPASS` (was `DYNAMIC`) — eligible, but the
+running build sends no `Cache-Control` to cache by, which is the rule seen working before this
+policy deploys. The hashed assets were already `MISS` then `HIT` without the rule, because
+Cloudflare caches static file extensions by default.
 
 ### Purging
 
 A content change is visible to readers within the edge window (an hour for pages). To make it
-immediate, purge the URLs — dashboard: *Caching → Configuration → Purge Cache → Custom Purge*, or:
+immediate, purge the URLs:
 
 ```bash
-set -a; source ~/.config/aoc-codex/cloudflare.env; set +a
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/9a60a586d20fe4ed78079b158b19cb1e/purge_cache" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
-  --data '{"files":["https://aoc-codex.app/"]}'
+bash scripts/cloudflare-cache.sh purge https://aoc-codex.app/<path>
 ```
 
-It needs the token's **Zone → Cache Purge** permission.
+Performed once, on 2026-09-29, on `/assets/app.2ab669de.css`: `HIT` before (cached ~18 h), then
+`MISS`, then `HIT` with `age: 1`. The dashboard does the same under *Caching → Configuration →
+Purge Cache → Custom Purge*. Either needs the token's **Zone → Cache Purge** permission.
 
 ### Bypassing the cache, for debugging
 
