@@ -346,7 +346,7 @@ web/src/app.css          Tailwind input      ─┐
 web/src/htmx.min.js      vendored HTMX        │ make assets
                                               ▼
 internal/assets/built/   app.css, htmx.min.js   COMMITTED, embedded, content-hashed
-internal/templates/html/ base · home · smoke · echo
+internal/templates/html/ base (the shell) · home · smoke · echo
 internal/templates/      View + Engine (parse once at boot)
 internal/pages/          handlers: build a View, render a template
 ```
@@ -391,11 +391,37 @@ starts looking different for reasons nobody can find. The binary downloads to `.
 (gitignored); the **output is committed**, and `bin/gate api` fails if it is missing, empty,
 gitignored or stale.
 
+### The shell (AOC-046)
+
+`base.html` renders the same chrome around every page: a header (the logo home, and a
+`<nav aria-label="Sections">` of the site's sections), `<main>`, and a footer carrying the two
+lines this site owes on every page — the data credit (`items.Attribution`, "Data preserved from
+AoC>TV by Kentarii") and the Funcom non-affiliation notice. **No contact line**, by Pierre's
+decision (2026-09-29; to revisit before the site is announced). Both come through `View.Nav` and
+`View.Attribution`, filled by `pages.(*Handler).view`, so a handler cannot forget them.
+
+- **The nav lists only routes that exist.** `pages.siteNav` is the list;
+  `TestEveryNavLinkIsARegisteredRoute` follows every href through the real router and wants 200.
+  A section is added to the nav in the ticket that adds its page, never before.
+- **The theme is tokens**, in `web/src/app.css` `@theme`: IBM Plex Sans/Mono (Google Fonts, linked
+  from `base.html`), `ink` (the page), `paper`/`muted`/`link` (text), `line` (borders), and the
+  rarity colours. `TestThemeTextTokensPassAA` reads that block and fails any text token under
+  4.5:1 on ink — the design's own note records that the raw game colours fail (Epic 2.0:1, Rare
+  3.1:1), so they were lightened along their hue.
+- **Rarity colours and class short names are data**, not template literals:
+  `rarities.colour_token` names a CSS property (`rarity-epic` → `--color-rarity-epic`; NULL = no
+  colour of its own, renders as paper) and `classes.short_name` holds the abbreviation players use
+  (Conq, DT, Guard … — Pierre, Tier A). `/v1/taxonomies` carries both, so the JSON surface and
+  the pages read one row. A template paints a rarity with
+  `style="color: var(--color-{{.ColourToken}})"` and never names a rarity itself.
+- Pages are wide (`max-w-7xl`): the Armory table needs it; prose pages constrain themselves.
+
 ### Adding a page
 
 1. A template in `internal/templates/html/` defining `content`.
 2. A line in `pageTemplates`.
 3. A handler in `internal/pages/` that builds a `View` and calls `Render`.
+4. If it is a **section**, its `NavItem` in `pages.siteNav` — in the same commit as its route.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.

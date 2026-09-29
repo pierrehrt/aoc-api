@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -48,8 +49,15 @@ func (h *Handler) view(title, description, path string) templates.View {
 	if p, err := h.assets.Path(ogImageAsset); err == nil {
 		v.OGImage = h.baseURL + p
 	}
+	v.Nav = siteNav
+	v.Attribution = items.Attribution
 	return v
 }
+
+// siteNav is the header's section links (AOC-046). ⛔ Only routes that EXIST go here — a link to a
+// 404 is a bug, and TestEveryNavLinkIsARegisteredRoute walks it against the real router. The
+// Armory entry arrives with AOC-047, the Locations/Sets/Currencies entries with their pages.
+var siteNav = []templates.NavItem{}
 
 // ogImageAsset is the social-card image. Kept as a constant so a missing one is a single
 // obvious edit rather than a string repeated across handlers.

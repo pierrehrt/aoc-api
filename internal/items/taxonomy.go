@@ -19,9 +19,16 @@ type TaxonomyLister interface {
 }
 
 // Term is one vocabulary entry. Slug is what a filter takes; Name is what a person reads.
+//
+// ShortName (classes) and ColourToken (rarities) are the two presentation facts that are DATA
+// rather than template literals (AOC-046): the token names a CSS custom property
+// (`rarity-epic` → `--color-rarity-epic`) whose value lives in web/src/app.css. Both are empty
+// where the row has none, and omitted from the JSON then.
 type Term struct {
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	ShortName   string `json:"short_name,omitempty"`
+	ColourToken string `json:"colour_token,omitempty"`
 }
 
 // Taxonomies is every filter vocabulary in one call, so a page fetches its whole filter UI once.
@@ -69,7 +76,7 @@ func (t *TaxonomyService) Taxonomies(ctx context.Context) (Taxonomies, error) {
 		return Taxonomies{}, fmt.Errorf("list rarities: %w", err)
 	}
 	for _, v := range rarities {
-		out.Rarities = append(out.Rarities, Term{Slug: v.Slug, Name: v.Name})
+		out.Rarities = append(out.Rarities, Term{Slug: v.Slug, Name: v.Name, ColourToken: deref(v.ColourToken)})
 	}
 
 	itemTypes, err := t.q.ListItemTypes(ctx)
@@ -101,7 +108,7 @@ func (t *TaxonomyService) Taxonomies(ctx context.Context) (Taxonomies, error) {
 		return Taxonomies{}, fmt.Errorf("list classes: %w", err)
 	}
 	for _, v := range classes {
-		out.Classes = append(out.Classes, Term{Slug: v.Slug, Name: v.Name})
+		out.Classes = append(out.Classes, Term{Slug: v.Slug, Name: v.Name, ShortName: deref(v.ShortName)})
 	}
 
 	tiers, err := t.q.ListTiers(ctx)

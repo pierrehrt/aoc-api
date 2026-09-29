@@ -13,13 +13,30 @@
 <meta property="og:url" content="{{.View.Canonical}}">
 {{if .View.OGImage}}<meta property="og:image" content="{{.View.OGImage}}">
 <meta name="twitter:card" content="summary_large_image">{{end}}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="{{asset "app.css"}}">
 <script src="{{asset "htmx.min.js"}}" defer></script>
 </head>
-<body class="min-h-screen bg-stone-950 text-stone-200 antialiased">
+<body class="flex min-h-screen flex-col bg-ink font-sans text-paper antialiased">
 <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:p-3">Skip to content</a>
-<main id="main" class="mx-auto max-w-3xl px-4 py-10">
+<header class="border-b border-line">
+  <div class="mx-auto flex max-w-7xl flex-wrap items-baseline gap-x-6 gap-y-1 px-4 py-3">
+    <a href="/" class="text-base font-semibold tracking-tight text-paper">AoC Codex</a>
+    <nav aria-label="Sections" class="flex flex-wrap gap-x-4 text-sm">
+      {{range .View.Nav}}<a href="{{.Path}}" class="text-muted hover:text-paper">{{.Label}}</a>{{end}}
+    </nav>
+  </div>
+</header>
+<main id="main" class="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
 {{template "content" .}}
 </main>
+<footer class="border-t border-line">
+  <div class="mx-auto max-w-7xl px-4 py-6 text-xs text-muted">
+    <p>{{.View.Attribution}}</p>
+    <p class="mt-1">Age of Conan: Hyborian Adventures and its game content belong to Funcom. AoC Codex is a non-commercial fan reference, not affiliated with or endorsed by Funcom.</p>
+  </div>
+</footer>
 </body>
 </html>{{end}}
