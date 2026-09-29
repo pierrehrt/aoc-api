@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+The Armory list goes live: the first content page, on the site's shell.
+
 ### Added
 
 - The site shell: header with the section nav and a footer, the dark theme as tested tokens
@@ -30,6 +34,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 - `unchained` is one expression in every query that publishes it (source OR its place), so an item
   found by `unchained=true` never denies it on its own page; a place whose sources disagree about
   the tier is summarised blank instead of with `min()` (AOC-039)
+
+### Migration
+
+- `20260929120000_shell_rarity_colours_class_short_names`: two nullable columns with seeds (`rarities.colour_token`, `classes.short_name`), run against production **before** this deploy with `scripts/release-migrate.sh` (AOC-046)
 
 ## [0.1.0] - 2026-09-29
 

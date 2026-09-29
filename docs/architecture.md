@@ -962,6 +962,12 @@ that is not a slogan, it is these four steps, in order:
 4.  back up production, then deploy            forward-only, one migration per deploy
 ```
 
+Steps 3–4 as **one command Pierre runs**: `scripts/release-migrate.sh check` (tunnel, goose status,
+close — writes nothing) then `scripts/release-migrate.sh apply` (a verified `pg_dump` to
+`~/AoC-backups`, `goose up`, status, close). The password comes from Railway with the project token
+and is never printed. ⚠️ A release whose binary reads a new column **migrates first, then merges**:
+the old binary ignores an extra column, the new one 500s without it (0.2.0).
+
 Step 2 is the point. An empty hosted dev database never meets the row that breaks the migration;
 a restored production dump does. **Step 4's backup is not optional** — AOC-006 automates it.
 A failed migration is fixed **forward** from a known backup, never by hand-editing production.
