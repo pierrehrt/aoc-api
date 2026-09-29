@@ -38,6 +38,18 @@ type View struct {
 	OGImage     string // absolute URL, optional
 	NoIndex     bool   // true keeps the page out of search results
 	Data        any    // whatever the page's own template needs
+
+	// The shell (AOC-046): what base.html renders around every page. Filled by the handler
+	// package's view helper, so no page can forget the footer line this site owes on every page
+	// carrying Kentarii's data.
+	Nav         []NavItem // the header's section links — only routes that exist
+	Attribution string    // the footer's data credit
+}
+
+// NavItem is one header link.
+type NavItem struct {
+	Label string
+	Path  string
 }
 
 var (

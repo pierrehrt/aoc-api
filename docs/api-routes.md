@@ -155,6 +155,11 @@ tiers, regions, places, currencies. ⭐ **Read from the database, never hardcode
 of class names in a filter dropdown is the exact bug the content model exists to prevent
 (`reference/content-model.md` § 0).
 
+Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
+- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …);
+- rarities: `"colour_token"` — the name of the CSS custom property that paints it
+  (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
+
 ### Attribution
 
 Every response on every route carries

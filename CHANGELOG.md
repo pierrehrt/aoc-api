@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+### Added
+
+- The site shell: header with the section nav, footer with the AoC>TV/Kentarii credit and the
+  Funcom notice, the dark theme as tested tokens (IBM Plex, AA contrast); rarity colours and class
+  short names are database rows, served by `/v1/taxonomies` (AOC-046)
+
 ## [0.1.0] - 2026-09-29
 
 The first tagged release: everything built since the repo was created, shipped as one deploy.

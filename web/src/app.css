@@ -34,7 +34,28 @@
    on hotel wifi, three minutes before a pull. Dark by default because that is what the
    game looks like and what a second monitor at night should be. */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The type the design set: IBM Plex Sans for prose, Plex Mono for data columns (loaded from
+     Google Fonts in base.html; the fallbacks are what renders offline). */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The palette, as tokens (AOC-046). Every TEXT token below must pass AA (4.5:1) against
+     --color-ink: TestThemeTextTokensPassAA in internal/templates reads this block and measures it,
+     so a colour that fails contrast fails the build rather than a reader at 1 a.m. */
+  --color-ink: #1b1a18;        /* the page */
+  --color-ink-2: #14130f;      /* a darker well: table headers, code */
+  --color-line: #2e2b27;       /* borders — not text, not measured */
+  --color-paper: #eae6df;      /* body text */
+  --color-muted: #9a9389;      /* secondary text */
+  --color-link: #cd975b;
+  --color-link-hover: #e0b482;
+
+  /* Rarity colours. The DATABASE says which rarity uses which token (rarities.colour_token);
+     only the hex lives here. The design sampled three from the game and lightened them along the
+     same hue until they pass AA on ink; the other rarities have no token and render as paper. */
+  --color-rarity-legendary: #cd975b;
+  --color-rarity-epic: #b874dd;
+  --color-rarity-rare: #56aee6;
 }
 
 /* Respect a reader who has asked for less motion. Non-negotiable, and cheap. */

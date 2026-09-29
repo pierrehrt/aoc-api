@@ -220,7 +220,8 @@ CREATE TABLE public.classes (
     archetype_id integer NOT NULL,
     slug character varying(64) NOT NULL,
     name character varying(64) NOT NULL,
-    max_armour_weight integer
+    max_armour_weight integer,
+    short_name character varying(8)
 );
 
 
@@ -783,7 +784,8 @@ CREATE TABLE public.rarities (
     id integer NOT NULL,
     slug character varying(64) NOT NULL,
     name character varying(64) NOT NULL,
-    sort_order integer NOT NULL
+    sort_order integer NOT NULL,
+    colour_token character varying(32)
 );
 
 
