@@ -83,7 +83,8 @@ func TestCachePolicy(t *testing.T) {
 
 		// HTMX
 		{name: "HTMX fragment", path: "/", req: map[string]string{"HX-Request": "true"}, status: 200, want: wantNoStore},
-		{name: "HTMX header in capitals", path: "/", req: map[string]string{"HX-Request": "TRUE"}, status: 200, want: wantNoStore},
+		// htmx sends exactly "true" and the edge rule matches exactly, so "TRUE" is a page (AOC-026).
+		{name: "HTMX header in capitals is not htmx", path: "/", req: map[string]string{"HX-Request": "TRUE"}, status: 200, want: wantPage},
 		{name: "HX-Request false is a page", path: "/", req: map[string]string{"HX-Request": "false"}, status: 200, want: wantPage},
 
 		// ⛔ private overrides everything

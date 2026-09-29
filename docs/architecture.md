@@ -195,7 +195,11 @@ The last row **wins over every other**, including a value a handler set by hand.
 - **An HTMX fragment is never cached** by a shared cache, under any URL. That closes the dangerous
   case — a bare fragment handed to a browser that asked for the page — **whether or not the edge
   honours `Vary`**, which is not assumed. Handlers that branch on HTMX still send
-  `Vary: HX-Request`, for browsers. ⚠️ That closes only the *storing* direction. The other one — an
+  `Vary: HX-Request`, for browsers. **An HTMX request is exactly `HX-Request: true`** — what htmx
+  sends — and it has **one** definition, `httpx.IsHTMX`, which the renderer (`templates.IsHTMX`
+  calls it), this policy and the edge rule all use; `TestNoFragmentEverLeavesWithAPublicHeader`
+  pins that no spelling yields a fragment with a public header. ⚠️ That closes only the *storing*
+  direction. The other one — an
   HTMX request answered with the cached full page — is the edge's to close, because a `HIT` never
   reaches the origin: that is the second Cache Rule below.
 - **The request's `Cookie` header is not a trigger.** Cloudflare's bot-management cookies ride on
@@ -268,6 +272,12 @@ TLS 1.0 and 1.1 are refused with the server's `protocol version` alert, 1.2 and 
 running build sends no `Cache-Control` to cache by, which is the rule seen working before this
 policy deploys. The hashed assets were already `MISS` then `HIT` without the rule, because
 Cloudflare caches static file extensions by default.
+
+**Rule 2 applied the same day** (Pierre ran `apply` again; one PUT, the free plan accepted the header
+condition). Measured on the cached stylesheet, twice, at SIN/HKG/NRT: plain → `HIT`;
+`HX-Request: true` → `DYNAMIC`; `Authorization: Bearer …` → `DYNAMIC`; `Cookie: sid=…` → still
+`HIT`, as intended; `hx-request: TRUE` → `HIT`, because the rule matches exactly — which is why the
+origin's test is exact too. Before it, all four were `HIT`.
 
 ### Purging
 

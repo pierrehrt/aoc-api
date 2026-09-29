@@ -52,9 +52,8 @@ func cachePolicy(r *http.Request, status int, h http.Header, private bool) strin
 		return cacheNoStore
 	// A fragment is never stored in a shared cache, under any URL. That closes the dangerous case
 	// — a bare fragment handed to a browser that asked for the page — whether or not the edge
-	// honours Vary. (templates.IsHTMX is the same test; httpx sits below templates and cannot
-	// import it.)
-	case strings.EqualFold(r.Header.Get("HX-Request"), "true"):
+	// honours Vary.
+	case IsHTMX(r):
 		return cacheNoStore
 	case r.URL.Path == "/health":
 		return cacheNoStore
@@ -86,6 +85,13 @@ func cachePolicy(r *http.Request, status int, h http.Header, private bool) strin
 		return cachePage
 	}
 }
+
+// IsHTMX reports whether a request came from htmx: exactly `HX-Request: true`, which is what htmx
+// sends (the vendored 2.0.4) and what the edge's bypass rule matches (scripts/cloudflare-cache.sh).
+// ONE definition, used by the policy above and by templates.IsHTMX, which picks fragment or page:
+// if those two ever disagreed, a fragment could leave with a page's public header and be stored
+// under the page's URL. Exact, not case-folded — the edge rule is exact, and "TRUE" is not htmx.
+func IsHTMX(r *http.Request) bool { return r.Header.Get("HX-Request") == "true" }
 
 // Cache sets Cache-Control on every response from the policy above.
 //
