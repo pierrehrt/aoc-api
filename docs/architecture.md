@@ -16,12 +16,16 @@ newer), chi, pgx, sqlc, goose, Postgres, deployed on Railway.
 
 ```
 cmd/api/main.go        wiring ONLY — config, router, serve, shut down
-internal/httpx/        the HTTP edge: middleware, error mapping, /health
-internal/version/      build identity, injected at link time
-internal/db/           pgx pool + sqlc output + queries/   (empty until AOC-005)
-internal/items/        the Armory bounded area              (empty until AOC-010/012)
-migrations/            goose files                          (empty until AOC-005)
-docs/                  this file, api-routes.md, database-schema.sql
+cmd/import-armory/     the armory importer, run as the `import` service (AOC-011, AOC-040)
+internal/httpx/        the HTTP edge: middleware, error mapping, the cache policy, /health
+internal/version/      build identity: the VERSION file, the commit (AOC-015)
+internal/db/           pgx pool + sqlc output + queries/ (AOC-005)
+internal/items/        the Armory bounded area: schema, importer, the /v1 read surface (AOC-010/011/012)
+internal/templates/    html/template engine: parse once, View contract, fragments (AOC-024)
+internal/pages/        the HTML handlers (AOC-024)
+internal/assets/       the committed, content-hashed CSS/JS/images and their handler (AOC-024)
+migrations/            goose files (AOC-005 onwards)
+docs/                  this file, api-routes.md, database-schema.sql, runbook-restore.md
 workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
 
@@ -1364,13 +1368,10 @@ rclone deletefile r2ro:<bucket>/t1.txt                                # DeleteOb
 Afterwards the bucket was re-listed with `[r2]`: `forbidden.txt` **absent**, `t1.txt` **unchanged**,
 six objects exactly as uploaded. The denied writes left nothing behind.
 
-## Not here yet, and which ticket brings it
+## Not here yet
 
-| Thing | Ticket |
-|---|---|
-| CI (vet, lint, test on every PR) | AOC-003 |
-| Railway projects + Postgres | AOC-004 |
-| goose + sqlc toolchain, first migration | AOC-005 |
-| taxonomy tables and place entities | AOC-009 |
-| public read endpoints for items | AOC-012 |
-| scheduled `pg_dump` to R2 + dead man's switch | AOC-030 |
+Everything this section used to list — CI, Railway, the toolchain, the taxonomy, the item endpoints,
+the scheduled backup — shipped in **0.1.0**. What is still to come is tracked in
+`product_management/BOARD.md` and `ROADMAP.md`, not here: a list of future work in this file is a
+second copy of the plan, and it went stale the moment the first of its tickets shipped.
+

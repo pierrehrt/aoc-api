@@ -27,8 +27,9 @@ ARG COMMIT=none
 # -trimpath keeps build-machine paths out of the binary.
 RUN set -eu; \
     VERSION="$(cat VERSION)"; \
-    echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-      || { echo "VERSION must be x.y.z, got '$VERSION'" >&2; exit 1; }; \
+    [ "$(printf '%s\n' "$VERSION" | wc -l)" -eq 1 ] \
+      && echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+      || { echo "VERSION must be one x.y.z line, got '$VERSION'" >&2; exit 1; }; \
     CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags "-s -w -X 'github.com/pierrehrt/aoc-api/internal/version.Version=${VERSION}' -X 'github.com/pierrehrt/aoc-api/internal/version.Commit=${COMMIT}'" \
