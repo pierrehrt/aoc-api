@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+### Fixed
+
+- `unchained` is one expression in every query that publishes it (source OR its place), so an item
+  found by `unchained=true` never denies it on its own page; a place whose sources disagree about
+  the tier is summarised blank instead of with `min()` (AOC-039)
+
 ## [0.1.0] - 2026-09-29
 
 The first tagged release: everything built since the repo was created, shipped as one deploy.

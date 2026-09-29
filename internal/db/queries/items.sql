@@ -78,7 +78,11 @@ SELECT src.id, src.item_id,
        src.region_id, rg.name AS region_name, rg.slug AS region_slug,
        src.map_id, mp.name AS map_name, mp.slug AS map_slug,
        src.tier_id, tr.slug AS tier,
-       src.is_raid, src.coords, src.section_raw, src.unchained,
+       src.is_raid, src.coords, src.section_raw,
+       -- ⭐ src OR place (AOC-039): the one unchained expression, shared with the list filter and
+       -- ListItemPlaces. This was the bare src.unchained -- the third spelling of one rule, which
+       -- agreed with the other two only because the importer set both columns from one source.
+       (src.unchained OR coalesce(p.unchained, false))::boolean AS unchained,
        c.slug AS confidence, src.source_note, src.open_question
 FROM item_sources src
 JOIN confidence_levels c ON c.id = src.confidence_id
@@ -206,8 +210,13 @@ SELECT src.item_id, p.slug AS place_slug, p.name AS place_name,
        -- coalesce, not a bare cast: min() over all-NULL is NULL, and sqlc types a cast as
        -- non-null, so the scan would fail on exactly the rows that have no region.
        coalesce(min(r.slug), '')::varchar AS region_slug,
-       coalesce(min(t.slug), '')::varchar AS tier_slug,
-       bool_or(src.unchained OR p.unchained) AS unchained,
+       -- ⭐ ONE EXPRESSION PER FACT (AOC-039). The tier is blanked when the place's sources disagree,
+       -- exactly like the boss below: min() would state one of two tiers as fact the first time the
+       -- corpus held two. And unchained is the SAME expression the list filter and ListItemSources
+       -- use -- src OR place, with a NULL place read as false -- so a row cannot be findable by
+       -- unchained=true and then deny it on its own page.
+       coalesce(CASE WHEN count(DISTINCT t.slug) = 1 THEN min(t.slug) END, '')::varchar AS tier_slug,
+       bool_or(src.unchained OR coalesce(p.unchained, false)) AS unchained,
        -- The boss only when it is unambiguous: two bosses in one place would make either name a
        -- lie, and a blank is honest where a guess is not (CLAUDE.md STEP ZERO).
        coalesce(CASE WHEN count(DISTINCT b.name) = 1 THEN min(b.name) END, '')::varchar AS boss_name
