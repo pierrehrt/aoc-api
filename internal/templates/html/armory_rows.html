@@ -25,7 +25,8 @@
         <span class="font-medium"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</span>
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
         <div class="mt-0.5 font-mono text-xs text-muted md:hidden">
-          {{template "armory_slot_type" .}}{{if .ItemLevel}} · iLvl {{.ItemLevel}}{{end}}{{if .Classes}} · {{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}{{end}}
+          {{/* the separator sits only BETWEEN two present parts (verify rounds 1 and 2) */}}
+          {{template "armory_slot_type" .}}{{if .ItemLevel}}{{if or .EquipLocations .ArmourWeight (and .ItemType (not (typeIsSlot .)))}} · {{end}}iLvl {{.ItemLevel}}{{end}}{{if .Classes}} · {{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}{{end}}
         </div>
         {{/* place · price, or either alone — a price with no place must not lead with the separator (verify round 1: 1,378 items). */}}
         {{if or .Place .Places .Price}}<div class="mt-0.5 font-mono text-xs text-muted lg:hidden">
