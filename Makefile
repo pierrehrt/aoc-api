@@ -6,7 +6,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 PKG     := github.com/pierrehrt/aoc-api/internal/version
 LDFLAGS := -X '$(PKG).Version=$(VERSION)' -X '$(PKG).Commit=$(COMMIT)'
 
-.PHONY: run build compile test lint fmt tidy check db-up db-down db-reset db-restore db-psql assets tools worker-test
+.PHONY: run build compile test lint fmt tidy check db-up db-down db-reset db-restore db-psql assets tools worker-test test-corpus
 .PHONY: migrate-up migrate-down migrate-status migrate-redo migrate-create sqlc sqlc-cmd schema-dump
 
 run:
@@ -22,6 +22,12 @@ compile:
 
 test:
 	go test ./...
+
+# The corpus tests (AOC-044): they read the real imported armory, so they need a local database
+# that has been migrated AND imported (cmd/import-armory). CI cannot run them — the snapshot repo is
+# private — and bin/gate api always does, with the same tag.
+test-corpus:
+	go test -tags corpus -count=1 ./internal/db/
 
 # The img Worker (AOC-041): Node's built-in test runner, no packages. CI runs it in its own job.
 worker-test:

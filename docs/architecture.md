@@ -736,6 +736,22 @@ disturb the developer's data or collide with each other. CI runs a `postgres:18-
 service — the same major as production and as `docker-compose.yml`, because **every Postgres in this project tracks production's major** — and then **asserts the tests did not skip**, because a suite that skips its only
 integration tests while reporting success is the failure shape this project keeps finding.
 
+**Two kinds, and where each runs (AOC-044):**
+
+| Kind | Data | Build tag | CI | `bin/gate api` |
+|---|---|---|---|---|
+| Fixture tests (almost all) | obviously-fake rows in a fresh migrated database | none | ✅ | ✅ |
+| **Corpus tests** — `item_read_endpoints_test.go`, `item_multiplace_test.go`, `item_source_region_test.go`, `multi_query_facts_test.go` (AOC-012) | the **real imported armory** in the database they are handed | **`corpus`** | ❌ never compiled | ✅ `-tags corpus` |
+
+The corpus tests are the only ones that meet the real 4,646 rows, which is what caught AOC-012's
+defects, so they are not rewritten on fixtures. They cannot run in CI: the corpus comes from the
+**private** snapshot repo, and CI's Postgres never holds it — there they could only skip, and CI
+fails on a skip. So they are **tagged, not skipped**: CI never compiles them, and the gate always
+does. Where the corpus is missing, `readPool` skips and the gate's skip check exits **2** naming
+them — so a machine without the imported armory cannot pass the gate. `make test-corpus` runs
+them by hand. A new test that reads the real corpus goes in a `corpus`-tagged file, never in an
+untagged one.
+
 ## Deploy
 
 > 💾 **Backups and restores have their own runbook: [`runbook-restore.md`](runbook-restore.md).**

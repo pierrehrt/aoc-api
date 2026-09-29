@@ -1,3 +1,7 @@
+//go:build corpus
+
+// A corpus test: compiled only with `-tags corpus` (AOC-044) — see item_read_endpoints_test.go.
+
 package db_test
 
 import (
