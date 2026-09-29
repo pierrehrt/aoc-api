@@ -213,6 +213,19 @@ func TestMarkPrivateFailsClosed(t *testing.T) {
 			t.Error("MarkPrivate after the header was sent did not panic — a public header is already on the wire")
 		}
 	})
+	t.Run("after a flush", func(t *testing.T) {
+		var recovered any
+		h := httpx.Cache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = http.NewResponseController(w).Flush()
+			defer func() { recovered = recover() }()
+			httpx.MarkPrivate(r)
+		}))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
+		if recovered == nil {
+			t.Error("MarkPrivate after a flush did not panic — the flush already sent a public header")
+		}
+	})
 	t.Run("twice is fine", func(t *testing.T) {
 		h := httpx.Cache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			httpx.MarkPrivate(r)
@@ -274,15 +287,84 @@ func TestProductionRouterAppliesThePolicy(t *testing.T) {
 	}
 }
 
-// Wrapping must not remove Flush from anything downstream.
+// Wrapping must not remove Flush from anything downstream — and the flush must carry the header.
 func TestCacheWriterPreservesFlush(t *testing.T) {
-	var flushed bool
+	var err error
 	h := httpx.Cache(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		flushed = http.NewResponseController(w).Flush() == nil
+		err = http.NewResponseController(w).Flush()
 	}))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
-	if !flushed {
-		t.Error("Flush is unreachable through the Cache writer — Unwrap is missing or wrong")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
+	if err != nil || !rr.Flushed {
+		t.Errorf("Flush is unreachable through the Cache writer (err %v, flushed %v)", err, rr.Flushed)
+	}
+	if got := rr.Result().Header.Get("Cache-Control"); got != wantPage {
+		t.Errorf("Cache-Control = %q, want %q — the flush sent the header before the policy ran", got, wantPage)
+	}
+}
+
+// ⛔ A flush sends the header map as it stands. Before AOC-026's verify round 1 a handler that
+// flushed first got past the policy: its own `public` went out beside its Set-Cookie, and a
+// MarkPrivate response left with no header at all. Measured here the way it was found — the
+// production router on a real server — because a recorder cannot show what a flush put on the wire.
+func TestAFlushCannotGetPastThePolicy(t *testing.T) {
+	flushes := map[string]func(http.ResponseWriter){
+		"ResponseController": func(w http.ResponseWriter) {
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				panic("flush through ResponseController failed: " + err.Error())
+			}
+		},
+		"http.Flusher": func(w http.ResponseWriter) {
+			f, ok := w.(http.Flusher)
+			if !ok {
+				panic("the Cache writer is not an http.Flusher")
+			}
+			f.Flush()
+		},
+	}
+	for how, flush := range flushes {
+		t.Run(how, func(t *testing.T) {
+			site := func(r chi.Router) {
+				r.Get("/test-cookie", func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Set-Cookie", "sid=test")
+					w.Header().Set("Cache-Control", "public, max-age=31536000")
+					flush(w)
+					_, _ = w.Write([]byte("test body"))
+				})
+				r.Get("/test-private", func(w http.ResponseWriter, r *http.Request) {
+					httpx.MarkPrivate(r)
+					flush(w)
+					_, _ = w.Write([]byte("test body"))
+				})
+				r.Get("/test-page", func(w http.ResponseWriter, _ *http.Request) {
+					flush(w)
+					_, _ = w.Write([]byte("test page"))
+				})
+			}
+			srv := httptest.NewServer(httpx.NewRouterWithSite(httpx.Build{Version: "dev", Commit: "none", Env: "test"}, site, nil))
+			defer srv.Close()
+			for _, tc := range []struct{ path, want string }{
+				{"/test-cookie", wantPrivate},
+				{"/test-private", wantPrivate},
+				{"/test-page", wantPage},
+			} {
+				req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+tc.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp, err := srv.Client().Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("%s: status = %d, want 200", tc.path, resp.StatusCode)
+				}
+				if got := resp.Header.Get("Cache-Control"); got != tc.want {
+					t.Errorf("%s: Cache-Control = %q, want %q", tc.path, got, tc.want)
+				}
+			}
+		})
 	}
 }
 

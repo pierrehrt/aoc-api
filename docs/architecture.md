@@ -195,7 +195,9 @@ The last row **wins over every other**, including a value a handler set by hand.
 - **An HTMX fragment is never cached** by a shared cache, under any URL. That closes the dangerous
   case — a bare fragment handed to a browser that asked for the page — **whether or not the edge
   honours `Vary`**, which is not assumed. Handlers that branch on HTMX still send
-  `Vary: HX-Request`, for browsers.
+  `Vary: HX-Request`, for browsers. ⚠️ That closes only the *storing* direction. The other one — an
+  HTMX request answered with the cached full page — is the edge's to close, because a `HIT` never
+  reaches the origin: that is the second Cache Rule below.
 - **The request's `Cookie` header is not a trigger.** Cloudflare's bot-management cookies ride on
   ordinary requests; keying on them would switch caching off for everyone.
 
@@ -212,23 +214,47 @@ another's session. Nothing here relies on remembering it:
 3. **No handler sets the header.** `Cache` replaces whatever a handler set, and
    `TestOnlyCacheGoNamesTheHeader` parses every non-test Go file and fails if any file but
    `cache.go` names `Cache-Control` in a string literal. `TestHeaderScanSeesAPlantedHandler` plants
-   offenders to prove the scan can see one.
+   offenders to prove the scan can see one. The scan sees **literals** only — a name built by
+   concatenation is invisible to it — so it is the tripwire; the runtime override is the guarantee.
+4. **A flush cannot get past it.** A flush sends the header map as it stands, so the `Cache` writer
+   implements `FlushError` (and `Flush`) and decides the header **before** any flush reaches the
+   wire; `ResponseController` asks for `FlushError` before it follows `Unwrap`. Without it, verify
+   round 1 measured a handler's own `public` leaving beside its `Set-Cookie`, and a `MarkPrivate`
+   response leaving with no header at all. `MarkPrivate` after a flush panics, like after any write.
+   ⚠️ A **hijacked** connection is raw bytes the handler writes itself — outside this policy by
+   construction.
+
+⚠️ **EP-06 — the session cookie needs its own edge rule.** The request's `Cookie` header is not a
+trigger here, and it is not one at the edge either: `Cookie: sid=…` gets a `HIT` (measured
+2026-09-29). So once accounts exist, a logged-in reader asking for a cached URL is served the
+anonymous copy, whatever the origin would have said. The change that creates the session cookie adds
+a bypass rule on that cookie's **name** to `scripts/cloudflare-cache.sh`, in the same PR.
 
 Tests: `internal/httpx/cache_test.go` — 52 policy cases, the planted offenders, the production
-router (panic, partial write, 404, 405, `/health`), a real server for 1xx. **30 mutants of the
-policy and the router order, all killed; 5 of the scan, all killed** (AOC-026 build).
+router (panic, partial write, 404, 405, `/health`), a real server for 1xx, and flush-first handlers
+on the production router over a real server, through both `ResponseController` and `http.Flusher`.
+**30 mutants of the policy and the router order, all killed; 5 of the scan, all killed; 4 of the
+flush path, all killed** (AOC-026 build).
 
 ### The edge (Cloudflare)
 
-One **Cache Rule** on `aoc-codex.app` (zone ruleset, phase `http_request_cache_settings`):
+Two **Cache Rules** on `aoc-codex.app` (zone ruleset, phase `http_request_cache_settings`), in
+this order:
 
-- **eligible for cache** — Cloudflare does not cache HTML otherwise;
-- **edge TTL: use `Cache-Control` if present, bypass if not** — so a response without the header is
-  never cached. The origin always sends one; this is the fail-closed backstop;
-- **browser TTL: respect origin** — ⚠️ the zone's `browser_cache_ttl` is **14400** (read
-  2026-09-28), which would otherwise stretch pages' `max-age=60` for browsers.
+1. **Every request to the apex** —
+   - **eligible for cache** — Cloudflare does not cache HTML otherwise;
+   - **edge TTL: use `Cache-Control` if present, bypass if not** — so a response without the header
+     is never cached. The origin always sends one; this is the fail-closed backstop;
+   - **browser TTL: respect origin** — ⚠️ the zone's `browser_cache_ttl` is **14400** (read
+     2026-09-28), which would otherwise stretch pages' `max-age=60` for browsers.
+2. **A request carrying `HX-Request: true` or any `Authorization`** → **not eligible** (bypass).
+   The origin's `no-store` stops such a response being *stored*, but a request that matches a stored
+   page never reaches the origin: before this rule an `HX-Request` and an `Authorization` request
+   for the cached stylesheet both got `HIT` (verify round 1, measured). Rule 2 comes after rule 1
+   because a later matching rule overrides an earlier one's setting. Not on `Cookie` — see EP-06
+   above.
 
-The rule and the zone's `min_tls_version` (1.0 → **1.2**) are applied by
+The rules and the zone's `min_tls_version` (1.0 → **1.2**) are applied by
 **`scripts/cloudflare-cache.sh`** — `check` (read only), `apply --dry-run` (every read, no write),
 `apply`, `purge <url>`, `rollback`. Pierre runs the writing modes, because Cloudflare writes are
 refused from the assistant. It looks before every write (safe to re-run; stops, unchanged, if the
@@ -245,7 +271,9 @@ Cloudflare caches static file extensions by default.
 
 ### Purging
 
-A content change is visible to readers within the edge window (an hour for pages). To make it
+A content change is visible to readers within the edge window (an hour for pages) — plus, because
+pages carry `stale-while-revalidate=86400`, possibly **one more request** after the hour, which may be
+handed the old copy while the edge refetches (how Cloudflare treats it is not measured). To make it
 immediate, purge the URLs:
 
 ```bash

@@ -152,7 +152,23 @@ func (w *cacheWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// Unwrap keeps Flush, Hijack and deadlines reachable through http.ResponseController.
+// FlushError decides the header before a flush can put the response on the wire. A flush sends
+// the header map as it stands, so without this method http.ResponseController would follow Unwrap
+// to the inner writer and send a handler's own `public` beside its Set-Cookie, or no Cache-Control
+// at all — measured by AOC-026's verify round 1. ResponseController asks for FlushError before it
+// tries Unwrap, so every flush comes through here.
+func (w *cacheWriter) FlushError() error {
+	if !w.st.decided {
+		w.WriteHeader(http.StatusOK)
+	}
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Flush is FlushError for code that type-asserts http.Flusher instead of using ResponseController.
+func (w *cacheWriter) Flush() { _ = w.FlushError() }
+
+// Unwrap keeps Hijack and deadlines reachable through http.ResponseController. ⚠️ A hijacked
+// connection is raw bytes the handler writes itself, so it is outside this policy by construction.
 func (w *cacheWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // Wrote is what Recover asks before writing an error. This writer sits between Log's and
