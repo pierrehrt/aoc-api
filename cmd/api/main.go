@@ -16,9 +16,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/pierrehrt/aoc-api/internal/assets"
 	"github.com/pierrehrt/aoc-api/internal/db"
+	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/pages"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 	"github.com/pierrehrt/aoc-api/internal/version"
@@ -88,9 +91,18 @@ func run() error {
 	// see the comment on pages.Handler.baseURL.
 	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")))
 
+	// The read surface over the armory (AOC-012). The service layer is built here and handed to
+	// the JSON handlers; the HTML armory page will be handed the SAME *items.Service rather than
+	// calling the JSON endpoints or re-implementing the filtering (CLAUDE.md rule 5b).
+	q := sqlcgen.New(pool)
+	itemsAPI := items.NewHandler(items.NewService(q), items.NewTaxonomyService(q))
+
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: httpx.NewRouterWithSite(build, site.Routes, assetSet.Handler()),
+		Addr: addr,
+		Handler: httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
+			v1.Mount("/items", itemsAPI.Routes())
+			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
+		}),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that
 		// net/http leaves unset by default.
