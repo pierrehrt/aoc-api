@@ -57,3 +57,5 @@ The first tagged release: everything built since the repo was created, shipped a
   sources can no longer disagree about the region (AOC-037)
 - The import refuses a snapshot holding under 90% of the corpus, before it deletes anything
   (AOC-042)
+- The tests that read the real imported armory are tagged `corpus`: CI never runs them, which is
+  why CI was red on the item endpoints since they were written, and the gate always does (AOC-044)

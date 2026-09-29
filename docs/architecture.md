@@ -741,13 +741,13 @@ integration tests while reporting success is the failure shape this project keep
 | Kind | Data | Build tag | CI | `bin/gate api` |
 |---|---|---|---|---|
 | Fixture tests (almost all) | obviously-fake rows in a fresh migrated database | none | ✅ | ✅ |
-| **Corpus tests** — `item_read_endpoints_test.go`, `item_multiplace_test.go`, `item_source_region_test.go`, `multi_query_facts_test.go` (AOC-012) | the **real imported armory** in the database they are handed | **`corpus`** | ❌ never compiled | ✅ `-tags corpus` |
+| **Corpus tests** — `item_read_endpoints_test.go`, `item_multiplace_test.go`, `item_source_region_test.go`, `multi_query_facts_test.go` (AOC-012) | the **real imported armory** in the database they are handed | **`corpus`** | ❌ never run (the `lint` job lints them, `.golangci.yml` `build-tags`) | ✅ `-tags corpus` |
 
 The corpus tests are the only ones that meet the real 4,646 rows, which is what caught AOC-012's
 defects, so they are not rewritten on fixtures. They cannot run in CI: the corpus comes from the
 **private** snapshot repo, and CI's Postgres never holds it — there they could only skip, and CI
-fails on a skip. So they are **tagged, not skipped**: CI never compiles them, and the gate always
-does. Where the corpus is missing, `readPool` skips and the gate's skip check exits **2** naming
+fails on a skip. So they are **tagged, not skipped**: CI's tests never compile them (its lint job
+still lints them), and the gate always runs them. Where the corpus is missing, `readPool` skips and the gate's skip check exits **2** naming
 them — so a machine without the imported armory cannot pass the gate. `make test-corpus` runs
 them by hand. A new test that reads the real corpus goes in a `corpus`-tagged file, never in an
 untagged one.
