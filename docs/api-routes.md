@@ -133,7 +133,10 @@ be more surface to keep correct for a filter nobody asked to combine.
 ### `GET /v1/items/{slug}`
 
 One item with everything its page shows, in one response: stats, every source (place, boss, region,
-map, tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
+map, tier, raid and unchained flags), costs, set, classes and equip locations. **A source's
+`unchained` includes its place's** (AOC-039): it is true when the source row is flagged *or* the
+place it sits in is an Unchained dungeon — the one expression the list filter uses, so an item found
+by `unchained=true` never denies it on its own page. An unknown slug is a
 **404 through the central error mapper**, with the standard JSON body — never a bare string.
 
 Each source carries **both a name and a slug** for place, region and map — `"place": "Kyllikki's
