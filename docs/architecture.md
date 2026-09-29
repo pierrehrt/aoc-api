@@ -16,16 +16,24 @@ newer), chi, pgx, sqlc, goose, Postgres, deployed on Railway.
 
 ```
 cmd/api/main.go        wiring ONLY — config, router, serve, shut down
-internal/httpx/        the HTTP edge: middleware, error mapping, /health
-internal/version/      build identity, injected at link time
-internal/db/           pgx pool + sqlc output + queries/   (empty until AOC-005)
-internal/items/        the Armory bounded area              (empty until AOC-010/012)
-migrations/            goose files                          (empty until AOC-005)
-docs/                  this file, api-routes.md, database-schema.sql
+cmd/import-armory/     the armory importer, run as the `import` service (AOC-011, AOC-040)
+internal/httpx/        the HTTP edge: middleware, error mapping, the cache policy, /health
+internal/version/      build identity: the VERSION file, the commit (AOC-015)
+internal/db/           pgx pool + sqlc output + queries/ (AOC-005)
+internal/items/        the Armory bounded area: schema, importer, the /v1 read surface (AOC-010/011/012)
+internal/templates/    html/template engine: parse once, View contract, fragments (AOC-024)
+internal/pages/        the HTML handlers (AOC-024)
+internal/assets/       the committed, content-hashed CSS/JS/images and their handler (AOC-024)
+migrations/            goose files (AOC-005 onwards)
+scripts/               operational scripts: backup, the backup alarm, cloudflare-cache.sh
+web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx) — not served
+docs/                  this file, api-routes.md, database-schema.sql, runbook-restore.md
+workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
 
-Each `internal/` package carries a `doc.go` saying what belongs in it and what does not. That is the
-cheapest defence against the layout eroding into a pile of helpers, and it costs one file per package.
+`internal/db`, `internal/httpx` and `internal/items` carry a `doc.go` saying what belongs in each and
+what does not — the cheapest defence against the layout eroding into a pile of helpers. The other
+packages (`version`, `templates`, `pages`, `assets`) state it in their package comment instead.
 
 **A domain package owns its handlers, its service and its tests.** It does not own HTTP concerns
 beyond a thin handler (those are `httpx`) or raw SQL (that is `internal/db/queries`).
@@ -132,7 +140,13 @@ stale, not the behaviour.
 
 ## Middleware, in order
 
-`RequestID` → `Log` → `Recover`.
+`RequestID` → `Log` → `Cache` → `Recover` → `GetHead`.
+
+`Cache` (AOC-026, § Caching below) sits **inside `Log` and outside `Recover`**: the 500 that
+`Recover` writes for a panic passes through it and leaves as `no-store`, where the other way round
+it would leave with no header at all. Its writer implements `Wrote()`, because `Recover` asks the
+writer it holds whether the response has begun — without it, a panic after a partial write would get
+a JSON error appended. A test drives the production router through both.
 
 The order is load-bearing, and it is the opposite of what it first looks like. `RequestID` is
 outermost so everything downstream can log the id. **`Log` then wraps `Recover`, not the other way
@@ -159,6 +173,144 @@ The `Log` middleware wraps the `ResponseWriter` to record the status. It impleme
 `http.ResponseController` still reaches `Flush`, `Hijack` and the deadline setters: wrapping a
 writer must not quietly remove capabilities from everything downstream.
 
+## Caching (AOC-026)
+
+Cloudflare's free plan sits in front of the site. The origin decides what it may keep, through one
+header on every response, set in **one place**: `internal/httpx/cache.go`.
+
+**Why it matters more than speed:** Railway bills usage. An uncached origin turns a viral Reddit
+link into an invoice; a cached page costs the same whether ten people read it or ten thousand.
+
+### The policy
+
+| Response | `Cache-Control` | At the edge |
+|---|---|---|
+| `/assets/*`, 200 or 304 (content-hashed) | `public, max-age=31536000, immutable` | a year |
+| Public pages (`/`, and everything outside `/v1`, `/assets`, `/health`), 200 / 301 / 304 / 308 | `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400` | an hour |
+| `/v1/*` GETs, 200 / 301 / 304 / 308 | `public, max-age=60, s-maxage=600` | ten minutes |
+| 404 or 410, except under `/assets` | `public, max-age=60, s-maxage=60` | a minute |
+| `/health`; any other status (400s, 405, 429, 5xx); any method but GET/HEAD; any `HX-Request: true` request; a 404 under `/assets` | `no-store` | never |
+| ⛔ `MarkPrivate` called, a `Set-Cookie` on the response, or `Authorization` on the request | `private, no-store` | **never** |
+
+The last row **wins over every other**, including a value a handler set by hand.
+
+- **Browsers recheck pages after a minute**, so a correction reaches a reader who reloads; the edge
+  keeps an hour, and a purge makes a change immediate.
+- **A 404 is cached for a minute**, so a burst for a missing URL cannot all reach the origin, and a
+  newly published page is visible within a minute. **Not under `/assets`:** there a 404 is a stale
+  hash or a deploy racing its own HTML, and caching it would leave a page unstyled at that edge.
+- **An error is never cached.** An outage must not be served as though it were the page.
+- **An HTMX fragment is never cached** by a shared cache, under any URL. That closes the dangerous
+  case — a bare fragment handed to a browser that asked for the page — **whether or not the edge
+  honours `Vary`**, which is not assumed. Handlers that branch on HTMX still send
+  `Vary: HX-Request`, for browsers. **An HTMX request is exactly `HX-Request: true`** — what htmx
+  sends — and it has **one** definition, `httpx.IsHTMX`, which the renderer (`templates.IsHTMX`
+  calls it), this policy and the edge rule all use; `TestNoFragmentEverLeavesWithAPublicHeader`
+  pins that no spelling yields a fragment with a public header. ⚠️ That closes only the *storing*
+  direction. The other one — an
+  HTMX request answered with the cached full page — is the edge's to close, because a `HIT` never
+  reaches the origin: that is the second Cache Rule below.
+- **The request's `Cookie` header is not a trigger.** Cloudflare's bot-management cookies ride on
+  ordinary requests; keying on them would switch caching off for everyone.
+
+### ⛔ The hard rule, and how it is enforced
+
+A response that depends on who is asking must never reach a shared cache — that is how one user sees
+another's session. Nothing here relies on remembering it:
+
+1. **`httpx.MarkPrivate(r)`** marks the response private. ⚠️ **EP-06:** the session accessor must
+   call it, so no handler can read a session without it. It **panics** if the `Cache` middleware is
+   not on the route, or if the response has already begun — fail closed, found by the first test.
+2. A `Set-Cookie` on the response or an `Authorization` on the request makes it private **with no
+   call at all.**
+3. **No handler sets the header.** `Cache` replaces whatever a handler set, and
+   `TestOnlyCacheGoNamesTheHeader` parses every non-test Go file and fails if any file but
+   `cache.go` names `Cache-Control` in a string literal. `TestHeaderScanSeesAPlantedHandler` plants
+   offenders to prove the scan can see one. The scan sees **literals** only — a name built by
+   concatenation is invisible to it — so it is the tripwire; the runtime override is the guarantee.
+4. **A flush cannot get past it.** A flush sends the header map as it stands, so the `Cache` writer
+   implements `FlushError` (and `Flush`) and decides the header **before** any flush reaches the
+   wire; `ResponseController` asks for `FlushError` before it follows `Unwrap`. Without it, verify
+   round 1 measured a handler's own `public` leaving beside its `Set-Cookie`, and a `MarkPrivate`
+   response leaving with no header at all. `MarkPrivate` after a flush panics, like after any write.
+   ⚠️ A **hijacked** connection is raw bytes the handler writes itself — outside this policy by
+   construction.
+
+⚠️ **EP-06 — the session cookie needs its own edge rule.** The request's `Cookie` header is not a
+trigger here, and it is not one at the edge either: `Cookie: sid=…` gets a `HIT` (measured
+2026-09-29). So once accounts exist, a logged-in reader asking for a cached URL is served the
+anonymous copy, whatever the origin would have said. The change that creates the session cookie adds
+a bypass rule on that cookie's **name** to `scripts/cloudflare-cache.sh`, in the same PR.
+
+Tests: `internal/httpx/cache_test.go` — 52 policy cases, the planted offenders, the production
+router (panic, partial write, 404, 405, `/health`), a real server for 1xx, and flush-first handlers
+on the production router over a real server, through both `ResponseController` and `http.Flusher`.
+**30 mutants of the policy and the router order, all killed; 5 of the scan, all killed; 4 of the
+flush path, all killed** (AOC-026 build).
+
+### The edge (Cloudflare)
+
+Two **Cache Rules** on `aoc-codex.app` (zone ruleset, phase `http_request_cache_settings`), in
+this order:
+
+1. **Every request to the apex** —
+   - **eligible for cache** — Cloudflare does not cache HTML otherwise;
+   - **edge TTL: use `Cache-Control` if present, bypass if not** — so a response without the header
+     is never cached. The origin always sends one; this is the fail-closed backstop;
+   - **browser TTL: respect origin** — ⚠️ the zone's `browser_cache_ttl` is **14400** (read
+     2026-09-28), which would otherwise stretch pages' `max-age=60` for browsers.
+2. **A request carrying `HX-Request: true` or any `Authorization`** → **not eligible** (bypass).
+   The origin's `no-store` stops such a response being *stored*, but a request that matches a stored
+   page never reaches the origin: before this rule an `HX-Request` and an `Authorization` request
+   for the cached stylesheet both got `HIT` (verify round 1, measured). Rule 2 comes after rule 1
+   because a later matching rule overrides an earlier one's setting. Not on `Cookie` — see EP-06
+   above.
+
+The rules and the zone's `min_tls_version` (1.0 → **1.2**) are applied by
+**`scripts/cloudflare-cache.sh`** — `check` (read only), `apply --dry-run` (every read, no write),
+`apply`, `purge <url>`, `rollback`. Pierre runs the writing modes, because Cloudflare writes are
+refused from the assistant. It looks before every write (safe to re-run; stops, unchanged, if the
+cache phase holds a rule it did not make) and judges success by HTTP status, not reply shape.
+Needs the token's **Zone → Cache Rules → Edit**, **Zone → Zone Settings → Edit** and, for `purge`,
+**Zone → Cache Purge** — all three proven by a real write on 2026-09-29.
+
+**Applied 2026-09-29** (Pierre ran `apply`: TLS 1.0 → 1.2, the rule added). Measured after:
+TLS 1.0 and 1.1 are refused with the server's `protocol version` alert, 1.2 and 1.3 answer 200; `/`,
+`/health` and `/v1/items` answer `cf-cache-status: BYPASS` (was `DYNAMIC`) — eligible, but the
+running build sends no `Cache-Control` to cache by, which is the rule seen working before this
+policy deploys. The hashed assets were already `MISS` then `HIT` without the rule, because
+Cloudflare caches static file extensions by default.
+
+**Rule 2 applied the same day** (Pierre ran `apply` again; one PUT, the free plan accepted the header
+condition). Measured on the cached stylesheet, twice, at SIN/HKG/NRT: plain → `HIT`;
+`HX-Request: true` → `DYNAMIC`; `Authorization: Bearer …` → `DYNAMIC`; `Cookie: sid=…` → still
+`HIT`, as intended; `hx-request: TRUE` → `HIT`, because the rule matches exactly — which is why the
+origin's test is exact too. Before it, all four were `HIT`.
+
+### Purging
+
+A content change is visible to readers within the edge window (an hour for pages) — plus, because
+pages carry `stale-while-revalidate=86400`, possibly **one more request** after the hour, which may be
+handed the old copy while the edge refetches (how Cloudflare treats it is not measured). To make it
+immediate, purge the URLs:
+
+```bash
+bash scripts/cloudflare-cache.sh purge https://aoc-codex.app/<path>
+```
+
+Performed once, on 2026-09-29, on `/assets/app.2ab669de.css`: `HIT` before (cached ~18 h), then
+`MISS`, then `HIT` with `age: 1`. The dashboard does the same under *Caching → Configuration →
+Purge Cache → Custom Purge*. Either needs the token's **Zone → Cache Purge** permission.
+
+### Bypassing the cache, for debugging
+
+- **The origin directly:** `https://aoc-armory-snapshot-production.up.railway.app` is the `api`
+  service's Railway domain — no Cloudflare in front (`server: railway-hikari`, no `cf-ray`).
+- **Through Cloudflare, uncached:** add a throwaway query string (`?cb=<random>`); it is part of the
+  cache key, so the request goes to the origin.
+- `cf-cache-status` on any response says what the edge did (`HIT`, `MISS`, `EXPIRED`, `BYPASS`,
+  `DYNAMIC`).
+
 ## Server lifecycle
 
 `cmd/api/main.go` sets `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout` and `IdleTimeout` — all
@@ -171,8 +323,18 @@ deploy**, so without this every deploy cuts off whatever was mid-request.
 ## Build identity
 
 `internal/version` holds `Version` and `Commit` as `var`s (not `const`s — `-ldflags -X` can only
-write to a var). The `Makefile` injects them from `git describe` and `git rev-parse`, and `/health`
-reports them, so a running container can always be traced to a commit.
+write to a var), and `/health` reports them, so a running container can always be traced to a
+commit.
+
+- **Production:** the version is the repo's **`VERSION` file** — one `x.y.z` line, the one place a
+  release bumps it (AOC-015). The `Dockerfile` reads it and **fails the build** on anything that is
+  not `x.y.z`, so Railway keeps the running deploy rather than shipping a bad value.
+  `TestTheVersionFileIsSemver` pins the same rule in CI. Before 0.1.0 a Railway service variable fed
+  `0.0.0-dev` through a build arg; that variable is now unused.
+- **The commit:** a `COMMIT` build arg if set, else Railway's runtime `RAILWAY_GIT_COMMIT_SHA`
+  (`version.Resolve`), else `unknown` — never blank.
+- **Local builds:** the `Makefile` injects `git describe` and `git rev-parse`, so `make run` says
+  exactly which tree it is (`v0.1.0-3-gabc1234-dirty`).
 
 ## Rendering (the HTML surface)
 
@@ -202,7 +364,7 @@ the page works with JavaScript off, and HTMX only removes the reload.
 | Title ≤ **60**, description ≤ **155**, truncated on a **word boundary** | A search result cut mid-word. Counts runes — boss names carry accents |
 | Assets **content-hashed**, `immutable`, wrong hash ⇒ 404 | A stale stylesheet cached for a year, or a stale URL looking valid forever |
 | `Load()` **refuses** empty or absent assets | A build that "succeeded" and produced nothing: a site that serves fine and looks broken |
-| Both HTMX branches send `Vary: HX-Request` | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
+| Both HTMX branches send `Vary: HX-Request`, and an HTMX response is `no-store` (§ Caching) | A cache handing a browser the bare fragment — a blank-looking site, very hard to diagnose |
 | Canonical built from **`PUBLIC_BASE_URL`**, never the request host | The same page declaring two canonicals when reached by two hostnames |
 
 ### Rejections have two shapes, chosen by PATH
@@ -577,6 +739,22 @@ disturb the developer's data or collide with each other. CI runs a `postgres:18-
 service — the same major as production and as `docker-compose.yml`, because **every Postgres in this project tracks production's major** — and then **asserts the tests did not skip**, because a suite that skips its only
 integration tests while reporting success is the failure shape this project keeps finding.
 
+**Two kinds, and where each runs (AOC-044):**
+
+| Kind | Data | Build tag | CI | `bin/gate api` |
+|---|---|---|---|---|
+| Fixture tests (almost all) | obviously-fake rows in a fresh migrated database | none | ✅ | ✅ |
+| **Corpus tests** — `item_read_endpoints_test.go`, `item_multiplace_test.go`, `item_source_region_test.go`, `multi_query_facts_test.go` (AOC-012) | the **real imported armory** in the database they are handed | **`corpus`** | ❌ never run (the `lint` job lints them, `.golangci.yml` `build-tags`) | ✅ `-tags corpus` |
+
+The corpus tests are the only ones that meet the real 4,646 rows, which is what caught AOC-012's
+defects, so they are not rewritten on fixtures. They cannot run in CI: the corpus comes from the
+**private** snapshot repo, and CI's Postgres never holds it — there they could only skip, and CI
+fails on a skip. So they are **tagged, not skipped**: CI's tests never compile them (its lint job
+still lints them), and the gate always runs them. Where the corpus is missing, `readPool` skips and the gate's skip check exits **2** naming
+them — so a machine without the imported armory cannot pass the gate. `make test-corpus` runs
+them by hand. A new test that reads the real corpus goes in a `corpus`-tagged file, never in an
+untagged one.
+
 ## Deploy
 
 > 💾 **Backups and restores have their own runbook: [`runbook-restore.md`](runbook-restore.md).**
@@ -598,8 +776,91 @@ environment used to provide is replaced by the loop below, which costs nothing a
 | Host | Railway, one project, one service, one Postgres, **private networking** between them |
 | Build | this repo's `Dockerfile` (not Railway's Go buildpack — it picks its own Go version) |
 | Trigger | push to `main` → Railway builds → health check |
-| URL | `aoc-codex.app` (AOC-014) |
+| URL | `aoc-codex.app` — see § Hostnames below (AOC-014) |
 | Local DB | `docker-compose.yml`, Postgres on **localhost:5433** |
+
+### Hostnames
+
+Three names, one of which is not a service at all.
+
+| hostname | points at | serves |
+|---|---|---|
+| **`aoc-codex.app`** (apex) | Railway, CNAME `nnja20lj.up.railway.app`, **proxied** | **the canonical site** — HTML at `/` **and** `/v1/*` JSON, one origin, one certificate, no CORS |
+| `www.aoc-codex.app` | Railway, CNAME `8q2yax25.up.railway.app`, **proxied** | `301` to the apex, answered at Cloudflare's edge |
+| `img.aoc-codex.app` | the R2 bucket `aoc-codex-enam`, CNAME `public.r2.dev`, **proxied** | the 4,645 archived tooltip images |
+
+**Railway validates a custom domain with a TXT record, not by reading the CNAME.** This is worth
+stating plainly because getting it wrong cost a day and nearly cost the apex permanently.
+`railway domain status <host> --service api --json` returns two independent things:
+
+- a **`dnsRecords`** entry with `purpose: DNS_RECORD_PURPOSE_TRAFFIC_ROUTE` — the CNAME that carries
+  traffic, and
+- a **`verification`** block — `verified`, a `dnsHost` of `_railway-verify[.<label>]`, and the TXT
+  value to publish there.
+
+**The certificate waits on `verification`, and nothing else.** Until that TXT exists the status sits
+at `CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP` indefinitely — not "slow", not "stuck", simply
+unsatisfied. Both hostnames sat there for a day with perfect CNAMEs. Within **~30 seconds** of the
+two TXT records resolving, both went `VALIDATING_OWNERSHIP → ISSUING → VALID`.
+
+⚠️ **The corollary, which reversed a decision.** It was previously recorded here that a zone apex can
+*never* be a Railway custom domain, reasoning that Railway reads the CNAME's value and that
+Cloudflare must flatten an apex CNAME into A records, leaving nothing to read. The flattening is
+real; the conclusion was not. Ownership is proved by a **TXT record, and a TXT at a zone apex is
+perfectly legal DNS**. The apex holds a valid Let's Encrypt certificate today. Every symptom
+previously offered as proof — *"Application not found"* when proxied, a certificate-name failure when
+DNS-only — is simply what **any** host with no certificate looks like, through the two different
+paths. None of them was evidence about the apex specifically.
+
+📌 **Each custom domain gets its own CNAME target and its own TXT token.** The apex was issued
+`nnja20lj…`, `www` was issued `8q2yax25…`, and the two `_railway-verify` values differ. Reusing one
+for the other silently fails verification while looking correct.
+
+📌 **A TXT record is never proxied** — there is no orange cloud to get wrong. Create it with type,
+name, content and `ttl: 1`, and leave the neighbouring records alone.
+
+**`www` is a Cloudflare Page Rule, not Go middleware.** `www.aoc-codex.app/*` →
+`https://aoc-codex.app/$1`, `301`, path and query preserved. The redirect is answered at the edge and
+never reaches the origin: Railway bills usage, so a hostname whose only job is to say "go to the
+canonical name" should not cost a container wake-up — the same reasoning as the cache in AOC-026.
+⚠️ There is **no Dynamic Redirect permission on this account**, so this is a Page Rule, and the free
+plan allows **three**; one is now spent.
+
+**`www` still needs its own Railway custom domain and certificate even though it only redirects.**
+Cloudflare presents the requested hostname as SNI to the origin, so a proxied name with no
+certificate on the Railway side fails before the Page Rule matters.
+
+
+**Checking all of this:** `scripts/check-hostnames.sh [canonical-host]` gathers the evidence for
+every hostname criterion — resolution, proxy status, TLS, the canonical host's `/health` and HTML,
+the 301 from the other name, two real tooltip keys checked against their byte counts in
+`armory_snapshot/tooltips_upload_manifest.csv` (one of them URL-encoded, which is the trap), plain
+HTTP on all three names, and that the bucket does not list. It only reads: no DNS change, no Railway
+call, no credential. Exit 0 means every check passed. Watch mode and AOC-026 re-ask exactly these
+questions, which is why it lives in the repo instead of a scratchpad.
+
+📌 **It pins curl to an authoritative address on purpose.** Immediately after the orange cloud is
+switched on, this machine's own resolver still answers with the pre-proxy address for the rest of
+the old TTL, so an unpinned check reports "not proxied" for a change that was in fact applied —
+measured on 2026-09-21, `dig` said `104.21.34.205` while `dscacheutil` still said `69.46.46.106`.
+The script reports the disagreement as a note rather than a failure.
+
+⚠️ **`.app` is HSTS-preloaded at the TLD level.** Browsers refuse plain HTTP to *any* `.app` name
+before a request is made, so there is no "try it over http first" step and no HTTP fallback to fall
+back to. A certificate that has not issued yet does not look like a warning — it looks like the site
+is down. Every hostname above must be HTTPS from its first hit, and every asset URL must be `https`
+or it is blocked rather than mixed-content-warned.
+
+**Why there is no `api.aoc-codex.app`.** One binary serves both surfaces, so a second hostname would
+be a second name for the same service. Keeping `/v1/*` on the site's own origin means no CORS
+configuration, no preflight round-trip on the critical path, and one certificate.
+(Decided 2026-09-16; `product_management/DECISIONS.md`.)
+
+**The images were named before they were reachable.** `tooltip_image` in the database has held
+`https://img.aoc-codex.app/armory/…` since AOC-008 rewrote the URLs **in the generator** — 4,644 of
+4,646 rows, the other two being AOC-008's two 404s. Those URLs were imported on 2026-09-19 and
+pointed at a hostname that did not resolve until this ticket. `tooltip_source_url` still holds all
+4,646 original `is-better-than.tv` URLs: that column is provenance and never moves.
 
 ### Configuration
 
@@ -610,7 +871,7 @@ Set in Railway's variables and nowhere else. `.env.example` lists every name wit
 | `PORT` | assigned by Railway; the server reads it, 8080 locally |
 | `ENV` | `production` on Railway, `local` otherwise — **reported by `/health` as `env`**. Defaults to `local` when unset, so nothing ever claims to be production by accident |
 | `DATABASE_URL` | ⚠️ Railway's **private** hostname. The public proxy URL bills egress and adds latency for nothing |
-| `VERSION` | build arg → `/health` |
+| `VERSION` | ⚠️ **not** a variable any more: the repo's `VERSION` file is the version (§ Build identity, AOC-015). A Railway service variable of that name still exists and is unused — the Dockerfile declares no `ARG VERSION`, so Docker reports it "not consumed" |
 | `COMMIT` | ⚠️ **not** a build arg. `${{RAILWAY_GIT_COMMIT_SHA}}` resolves to an empty string at build time — Railway injects its git variables into the deployed **container**, not into the set `${{…}}` references resolve against. `version.Resolve()` reads it at runtime instead (PR #4) |
 | `PUBLIC_BASE_URL` | the origin canonical URLs and `og:image` are built from |
 
@@ -915,11 +1176,11 @@ volume**, so a link on Reddit cannot turn into an invoice on a project with no r
 
 | | |
 |---|---|
-| Bucket | `aoc-codex-enam`, **private** — public access **off** and **zero custom domains**, confirmed off the dashboard 2026-09-19. Nothing is world-readable |
+| Bucket | `aoc-codex-enam`, **private**: public access **off**, `r2.dev` **off**. The one public route is `img.aoc-codex.app` — AOC-014 bound it as an R2 custom domain; AOC-041 moves it onto the `img` Worker (below), after which the bucket has **zero custom domains** again and is reached only through the Worker's binding |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
 | Location hint | **`enam`** (Eastern North America) — **read back from the API**: `GET ?location=` → `<LocationConstraint>ENAM</LocationConstraint>` (see *Reading a bucket's location hint*) |
 | Jurisdiction | **none**, deliberately — see below |
-| Public URL | ⏳ **none yet.** `img.aoc-codex.app` is the *planned* custom domain and **AOC-014 binds it**; today the bucket has no public route at all. Never `r2.dev` |
+| Public URL | `https://img.aoc-codex.app/armory/<source filename>` — served by the `img` Worker (AOC-041). Never `r2.dev` |
 | Second copy | Pierre's local disk. ⚠️ Manual, unchecked, and not a backup system. The Backblaze B2 mirror was dropped 2026-09-14 |
 | Free tier | 10 GB-month. The planned payload is ~175 MB — **1.7%** |
 
@@ -972,6 +1233,71 @@ become a lie, because the property it names cannot change while the bucket exist
 ⚠️ It is **not** kept because the region is otherwise unreadable — an earlier version of this
 section claimed exactly that, and it was false. The name is a convenience, not the system of record.
 The name is never public either way: the images will be served from `img.aoc-codex.app` (AOC-014).
+
+### Serving the images: the `img` Worker (AOC-041)
+
+`img.aoc-codex.app` is a **Cloudflare Worker** (`workers/img/worker.mjs`, script name `aoc-img`)
+that reads `aoc-codex-enam` through an **R2 binding** named `BUCKET`. It is the one deployable in
+this repo that is not the Go binary, and it exists because the simpler setup was measured broken.
+
+**Why not R2's own custom domain.** From 2026-09-23 the custom domain stalled on cache misses at
+Cloudflare's Singapore edge: connections that opened and never answered, and bodies that stopped on
+8 KiB boundaries. On 2026-09-25, pinned to that same edge with the same objects, interleaved:
+
+| Path | Whole images |
+|---|---|
+| R2 custom domain | 119 / 160 |
+| Worker through the R2 binding | **160 / 160** |
+| R2 S3 API | 160 / 160 |
+
+The custom domain failed 41 times where the Worker delivered, never the reverse. Every other probed
+location in the world was served correctly either way. What goes wrong inside the custom-domain path
+is not known; the Worker avoids it. Full evidence: `product_management/tickets/AOC-041-*.md`.
+
+**What it does, and nothing else**
+
+- GET and HEAD of keys under `armory/`. Anything else is 404 (path) or 405 (method).
+- One edge-cache entry per object via the Cache API, keyed on the **path only**, so a
+  `?cb=` cache-buster can neither multiply entries nor force a bucket read.
+- `Cache-Control` comes from the object's own metadata — the uploader sets
+  `public, max-age=31536000, immutable` — with that same value as the fallback.
+- `ETag` from the object; `If-None-Match` → `304`.
+- A bucket error is `503` with `no-store`, so an outage is never cached as if it were the image.
+- `x-aoc-cache: hit | miss` on every response, for measuring.
+
+**Measured on `workers.dev` after the first deploy (2026-09-25):** a first fetch reports
+`x-aoc-cache: miss`, and the same path with a different `?cb=` then reports `hit`, so the edge cache
+works there as well as on the real hostname. `Content-Length` survives the cache split, HEAD sends
+headers only, a matching `If-None-Match` is `304`, and non-`armory/` paths and POST are refused.
+
+**Tests:** `make worker-test` — Node's built-in runner for the Worker, no packages, plus
+`workers/img/scripts.test.sh` for `switch.sh` and `rollback.sh`; run by CI's `worker` job.
+`bin/gate api` is Go-only and does not run them. Each guard is pinned by mutation (build, AOC-041).
+The script test runs the real scripts against a fake `curl` that plays the Cloudflare API from a
+state file, and asserts the exact writes each starting state produces. ⚠️ On a Mac run it as
+`PYTHON=/usr/bin/python3 make worker-test`: Pierre's shell resolves Apple's Python **3.9**, and a
+3.12-only f-string stopped `switch.sh` halfway in production on 2026-09-28 because every earlier run
+had used Homebrew's 3.13. CI's Python is newer, so it cannot catch that class of fault alone.
+
+**Deploying — the Cloudflare API with curl; no Node, no wrangler** (the same reason the stack uses
+the standalone Tailwind CLI). All three read `~/.config/aoc-codex/cloudflare.env`:
+
+| Script | What it changes |
+|---|---|
+| `workers/img/deploy.sh` | uploads `aoc-img` with its binding, enables it on `workers.dev`. Does not touch the hostname |
+| `workers/img/switch.sh` | detaches the R2 custom domain from `img.aoc-codex.app`, removes its leftover `public.r2.dev` CNAME, attaches the Worker. Seconds of downtime |
+| `workers/img/rollback.sh` | detaches the Worker, waits for its `AAAA 100::` record to go, re-attaches the R2 custom domain |
+
+Each call prints ✅ or the API's errors and stops the script on the first failure. A call succeeds
+on an HTTP 2xx whose body, if JSON, does not say `success:false` — not on "JSON with
+`success:true`": detaching a Workers domain answers with a body that is not JSON, and reading that
+as failure stopped `rollback.sh` halfway in production (2026-09-28). **Both are safe
+to re-run:** each step looks before it writes, so a run that stopped halfway is finished by running
+it again, and a run with nothing to do writes nothing. **Both refuse before their first write** if the
+hostname carries a DNS record they did not make (switch expects R2's CNAME or nothing, rollback the
+Worker's AAAA or nothing), and a lookup the API does not answer stops the script rather than read as
+"nothing there". The token needs
+Workers Scripts edit, Workers Routes edit, R2 edit and DNS edit on this zone.
 
 ### Credentials
 
@@ -1061,13 +1387,10 @@ rclone deletefile r2ro:<bucket>/t1.txt                                # DeleteOb
 Afterwards the bucket was re-listed with `[r2]`: `forbidden.txt` **absent**, `t1.txt` **unchanged**,
 six objects exactly as uploaded. The denied writes left nothing behind.
 
-## Not here yet, and which ticket brings it
+## Not here yet
 
-| Thing | Ticket |
-|---|---|
-| CI (vet, lint, test on every PR) | AOC-003 |
-| Railway projects + Postgres | AOC-004 |
-| goose + sqlc toolchain, first migration | AOC-005 |
-| taxonomy tables and place entities | AOC-009 |
-| public read endpoints for items | AOC-012 |
-| scheduled `pg_dump` to R2 + dead man's switch | AOC-030 |
+Everything this section used to list — CI, Railway, the toolchain, the taxonomy, the item endpoints,
+the scheduled backup — shipped in **0.1.0**. What is still to come is tracked in
+`product_management/BOARD.md` and `ROADMAP.md`, not here: a list of future work in this file is a
+second copy of the plan, and it went stale the moment the first of its tickets shipped.
+

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -155,5 +156,40 @@ func TestNewFSRejectsABrokenFragment(t *testing.T) {
 func TestNewFSRequiresAnAssetResolver(t *testing.T) {
 	if _, err := templates.NewFS(good(), map[string]string{"ok": "html/ok.html"}, nil); err == nil {
 		t.Fatal("NewFS accepted a nil AssetResolver")
+	}
+}
+
+// ⛔ The renderer (fragment or page) and the cache policy (a fragment is never stored) must read
+// HTMX the same way — and the same way as the edge's bypass rule, which matches exactly "true". If
+// they disagreed, a request the renderer answered with a fragment could leave with a page's public
+// header and be stored under the page's URL (AOC-026). So: for every spelling, a fragment is never
+// public, and only the exact value htmx sends is a fragment.
+func TestNoFragmentEverLeavesWithAPublicHeader(t *testing.T) {
+	h := httpx.Cache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if templates.IsHTMX(r) {
+			w.Header().Set("X-Test-Fragment", "yes")
+		}
+		_, _ = w.Write([]byte("test body"))
+	}))
+	for value, fragment := range map[string]bool{
+		"true": true, "TRUE": false, "True": false, " true": false, "false": false, "1": false, "": false,
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+		if value != "" {
+			req.Header.Set("HX-Request", value)
+		}
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		res := rr.Result()
+		gotFragment := res.Header.Get("X-Test-Fragment") == "yes"
+		if gotFragment != fragment {
+			t.Errorf("HX-Request %q: fragment = %v, want %v — htmx sends exactly \"true\"", value, gotFragment, fragment)
+		}
+		if cc := res.Header.Get("Cache-Control"); gotFragment && cc != "no-store" {
+			t.Errorf("HX-Request %q: a fragment left with Cache-Control %q, want no-store", value, cc)
+		}
+		if httpx.IsHTMX(req) != templates.IsHTMX(req) {
+			t.Errorf("HX-Request %q: httpx.IsHTMX and templates.IsHTMX disagree", value)
+		}
 	}
 }

@@ -95,9 +95,10 @@ func (s *Set) names() []string {
 
 // Handler serves the hashed files.
 //
-// Cache-Control is immutable and a year long, which is only safe BECAUSE the URL carries
-// the content hash: change the file and the URL changes with it, so no cache anywhere is
-// ever holding a stale asset under a live name.
+// Their cache header — immutable, a year — is set by httpx.Cache, not here: nothing but the
+// central policy sets that header (AOC-026). It is only safe BECAUSE the URL carries the
+// content hash: change the file and the URL changes with it, so no cache anywhere is ever
+// holding a stale asset under a live name.
 func (s *Set) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, Prefix)
@@ -125,7 +126,6 @@ func (s *Set) Handler() http.Handler {
 		case ".svg":
 			w.Header().Set("Content-Type", "image/svg+xml")
 		}
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(b)
 	})
