@@ -83,6 +83,11 @@ func (h *Handler) taxonomies(w http.ResponseWriter, r *http.Request) {
 // returns an empty page, which is the honest answer and a 200 with an empty array by criterion.
 // What IS rejected is a parameter that cannot be read at all — limit=abc, pvp=maybe — because
 // silently ignoring those returns a page the caller did not ask for and cannot tell is wrong.
+// ParseFilters reads the list query string. ⭐ ONE parser for both surfaces (CLAUDE.md 5b): the
+// HTML armory page (AOC-047) calls this, so a parameter cannot mean one thing in JSON and another
+// on the page. Sort keys and booleans are validated here; a bad value is a 400 on both.
+func ParseFilters(r *http.Request) (Filters, error) { return parseFilters(r) }
+
 func parseFilters(r *http.Request) (Filters, error) {
 	q := r.URL.Query()
 	f := Filters{
@@ -94,6 +99,10 @@ func parseFilters(r *http.Request) (Filters, error) {
 		Region:        strings.TrimSpace(q.Get("region")),
 		Tier:          strings.TrimSpace(q.Get("tier")),
 		Query:         strings.TrimSpace(q.Get("q")),
+		Sort:          strings.TrimSpace(q.Get("sort")),
+	}
+	if !validSort(f.Sort) {
+		return Filters{}, fmt.Errorf("%w: sort must be one of %s, got %q", httpx.ErrInvalid, strings.Join(Sorts, ", "), f.Sort)
 	}
 
 	// `place` may repeat: ?place=a&place=b is "these two dungeons", which is exactly the case

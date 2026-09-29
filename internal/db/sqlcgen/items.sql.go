@@ -127,6 +127,27 @@ func (q *Queries) GetItemBySlug(ctx context.Context, slug string) (int32, error)
 	return item_id, err
 }
 
+const itemIDSpan = `-- name: ItemIDSpan :one
+SELECT coalesce(min(item_id), 0)::integer AS min_id,
+       coalesce(max(item_id), 0)::integer AS max_id,
+       count(*)::bigint AS total
+FROM items
+`
+
+type ItemIDSpanRow struct {
+	MinID int32
+	MaxID int32
+	Total int64
+}
+
+// The honest empty state (AOC-047): "ids run 1–4692, N absent" is computed, never typed.
+func (q *Queries) ItemIDSpan(ctx context.Context) (ItemIDSpanRow, error) {
+	row := q.db.QueryRow(ctx, itemIDSpan)
+	var i ItemIDSpanRow
+	err := row.Scan(&i.MinID, &i.MaxID, &i.Total)
+	return i, err
+}
+
 const listItemClasses = `-- name: ListItemClasses :many
 SELECT cl.id, cl.slug, cl.name
 FROM item_classes ic
@@ -219,6 +240,124 @@ func (q *Queries) ListItemEquipLocations(ctx context.Context, itemID int32) ([]E
 	for rows.Next() {
 		var i EquipLocation
 		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemPageClasses = `-- name: ListItemPageClasses :many
+SELECT ic.item_id, cl.slug, cl.name, cl.short_name
+FROM item_classes ic
+JOIN classes cl ON cl.id = ic.class_id
+WHERE ic.item_id = ANY($1::integer[])
+ORDER BY ic.item_id, cl.id
+`
+
+type ListItemPageClassesRow struct {
+	ItemID    int32
+	Slug      string
+	Name      string
+	ShortName *string
+}
+
+// A page's class restrictions in one round trip, with the short names the row shows (AOC-046).
+func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]ListItemPageClassesRow, error) {
+	rows, err := q.db.Query(ctx, listItemPageClasses, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemPageClassesRow{}
+	for rows.Next() {
+		var i ListItemPageClassesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemPageCosts = `-- name: ListItemPageCosts :many
+SELECT src.item_id, src.id AS item_source_id, cu.name AS currency_name, ic.amount
+FROM item_costs ic
+JOIN item_sources src ON src.id = ic.item_source_id
+JOIN currencies cu ON cu.id = ic.currency_id
+WHERE src.item_id = ANY($1::integer[])
+ORDER BY src.item_id, src.id, cu.name
+`
+
+type ListItemPageCostsRow struct {
+	ItemID       int32
+	ItemSourceID int64
+	CurrencyName string
+	Amount       pgtype.Numeric
+}
+
+// A page's vendor prices in one round trip: every cost of every source, grouped by the caller.
+func (q *Queries) ListItemPageCosts(ctx context.Context, itemIds []int32) ([]ListItemPageCostsRow, error) {
+	rows, err := q.db.Query(ctx, listItemPageCosts, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemPageCostsRow{}
+	for rows.Next() {
+		var i ListItemPageCostsRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.ItemSourceID,
+			&i.CurrencyName,
+			&i.Amount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemPageEquipLocations = `-- name: ListItemPageEquipLocations :many
+SELECT iel.item_id, el.slug, el.name
+FROM item_equip_locations iel
+JOIN equip_locations el ON el.id = iel.equip_location_id
+WHERE iel.item_id = ANY($1::integer[])
+ORDER BY iel.item_id, el.id
+`
+
+type ListItemPageEquipLocationsRow struct {
+	ItemID int32
+	Slug   string
+	Name   string
+}
+
+// A page's slots in one round trip (AOC-047), the ListItemPlaces pattern: never one query per row.
+func (q *Queries) ListItemPageEquipLocations(ctx context.Context, itemIds []int32) ([]ListItemPageEquipLocationsRow, error) {
+	rows, err := q.db.Query(ctx, listItemPageEquipLocations, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemPageEquipLocationsRow{}
+	for rows.Next() {
+		var i ListItemPageEquipLocationsRow
+		if err := rows.Scan(&i.ItemID, &i.Slug, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -521,7 +660,7 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 
 const listItems = `-- name: ListItems :many
 SELECT i.item_id, i.slug, i.name,
-       r.slug AS rarity, r.sort_order AS rarity_sort,
+       r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
        it.slug AS item_type,
        sf.slug AS slot_fit,
        i.item_level, i.requires_level, i.armor, i.dps,
@@ -538,16 +677,20 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
   -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
   -- (escapeLike); this names the escape character so Postgres honours them.
+  -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the armory
+  -- site's ids are what people still quote, and a name search for "2183" would otherwise find
+  -- nothing. id_query is NULL unless q is numeric, and NULL never equals anything.
   AND ($3::varchar IS NULL
-       OR i.name ILIKE '%' || $3::varchar || '%' ESCAPE '\')
-  AND ($4::varchar IS NULL OR EXISTS (
+       OR i.name ILIKE '%' || $3::varchar || '%' ESCAPE '\'
+       OR i.item_id = $4::integer)
+  AND ($5::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_equip_locations iel
         JOIN equip_locations el ON el.id = iel.equip_location_id
-        WHERE iel.item_id = i.item_id AND el.slug = $4::varchar))
-  AND ($5::varchar IS NULL OR EXISTS (
+        WHERE iel.item_id = i.item_id AND el.slug = $5::varchar))
+  AND ($6::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_classes ic
         JOIN classes cl ON cl.id = ic.class_id
-        WHERE ic.item_id = i.item_id AND cl.slug = $5::varchar))
+        WHERE ic.item_id = i.item_id AND cl.slug = $6::varchar))
   -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
   -- single-value parameter made the caller's second choice unrepresentable -- so the service
   -- passed NULL and the place predicate silently vanished, returning all 4,646 items
@@ -555,17 +698,17 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for every
   -- row. The caller passes nil rather than an empty slice, and derives that from the same
   -- predicate that decides collapsing, so the two cannot disagree (verify round 2).
-  AND ($6::varchar[] IS NULL OR EXISTS (
+  AND ($7::varchar[] IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         JOIN places p ON p.id = src.place_id
         WHERE src.item_id = i.item_id
-          AND p.slug = ANY($6::varchar[])))
-  AND ($7::varchar IS NULL OR EXISTS (
+          AND p.slug = ANY($7::varchar[])))
+  AND ($8::varchar IS NULL OR EXISTS (
         SELECT 1 FROM armour_weights aw
-        WHERE aw.id = i.armour_weight_id AND aw.slug = $7::varchar))
+        WHERE aw.id = i.armour_weight_id AND aw.slug = $8::varchar))
   -- region and tier live on item_sources, not on the item: an item is "in Kheshatta" because
   -- something that drops it is. Both are aggregate views, so they collapse (see ListItemPlaces).
-  AND ($8::varchar IS NULL OR EXISTS (
+  AND ($9::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         LEFT JOIN places p ON p.id = src.place_id
         -- The PLACE's region wins. 196 item_sources rows disagree with their own place's region
@@ -573,31 +716,35 @@ WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
         -- together, with an invariant test behind it, while the per-source region is derived and
         -- has none. A source with no place still falls back to its own.
         LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
-        WHERE src.item_id = i.item_id AND r2.slug = $8::varchar))
-  AND ($9::varchar IS NULL OR EXISTS (
+        WHERE src.item_id = i.item_id AND r2.slug = $9::varchar))
+  AND ($10::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         JOIN tiers t ON t.id = src.tier_id
-        WHERE src.item_id = i.item_id AND t.slug = $9::varchar))
+        WHERE src.item_id = i.item_id AND t.slug = $10::varchar))
   -- ⭐ unchained is true on EITHER the source row or the place it points at. The importer sets it
   -- on the source when the armory said so, and on the place when the place itself is the Unchained
   -- version -- so testing one alone silently loses the other half.
-  AND ($10::boolean IS NULL OR EXISTS (
+  AND ($11::boolean IS NULL OR EXISTS (
         SELECT 1 FROM item_sources src
         LEFT JOIN places p ON p.id = src.place_id
         WHERE src.item_id = i.item_id
-          AND (src.unchained OR coalesce(p.unchained, false)) = $10::boolean))
+          AND (src.unchained OR coalesce(p.unchained, false)) = $11::boolean))
   -- pvp is three independent facts on the item, and "pvp=true" means any of them. Collapsing them
   -- into one column would lose which one is true, which the item page shows separately.
-  AND ($11::boolean IS NULL
-       OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean)
-ORDER BY i.name, i.item_id
-LIMIT $13::integer OFFSET $12::integer
+  AND ($12::boolean IS NULL
+       OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $12::boolean)
+ORDER BY
+  CASE WHEN $13::varchar = 'ilvl' THEN i.item_level END DESC NULLS LAST,
+  CASE WHEN $13::varchar = 'id' THEN i.item_id END ASC,
+  i.name, i.item_id
+LIMIT $15::integer OFFSET $14::integer
 `
 
 type ListItemsParams struct {
 	Rarity        *string
 	ItemType      *string
 	NameQuery     *string
+	IDQuery       *int32
 	EquipLocation *string
 	Class         *string
 	PlaceSlugs    []string
@@ -606,26 +753,28 @@ type ListItemsParams struct {
 	Tier          *string
 	Unchained     *bool
 	Pvp           *bool
+	SortBy        string
 	PageOffset    int32
 	PageSize      int32
 }
 
 type ListItemsRow struct {
-	ItemID        int32
-	Slug          string
-	Name          string
-	Rarity        string
-	RaritySort    int32
-	ItemType      *string
-	SlotFit       *string
-	ItemLevel     *int32
-	RequiresLevel *int32
-	Armor         *int32
-	Dps           pgtype.Numeric
-	SetID         *int32
-	TooltipImage  *string
-	Confidence    string
-	TotalCount    int64
+	ItemID            int32
+	Slug              string
+	Name              string
+	Rarity            string
+	RaritySort        int32
+	RarityColourToken *string
+	ItemType          *string
+	SlotFit           *string
+	ItemLevel         *int32
+	RequiresLevel     *int32
+	Armor             *int32
+	Dps               pgtype.Numeric
+	SetID             *int32
+	TooltipImage      *string
+	Confidence        string
+	TotalCount        int64
 }
 
 // The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
@@ -635,11 +784,16 @@ type ListItemsRow struct {
 // the 390 two-handers as well as the 141 off-hand-only items — 531, not 141. That is the
 // acceptance criterion this whole schema shape exists for, and
 // TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
+// ⭐ ONE query, three orders (AOC-047). A CASE per sort key keeps every filter above in one
+// place; the keys are code ('name', 'ilvl', 'id' — not a game concept), validated before they
+// get here. ilvl is DESCENDING with NULLs LAST, so the 50 items with no recorded level end the
+// list rather than vanish or lead it; the name and id tie-breakers make every page stable.
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error) {
 	rows, err := q.db.Query(ctx, listItems,
 		arg.Rarity,
 		arg.ItemType,
 		arg.NameQuery,
+		arg.IDQuery,
 		arg.EquipLocation,
 		arg.Class,
 		arg.PlaceSlugs,
@@ -648,6 +802,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
+		arg.SortBy,
 		arg.PageOffset,
 		arg.PageSize,
 	)
@@ -664,6 +819,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.Name,
 			&i.Rarity,
 			&i.RaritySort,
+			&i.RarityColourToken,
 			&i.ItemType,
 			&i.SlotFit,
 			&i.ItemLevel,

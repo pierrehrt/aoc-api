@@ -65,6 +65,18 @@ func (f *fakeQ) ListItemClasses(context.Context, int32) ([]sqlcgen.ListItemClass
 }
 
 // firstArgs is what the REQUEST asked for, before any follow-up probe.
+func (f *fakeQ) ListItemPageEquipLocations(context.Context, []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {
+	return nil, nil
+}
+func (f *fakeQ) ListItemPageClasses(context.Context, []int32) ([]sqlcgen.ListItemPageClassesRow, error) {
+	return nil, nil
+}
+func (f *fakeQ) ListItemPageCosts(context.Context, []int32) ([]sqlcgen.ListItemPageCostsRow, error) {
+	return nil, nil
+}
+func (f *fakeQ) ItemIDSpan(context.Context) (sqlcgen.ItemIDSpanRow, error) {
+	return sqlcgen.ItemIDSpanRow{MinID: 1, MaxID: 10, Total: 8}, nil
+}
 func (f *fakeQ) firstArgs() sqlcgen.ListItemsParams {
 	if len(f.args) == 0 {
 		return sqlcgen.ListItemsParams{}
