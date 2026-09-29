@@ -316,8 +316,18 @@ deploy**, so without this every deploy cuts off whatever was mid-request.
 ## Build identity
 
 `internal/version` holds `Version` and `Commit` as `var`s (not `const`s — `-ldflags -X` can only
-write to a var). The `Makefile` injects them from `git describe` and `git rev-parse`, and `/health`
-reports them, so a running container can always be traced to a commit.
+write to a var), and `/health` reports them, so a running container can always be traced to a
+commit.
+
+- **Production:** the version is the repo's **`VERSION` file** — one `x.y.z` line, the one place a
+  release bumps it (AOC-015). The `Dockerfile` reads it and **fails the build** on anything that is
+  not `x.y.z`, so Railway keeps the running deploy rather than shipping a bad value.
+  `TestTheVersionFileIsSemver` pins the same rule in CI. Before 0.1.0 a Railway service variable fed
+  `0.0.0-dev` through a build arg; that variable is now unused.
+- **The commit:** a `COMMIT` build arg if set, else Railway's runtime `RAILWAY_GIT_COMMIT_SHA`
+  (`version.Resolve`), else `unknown` — never blank.
+- **Local builds:** the `Makefile` injects `git describe` and `git rev-parse`, so `make run` says
+  exactly which tree it is (`v0.1.0-3-gabc1234-dirty`).
 
 ## Rendering (the HTML surface)
 

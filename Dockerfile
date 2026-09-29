@@ -15,13 +15,21 @@ RUN go mod download
 
 COPY . .
 
-# Railway passes these; they end up in /health via internal/version.
-ARG VERSION=dev
+# The commit arrives as a build arg when set; internal/version falls back to Railway's runtime
+# RAILWAY_GIT_COMMIT_SHA when it is not.
 ARG COMMIT=none
 
+# ⭐ The VERSION FILE is the version — the one place a release bumps it (AOC-015). Not a build
+# arg: before 0.1.0 a Railway service variable fed `0.0.0-dev` through one, so every release
+# would have needed a hand edit in Railway that nothing checks. A value that is not x.y.z fails
+# the build, so a broken file can never reach /health — Railway keeps the running deploy.
 # CGO_ENABLED=0 makes a static binary, which is what lets the final stage be scratch.
 # -trimpath keeps build-machine paths out of the binary.
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN set -eu; \
+    VERSION="$(cat VERSION)"; \
+    echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+      || { echo "VERSION must be x.y.z, got '$VERSION'" >&2; exit 1; }; \
+    CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags "-s -w -X 'github.com/pierrehrt/aoc-api/internal/version.Version=${VERSION}' -X 'github.com/pierrehrt/aoc-api/internal/version.Commit=${COMMIT}'" \
       -o /out/aoc-api ./cmd/api
