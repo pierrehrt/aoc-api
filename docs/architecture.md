@@ -404,7 +404,10 @@ source and no other creator anywhere; where the data came from is said once, on 
 - **The nav lists only routes that exist.** `pages.siteNav` is the list;
   `TestEveryNavLinkIsARegisteredRoute` follows every href through the real router and wants 200.
   A section is added to the nav in the ticket that adds its page, never before.
-- **The theme is tokens**, in `web/src/app.css` `@theme`: IBM Plex Sans/Mono (Google Fonts, linked
+- **The theme is tokens**, in `web/src/app.css` `@theme static` — `static` because a token reached
+  only through a database value (`var(--color-{{.ColourToken}})`) is invisible to Tailwind's scanner
+  and plain `@theme` would drop it from the build (AOC-046 verify round 1; `DECISIONS.md`
+  2026-09-29). IBM Plex Sans/Mono (Google Fonts, linked
   from `base.html`), `ink` (the page), `paper`/`muted`/`link` (text), `line` (borders), and the
   rarity colours. `TestThemeTextTokensPassAA` reads that block and fails any text token under
   4.5:1 on ink — the design's own note records that the raw game colours fail (Epic 2.0:1, Rare

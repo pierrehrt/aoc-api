@@ -38,6 +38,35 @@ func TestArmoryRendersTheTableWithoutJavaScript(t *testing.T) {
 	}
 }
 
+// A vendor-sold item with no drop location: the price stands alone on the phone row, no "· " in
+// front of it; and one match reads "1 item" (verify round 1).
+func TestArmoryPhoneRowNeverLeadsWithASeparator(t *testing.T) {
+	h := router(t)
+	one := get(t, h, http.MethodGet, "/armory?q=Item+120", nil, "").Body.String()
+	if got := regexp.MustCompile(`<strong class="text-paper">([^<]*)</strong>`).FindStringSubmatch(one); got == nil || got[1] != "1 item" {
+		t.Errorf("one match is written as %q, want \"1 item\"", got)
+	}
+	body := get(t, h, http.MethodGet, "/armory?q=5", nil, "").Body.String()
+	if !strings.Contains(body, "3 Test Token") {
+		t.Fatal("item 5's price is not on the page")
+	}
+	if regexp.MustCompile(`>\s*· 3 Test Token`).MatchString(body) {
+		t.Error("the phone row leads with a stray separator before the price")
+	}
+	// The default sort stays out of a box search's URL: no hidden sort input on the default.
+	if strings.Contains(body, `name="sort"`) {
+		t.Error("the search form carries the default sort as a hidden input — two URLs per state")
+	}
+	if !strings.Contains(get(t, h, http.MethodGet, "/armory?sort=name", nil, "").Body.String(), `<input type="hidden" name="sort" value="name">`) {
+		t.Error("a non-default sort is not kept by the search form")
+	}
+	// Vary once on the fragment.
+	rr := get(t, h, http.MethodGet, "/armory", map[string]string{"HX-Request": "true"}, "")
+	if n := len(rr.Header().Values("Vary")); n != 1 {
+		t.Errorf("the fragment sends Vary %d times, want once", n)
+	}
+}
+
 func TestArmoryEveryStateIsAURL(t *testing.T) {
 	h := router(t)
 	for path, want := range map[string][]string{

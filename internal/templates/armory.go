@@ -8,9 +8,10 @@ import "github.com/pierrehrt/aoc-api/internal/items"
 // The handler in internal/pages fills it from items.Service — the SAME service the JSON surface
 // calls, so a row cannot mean one thing in /v1 and another on the page.
 type ArmoryData struct {
-	Query string       // the search as typed, echoed into the box
-	Sort  string       // the active sort key ("" = name)
-	Sorts []SortOption // the sort choices, in the order the page offers them
+	Query     string       // the search as typed, echoed into the box
+	Sort      string       // the active sort key — the page defaults to items.SortILvl (the handler fills it)
+	SortInURL bool         // true when Sort is not the page default, so a box search keeps it in the URL
+	Sorts     []SortOption // the sort choices, in the order the page offers them
 
 	Result items.ListResult // the page of rows, the total, the collapsing mode
 	Span   items.IDSpan     // the honest empty state's numbers

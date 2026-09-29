@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 )
@@ -82,7 +83,17 @@ func (f *fakeItems) ListItemPageEquipLocations(context.Context, []int32) ([]sqlc
 func (f *fakeItems) ListItemPageClasses(context.Context, []int32) ([]sqlcgen.ListItemPageClassesRow, error) {
 	return nil, nil
 }
-func (f *fakeItems) ListItemPageCosts(context.Context, []int32) ([]sqlcgen.ListItemPageCostsRow, error) {
+
+// Item 5 is sold by a vendor and drops nowhere (1,378 such items in the corpus): the phone row's
+// third line must be the price alone, with no leading separator (verify round 1).
+func (f *fakeItems) ListItemPageCosts(_ context.Context, ids []int32) ([]sqlcgen.ListItemPageCostsRow, error) {
+	for _, id := range ids {
+		if id == 5 {
+			var amt pgtype.Numeric
+			_ = amt.Scan("3")
+			return []sqlcgen.ListItemPageCostsRow{{ItemID: 5, ItemSourceID: 500, CurrencyName: "Test Token", Amount: amt}}, nil
+		}
+	}
 	return nil, nil
 }
 func (f *fakeItems) ItemIDSpan(context.Context) (sqlcgen.ItemIDSpanRow, error) {

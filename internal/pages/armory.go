@@ -67,13 +67,14 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 
 	link := func(sort string, p int) string { return armoryURL(f.Query, sort, p) }
 	d := templates.ArmoryData{
-		Query:  f.Query,
-		Sort:   f.Sort,
-		Result: res,
-		Span:   span,
-		Page:   page,
-		Pages:  pages,
-		Clear:  armoryURL("", f.Sort, 1),
+		Query:     f.Query,
+		Sort:      f.Sort,
+		SortInURL: f.Sort != items.SortILvl, // one URL per state: the default sort stays out of it
+		Result:    res,
+		Span:      span,
+		Page:      page,
+		Pages:     pages,
+		Clear:     armoryURL("", f.Sort, 1),
 	}
 	for _, k := range items.Sorts {
 		d.Sorts = append(d.Sorts, templates.SortOption{Key: k, Label: sortLabels[k], URL: link(k, 1), Current: k == f.Sort})
@@ -88,14 +89,15 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		d.Pager = append(d.Pager, templates.PageLink{N: n, URL: link(f.Sort, n), Current: n == page})
 	}
 
-	// Both branches vary on the header: this URL's body depends on it.
-	w.Header().Add("Vary", "HX-Request")
 	if templates.IsHTMX(r) {
+		// Fragment adds Vary: HX-Request itself.
 		if err := h.tpl.Fragment(w, "armory_rows", d); err != nil {
 			h.fail(w, r, err)
 		}
 		return
 	}
+	// The full page varies too: this URL's body depends on the header.
+	w.Header().Add("Vary", "HX-Request")
 
 	title, desc := "Armory — every item in Age of Conan", fmt.Sprintf("Search and sort the %d items of the Age of Conan armory: slot, item level, class, where it drops and what it costs.", span.Total)
 	if f.Query != "" {
