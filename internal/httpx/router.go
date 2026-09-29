@@ -56,8 +56,12 @@ func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
 	//
 	// This was measured, not reasoned: verify round 1 of AOC-002 captured slog output
 	// under both orders. The original order, and the comment defending it, were wrong.
+	//
+	// Cache sits between them (AOC-026): inside Log, and OUTSIDE Recover, so the 500 Recover
+	// writes for a panic still passes through the policy and leaves as no-store.
 	r.Use(RequestID)
 	r.Use(Log)
+	r.Use(Cache)
 	r.Use(Recover)
 
 	// ⭐ HEAD. chi's r.Get registers GET only, so every public page answered HEAD with 405

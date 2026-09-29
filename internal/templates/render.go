@@ -7,7 +7,8 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"strings"
+
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
 //go:embed html/*.html
@@ -148,10 +149,10 @@ func (e *Engine) Fragment(w http.ResponseWriter, name string, data any) error {
 	return err
 }
 
-// IsHTMX reports whether this request wants a fragment rather than a page.
-func IsHTMX(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("HX-Request"), "true")
-}
+// IsHTMX reports whether this request wants a fragment rather than a page. It is httpx.IsHTMX, not a
+// copy of it: the cache policy reads the same header to decide that a fragment is never stored, and
+// two spellings of one rule are free to disagree (AOC-026).
+func IsHTMX(r *http.Request) bool { return httpx.IsHTMX(r) }
 
 // Files exposes the embedded templates for tests that want to inspect them.
 func Files() fs.FS { return files }

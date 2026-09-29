@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 - One central `error → status` mapping in `internal/httpx`; `http.Error` is banned (AOC-002)
 - Request-id, panic-recovery and structured-logging middleware (AOC-002)
 - Graceful shutdown on SIGTERM and the four HTTP timeouts `net/http` leaves unset (AOC-002)
+- One cache policy for every response, so Cloudflare can serve public pages from its edge while
+  anything with a session, a cookie or an `Authorization` header is never stored (AOC-026)
 
 ### Fixed
 
