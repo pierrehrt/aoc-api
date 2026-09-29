@@ -39,18 +39,10 @@ func (h *Handler) TaxonomyRoutes() chi.Router {
 	return r
 }
 
-// Cache windows. Justified here and in docs/api-routes.md, per the ticket's criterion.
-//
-//   - items are a PRESERVED corpus: the source site is dead, so a row changes only when a human
-//     edits it. Five minutes is short enough that a moderation fix is visible while someone is
-//     still looking at the page, and long enough that a Reddit link does not bill us per view
-//     (AOC-026 is the cache that makes that matter).
-//   - taxonomies change when a migration changes them, which is a deploy. An hour is generous and
-//     still bounded, because a stale filter vocabulary shows options that return nothing.
-const (
-	listCache = "public, max-age=300"
-	taxCache  = "public, max-age=3600"
-)
+// Cache-Control is not set here. httpx.Cache gives every /v1 GET the one /v1 window (AOC-026,
+// docs/architecture.md § Caching), and nothing but internal/httpx/cache.go may name the header.
+// This package used to set its own — five minutes for items, an hour for taxonomies — and those
+// gave way to the single table when the 0.1.0 release joined AOC-012 to AOC-026 (AOC-015).
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	f, err := parseFilters(r)
@@ -63,7 +55,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", listCache)
 	httpx.Respond(w, r, http.StatusOK, res)
 }
 
@@ -73,7 +64,6 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", listCache)
 	httpx.Respond(w, r, http.StatusOK, item)
 }
 
@@ -83,7 +73,6 @@ func (h *Handler) taxonomies(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", taxCache)
 	httpx.Respond(w, r, http.StatusOK, tx)
 }
 

@@ -21,7 +21,7 @@
   errors, writes and HTMX `no-store`, and anything with a session, a `Set-Cookie` or an
   `Authorization` header `private, no-store`. Full table: `docs/architecture.md` § Caching.
 - **Errors share one body shape**: `{"error": "...", "request_id": "..."}`.
-- Every list endpoint will be paginated (none exist yet).
+- Every list endpoint is paginated (`GET /v1/items`: `limit`/`offset`, below).
 
 ## Operational
 
@@ -40,16 +40,17 @@ page depends on no authenticated request.
 
 | Route | Returns | `Cache-Control` |
 |---|---|---|
-| `GET /v1/items` | the armory list, paginated and filtered | `public, max-age=300` |
-| `GET /v1/items/{slug}` | one item with stats, sources, costs and set | `public, max-age=300` |
-| `GET /v1/taxonomies` | every filter vocabulary in one call | `public, max-age=3600` |
+| `GET /v1/items` | the armory list, paginated and filtered | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
+| `GET /v1/items/{slug}` | one item with stats, sources, costs and set | `public, max-age=60, s-maxage=600`; a 404 `public, max-age=60, s-maxage=60` |
+| `GET /v1/taxonomies` | every filter vocabulary in one call | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
 
-**Why those windows.** Items are a *preserved* corpus — the source site is dead, so a row changes
-only when a human edits it. Five minutes is short enough that a moderation fix is visible while
-someone is still looking at the page, and long enough that a link from Reddit does not bill us per
-view (Railway charges usage; AOC-026 puts Cloudflare in front of exactly this). Taxonomies change
-only when a migration changes them, which is a deploy — an hour is generous and still bounded,
-because a stale vocabulary offers filters that return nothing.
+**Why one window for all three.** These routes do not choose their own: every `/v1` GET gets the
+same policy from `httpx.Cache` (`docs/architecture.md` § Caching). A browser rechecks after a minute;
+Cloudflare keeps ten minutes, which is what stops a link from Reddit billing us per view (Railway
+charges usage), and a purge makes a correction immediate. The corpus is *preserved* — the source site
+is dead, so a row changes only when a human edits it — which is why a short browser window costs
+nothing. Until the 0.1.0 release these routes set five minutes (items) and an hour (taxonomies) by
+hand; those gave way to the one table (AOC-015).
 
 ### `GET /v1/items`
 

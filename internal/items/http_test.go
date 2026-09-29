@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
 type fakeTax struct{}
@@ -140,15 +141,35 @@ func TestReadsAreAnonymous(t *testing.T) {
 	}
 }
 
-// Cache-Control is set deliberately on each route, and the value is justified in docs/api-routes.md.
-func TestEachRouteSetsItsCacheControl(t *testing.T) {
-	for path, want := range map[string]string{
-		"/v1/items":      listCache,
-		"/v1/taxonomies": taxCache,
+// The item routes take Cache-Control from the one policy, not from a value of their own
+// (AOC-026): on their own they send none, and through httpx.Cache a 200 carries the /v1 window and
+// a 404 the short missing-page one. The windows this package used to set by hand gave way to that
+// table in the 0.1.0 release (AOC-015).
+func TestTheItemRoutesTakeTheirCacheHeaderFromThePolicy(t *testing.T) {
+	const (
+		wantAPI     = "public, max-age=60, s-maxage=600"
+		wantMissing = "public, max-age=60, s-maxage=60"
+	)
+	for _, tc := range []struct {
+		path   string
+		status int
+		want   string
+	}{
+		{"/v1/items", http.StatusOK, wantAPI},
+		{"/v1/taxonomies", http.StatusOK, wantAPI},
+		{"/v1/items/no-such-item", http.StatusNotFound, wantMissing},
 	} {
-		rec, _ := get(t, sharedItem(), path)
-		if got := rec.Header().Get("Cache-Control"); got != want {
-			t.Errorf("%s -> Cache-Control %q, want %q", path, got, want)
+		bare, _ := get(t, sharedItem(), tc.path)
+		if got := bare.Result().Header.Get("Cache-Control"); got != "" {
+			t.Errorf("%s without the middleware sets Cache-Control %q itself — only the policy may", tc.path, got)
+		}
+		rec := httptest.NewRecorder()
+		httpx.Cache(newTestServer(sharedItem())).ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, tc.path, nil))
+		if rec.Code != tc.status {
+			t.Errorf("%s -> status %d, want %d", tc.path, rec.Code, tc.status)
+		}
+		if got := rec.Result().Header.Get("Cache-Control"); got != tc.want {
+			t.Errorf("%s -> Cache-Control %q, want %q", tc.path, got, tc.want)
 		}
 	}
 }
