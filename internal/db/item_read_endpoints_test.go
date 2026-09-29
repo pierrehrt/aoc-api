@@ -1,3 +1,11 @@
+//go:build corpus
+
+// ⭐ CORPUS TESTS (AOC-044). This file and the three others tagged `corpus` read the REAL imported
+// armory from the database they are handed, so they are compiled only with `-tags corpus`:
+// `bin/gate api` passes it (and exits 2, naming them, when the corpus is missing), and so does
+// `make test-corpus`. CI does not — its Postgres never holds the corpus, which comes from the
+// private snapshot repo — so there they would only skip, and CI rightly fails on a skip.
+
 package db_test
 
 import (
