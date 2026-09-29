@@ -1,6 +1,14 @@
 # Linters for aoc_api. Required in CI (AOC-003); bin/gate api skips it locally when absent.
 version: "2"
 
+# ⭐ The corpus tests (AOC-044) are compiled only with `-tags corpus`, and a linter that does not
+# pass the tag does not see them at all — verify round 1 planted an `unconvert` violation in a
+# tagged file and got "0 issues". Set here, not as a flag in bin/gate, so CI's lint job covers the
+# tagged files too.
+run:
+  build-tags:
+    - corpus
+
 linters:
   default: standard
   enable:
