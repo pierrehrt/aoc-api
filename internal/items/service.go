@@ -115,7 +115,7 @@ func idQuery(q string) *int32 {
 			return nil
 		}
 	}
-	n, err := strconv.Atoi(q)
+	n, err := strconv.ParseInt(q, 10, 32) // bitSize 32: the id column is an integer
 	if err != nil || n <= 0 {
 		return nil
 	}
@@ -160,6 +160,7 @@ type ListItem struct {
 	// names, and the price — the first vendor source's costs, "9 Simple Relic I + 2 Gold"; nil
 	// when no vendor sells it. Loaded in one round trip per page each, never per row.
 	RarityColourToken string  `json:"rarity_colour_token,omitempty"`
+	ArmourWeight      *Term   `json:"armour_weight,omitempty"`
 	EquipLocations    []Term  `json:"equip_locations,omitempty"`
 	Classes           []Term  `json:"classes,omitempty"`
 	Price             *string `json:"price,omitempty"`
@@ -180,6 +181,14 @@ type ListResult struct {
 	Offset      int        `json:"offset"`
 	Collapsed   bool       `json:"collapsed"`
 	Attribution string     `json:"attribution"`
+}
+
+// termIfSet builds a Term from a nullable slug/name pair, nil when the row has none.
+func termIfSet(slug, name *string) *Term {
+	if slug == nil || *slug == "" {
+		return nil
+	}
+	return &Term{Slug: *slug, Name: deref(name)}
 }
 
 func ptrIfSet(s string) *string {
@@ -342,6 +351,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			ItemLevel: r.ItemLevel, RequiresLvl: r.RequiresLevel, Armor: r.Armor,
 			TooltipImage: r.TooltipImage, Confidence: r.Confidence,
 			RarityColourToken: deref(r.RarityColourToken),
+			ArmourWeight:      termIfSet(r.ArmourWeight, r.ArmourWeightName),
 			EquipLocations:    slotsBy[r.ItemID],
 			Classes:           classesBy[r.ItemID],
 			Price:             priceBy[r.ItemID],

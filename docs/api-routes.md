@@ -58,7 +58,18 @@ Filters, all optional and all combinable. Every one takes a **slug the taxonomy 
 never a free-text value a client invented — except `q`, which is a name search.
 
 `rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
-`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `limit` · `offset`
+`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset`
+
+- **`q`** matches the name (case-insensitive substring) — **and, when it is a whole number, the
+  item's id exactly** (AOC-047): `q=2183` finds item 2183 as well as any item whose name contains
+  "2183".
+- **`sort`** is `name` (the default, unchanged since 0.1.0), `ilvl` (item level, highest first,
+  items with no level last) or `id` (ascending). Any other value is a 400. The keys are code, not a
+  game concept.
+- Each row also carries, additively since AOC-047: `rarity_colour_token` (AOC-046),
+  `armour_weight` (`{slug, name}`, armour only), `equip_locations[]` and `classes[]` (`{slug, name, short_name}`), and `price` — the first vendor
+  source's costs as one string (`"9 Simple Relic I + 2 Gold"`), absent when no vendor sells it.
+  Loaded in one round trip per page each, never per row.
 
 ```
 GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
@@ -196,6 +207,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows). Same parser and service as `/v1/items`. `HX-Request: true` gets the rows fragment; both send `Vary: HX-Request`. `p` past the end is 404; a bad `p` or `sort` is 400 — both as dependency-free HTML (`httpx.RejectHTML`). The canonical never carries `p=1` |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
 | GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |

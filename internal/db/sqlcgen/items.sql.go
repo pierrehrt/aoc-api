@@ -663,6 +663,7 @@ SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
        it.slug AS item_type,
        sf.slug AS slot_fit,
+       aw.slug AS armour_weight, aw.name AS armour_weight_name,
        i.item_level, i.requires_level, i.armor, i.dps,
        i.set_id, i.tooltip_image,
        c.slug AS confidence,
@@ -672,6 +673,7 @@ JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
+LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
 WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
   AND ($2::varchar IS NULL OR it.slug = $2::varchar)
   -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
@@ -767,6 +769,8 @@ type ListItemsRow struct {
 	RarityColourToken *string
 	ItemType          *string
 	SlotFit           *string
+	ArmourWeight      *string
+	ArmourWeightName  *string
 	ItemLevel         *int32
 	RequiresLevel     *int32
 	Armor             *int32
@@ -822,6 +826,8 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.RarityColourToken,
 			&i.ItemType,
 			&i.SlotFit,
+			&i.ArmourWeight,
+			&i.ArmourWeightName,
 			&i.ItemLevel,
 			&i.RequiresLevel,
 			&i.Armor,

@@ -89,13 +89,13 @@ func run() error {
 
 	// The origin canonical URLs are built from. Configured, never taken from the request:
 	// see the comment on pages.Handler.baseURL.
-	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")))
-
-	// The read surface over the armory (AOC-012). The service layer is built here and handed to
-	// the JSON handlers; the HTML armory page will be handed the SAME *items.Service rather than
-	// calling the JSON endpoints or re-implementing the filtering (CLAUDE.md rule 5b).
+	// The read surface over the armory (AOC-012). ONE service, built here, handed to the JSON
+	// handlers AND to the HTML pages (AOC-047) — never two implementations of the filtering
+	// (CLAUDE.md rule 5b).
 	q := sqlcgen.New(pool)
-	itemsAPI := items.NewHandler(items.NewService(q), items.NewTaxonomyService(q))
+	itemsSvc := items.NewService(q)
+	itemsAPI := items.NewHandler(itemsSvc, items.NewTaxonomyService(q))
+	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")), itemsSvc)
 
 	srv := &http.Server{
 		Addr: addr,

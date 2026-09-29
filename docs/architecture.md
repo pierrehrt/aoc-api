@@ -423,6 +423,26 @@ source and no other creator anywhere; where the data came from is said once, on 
 2. A line in `pageTemplates`.
 3. A handler in `internal/pages/` that builds a `View` and calls `Render`.
 4. If it is a **section**, its `NavItem` in `pages.siteNav` — in the same commit as its route.
+5. If the page reads its own data shape, that shape lives **beside the template**
+   (`templates.ArmoryData`) with a **probe value** in `pageProbes` that exercises every branch, on
+   obviously fake rows — so a field the template reads that nobody declared fails the boot.
+
+**Fragments** are every `html/*.html` that is neither `base.html` nor a page — derived from the
+filesystem, not listed (a fixture FS in a test carries only what it holds). Every page is parsed
+with all of them, so a page can `{{template "armory_rows" .Data}}` the same definition its HTMX
+answer uses: **one definition of the rows, two renderings** (AOC-047). A fragment's probe goes in
+`fragmentProbes`.
+
+**A page's own rejections** (a bad query, a page past the end) go through `httpx.RejectHTML`: the
+same dependency-free HTML as the router's 404/405 on the HTML surface, JSON on a machine surface —
+never `Fail`, which is JSON-only, and never a template, which may be the thing that broke.
+
+**The Armory list** (`/armory`, AOC-047) is the first content page and the pattern for the rest:
+`items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
+service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
+`<title>`/description/canonical per state, and the honest empty state whose numbers come from
+`items.Service.IDSpan`. Rows link to nothing until the item page exists (AOC-048): a link to a 404 is
+a bug, the same rule as the nav.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.

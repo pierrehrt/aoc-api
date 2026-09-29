@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -25,10 +26,12 @@ type Handler struct {
 	// two different canonicals — which is precisely the duplicate-content problem the
 	// canonical tag exists to solve. One configured origin, one canonical.
 	baseURL string
+	// items is THE armory service — the same *items.Service the JSON handlers hold (CLAUDE.md 5b).
+	items *items.Service
 }
 
-func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string) *Handler {
-	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/")}
+func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string, svc *items.Service) *Handler {
+	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc}
 }
 
 func (h *Handler) canonical(path string) string { return h.baseURL + path }
@@ -55,7 +58,7 @@ func (h *Handler) view(title, description, path string) templates.View {
 // siteNav is the header's section links (AOC-046). ⛔ Only routes that EXIST go here — a link to a
 // 404 is a bug, and TestEveryNavLinkIsARegisteredRoute walks it against the real router. The
 // Armory entry arrives with AOC-047, the Locations/Sets/Currencies entries with their pages.
-var siteNav = []templates.NavItem{}
+var siteNav = []templates.NavItem{{Label: "Armory", Path: "/armory"}}
 
 // ogImageAsset is the social-card image. Kept as a constant so a missing one is a single
 // obvious edit rather than a string repeated across handlers.
@@ -64,6 +67,7 @@ const ogImageAsset = "og-card.png"
 // Routes mounts the HTML surface on the root router.
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/", h.home)
+	r.Get("/armory", h.armory)
 	r.Get("/_smoke", h.smoke)
 	r.Post("/_smoke/echo", h.echo)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/pages"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
@@ -27,7 +28,7 @@ func router(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("templates.New: %v", err)
 	}
-	h := pages.New(tpl, set, base)
+	h := pages.New(tpl, set, base, items.NewService(newFakeItems(120)))
 	return httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 }
 
@@ -337,7 +338,7 @@ func TestAssetPathsStayJSONEvenWithNoAssetHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	// site mounted, assets deliberately NOT mounted
-	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base).Routes, nil)
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, items.NewService(newFakeItems(120))).Routes, nil)
 
 	rr := get(t, h, http.MethodGet, "/assets/app.css", nil, "")
 	if rr.Code != http.StatusNotFound {
@@ -371,7 +372,7 @@ func TestAFailedRenderIsA500ThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture engine should start cleanly: %v", err)
 	}
-	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base).Routes, set.Handler())
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, items.NewService(newFakeItems(120))).Routes, set.Handler())
 
 	rr := get(t, h, http.MethodGet, "/", nil, "")
 	if rr.Code != http.StatusInternalServerError {

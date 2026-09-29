@@ -14,6 +14,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
   (IBM Plex, AA contrast); rarity colours and class short names are database rows, served by
   `/v1/taxonomies` (AOC-046)
 
+- The Armory list page at `/armory`: search by name or id, sort by item level, name or id, 50 rows
+  a page with a shareable URL for every state, an honest empty state, the rows fragment for HTMX,
+  and the phone row; `/v1/items` gains `sort=`, an id match on `q`, and per-row slots, classes with
+  short names, price and the rarity colour token (AOC-047)
+
 ### Changed
 
 - The footer names no source and no other creator, and `/v1`'s `attribution` field now reads
