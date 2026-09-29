@@ -21,6 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ### Fixed
 
+- `img.aoc-codex.app` serves the armory tooltip images from a Cloudflare Worker reading R2 through
+  a binding, instead of R2's custom domain, which stalled on cache misses at the Singapore edge
+  (119 of 160 whole against the Worker's 160 of 160 on the same edge) (AOC-041)
 - Middleware order: `Log` now wraps `Recover`, so a panicking request still produces an access line
   with its real 500. Under the previous order the panic unwound past `Log` and the request vanished
   from the log entirely (AOC-002)
