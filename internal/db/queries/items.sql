@@ -78,7 +78,11 @@ SELECT src.id, src.item_id,
        src.region_id, rg.name AS region_name, rg.slug AS region_slug,
        src.map_id, mp.name AS map_name, mp.slug AS map_slug,
        src.tier_id, tr.slug AS tier,
-       src.is_raid, src.coords, src.section_raw, src.unchained,
+       src.is_raid, src.coords, src.section_raw,
+       -- ⭐ src OR place (AOC-039): the one unchained expression, shared with the list filter and
+       -- ListItemPlaces. This was the bare src.unchained -- the third spelling of one rule, which
+       -- agreed with the other two only because the importer set both columns from one source.
+       (src.unchained OR coalesce(p.unchained, false))::boolean AS unchained,
        c.slug AS confidence, src.source_note, src.open_question
 FROM item_sources src
 JOIN confidence_levels c ON c.id = src.confidence_id
@@ -117,9 +121,10 @@ ORDER BY ic.item_source_id, cu.name;
 -- acceptance criterion this whole schema shape exists for, and
 -- TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 SELECT i.item_id, i.slug, i.name,
-       r.slug AS rarity, r.sort_order AS rarity_sort,
+       r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
        it.slug AS item_type,
        sf.slug AS slot_fit,
+       aw.slug AS armour_weight, aw.name AS armour_weight_name,
        i.item_level, i.requires_level, i.armor, i.dps,
        i.set_id, i.tooltip_image,
        c.slug AS confidence,
@@ -129,13 +134,18 @@ JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
+LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
 WHERE (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::varchar)
   AND (sqlc.narg('item_type')::varchar IS NULL OR it.slug = sqlc.narg('item_type')::varchar)
   -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
   -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
   -- (escapeLike); this names the escape character so Postgres honours them.
+  -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the armory
+  -- site's ids are what people still quote, and a name search for "2183" would otherwise find
+  -- nothing. id_query is NULL unless q is numeric, and NULL never equals anything.
   AND (sqlc.narg('name_query')::varchar IS NULL
-       OR i.name ILIKE '%' || sqlc.narg('name_query')::varchar || '%' ESCAPE '\')
+       OR i.name ILIKE '%' || sqlc.narg('name_query')::varchar || '%' ESCAPE '\'
+       OR i.item_id = sqlc.narg('id_query')::integer)
   AND (sqlc.narg('equip_location')::varchar IS NULL OR EXISTS (
         SELECT 1 FROM item_equip_locations iel
         JOIN equip_locations el ON el.id = iel.equip_location_id
@@ -186,8 +196,47 @@ WHERE (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::var
   -- into one column would lose which one is true, which the item page shows separately.
   AND (sqlc.narg('pvp')::boolean IS NULL
        OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean)
-ORDER BY i.name, i.item_id
+-- ⭐ ONE query, three orders (AOC-047). A CASE per sort key keeps every filter above in one
+-- place; the keys are code ('name', 'ilvl', 'id' — not a game concept), validated before they
+-- get here. ilvl is DESCENDING with NULLs LAST, so the 50 items with no recorded level end the
+-- list rather than vanish or lead it; the name and id tie-breakers make every page stable.
+ORDER BY
+  CASE WHEN sqlc.arg('sort_by')::varchar = 'ilvl' THEN i.item_level END DESC NULLS LAST,
+  CASE WHEN sqlc.arg('sort_by')::varchar = 'id' THEN i.item_id END ASC,
+  i.name, i.item_id
 LIMIT sqlc.arg('page_size')::integer OFFSET sqlc.arg('page_offset')::integer;
+
+-- name: ListItemPageEquipLocations :many
+-- A page's slots in one round trip (AOC-047), the ListItemPlaces pattern: never one query per row.
+SELECT iel.item_id, el.slug, el.name
+FROM item_equip_locations iel
+JOIN equip_locations el ON el.id = iel.equip_location_id
+WHERE iel.item_id = ANY(sqlc.arg('item_ids')::integer[])
+ORDER BY iel.item_id, el.id;
+
+-- name: ListItemPageClasses :many
+-- A page's class restrictions in one round trip, with the short names the row shows (AOC-046).
+SELECT ic.item_id, cl.slug, cl.name, cl.short_name
+FROM item_classes ic
+JOIN classes cl ON cl.id = ic.class_id
+WHERE ic.item_id = ANY(sqlc.arg('item_ids')::integer[])
+ORDER BY ic.item_id, cl.id;
+
+-- name: ListItemPageCosts :many
+-- A page's vendor prices in one round trip: every cost of every source, grouped by the caller.
+SELECT src.item_id, src.id AS item_source_id, cu.name AS currency_name, ic.amount
+FROM item_costs ic
+JOIN item_sources src ON src.id = ic.item_source_id
+JOIN currencies cu ON cu.id = ic.currency_id
+WHERE src.item_id = ANY(sqlc.arg('item_ids')::integer[])
+ORDER BY src.item_id, src.id, cu.name;
+
+-- name: ItemIDSpan :one
+-- The honest empty state (AOC-047): "ids run 1–4692, N absent" is computed, never typed.
+SELECT coalesce(min(item_id), 0)::integer AS min_id,
+       coalesce(max(item_id), 0)::integer AS max_id,
+       count(*)::bigint AS total
+FROM items;
 
 -- name: ListItemPlaces :many
 -- The per-item place context for a page of results, fetched in ONE round trip for the whole page
@@ -206,8 +255,13 @@ SELECT src.item_id, p.slug AS place_slug, p.name AS place_name,
        -- coalesce, not a bare cast: min() over all-NULL is NULL, and sqlc types a cast as
        -- non-null, so the scan would fail on exactly the rows that have no region.
        coalesce(min(r.slug), '')::varchar AS region_slug,
-       coalesce(min(t.slug), '')::varchar AS tier_slug,
-       bool_or(src.unchained OR p.unchained) AS unchained,
+       -- ⭐ ONE EXPRESSION PER FACT (AOC-039). The tier is blanked when the place's sources disagree,
+       -- exactly like the boss below: min() would state one of two tiers as fact the first time the
+       -- corpus held two. And unchained is the SAME expression the list filter and ListItemSources
+       -- use -- src OR place, with a NULL place read as false -- so a row cannot be findable by
+       -- unchained=true and then deny it on its own page.
+       coalesce(CASE WHEN count(DISTINCT t.slug) = 1 THEN min(t.slug) END, '')::varchar AS tier_slug,
+       bool_or(src.unchained OR coalesce(p.unchained, false)) AS unchained,
        -- The boss only when it is unambiguous: two bosses in one place would make either name a
        -- lie, and a blank is honest where a guess is not (CLAUDE.md STEP ZERO).
        coalesce(CASE WHEN count(DISTINCT b.name) = 1 THEN min(b.name) END, '')::varchar AS boss_name

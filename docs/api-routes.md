@@ -58,7 +58,18 @@ Filters, all optional and all combinable. Every one takes a **slug the taxonomy 
 never a free-text value a client invented — except `q`, which is a name search.
 
 `rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
-`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `limit` · `offset`
+`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset`
+
+- **`q`** matches the name (case-insensitive substring) — **and, when it is a whole number, the
+  item's id exactly** (AOC-047): `q=2183` finds item 2183 as well as any item whose name contains
+  "2183".
+- **`sort`** is `name` (the default, unchanged since 0.1.0), `ilvl` (item level, highest first,
+  items with no level last) or `id` (ascending). Any other value is a 400. The keys are code, not a
+  game concept.
+- Each row also carries, additively since AOC-047: `rarity_colour_token` (AOC-046),
+  `armour_weight` (`{slug, name}`, armour only), `equip_locations[]` and `classes[]` (`{slug, name, short_name}`), and `price` — the first vendor
+  source's costs as one string (`"9 Simple Relic I + 2 Gold"`), absent when no vendor sells it.
+  Loaded in one round trip per page each, never per row.
 
 ```
 GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
@@ -84,7 +95,7 @@ GET /v1/items?rarity=epic&armour_weight=heavy&limit=2
   "limit": 2,
   "offset": 0,
   "collapsed": true,
-  "attribution": "Data preserved from AoC>TV by Kentarii"
+  "attribution": "AoC Codex — https://aoc-codex.app/info"
 }
 ```
 
@@ -133,7 +144,10 @@ be more surface to keep correct for a filter nobody asked to combine.
 ### `GET /v1/items/{slug}`
 
 One item with everything its page shows, in one response: stats, every source (place, boss, region,
-map, tier, raid and unchained flags), costs, set, classes and equip locations. An unknown slug is a
+map, tier, raid and unchained flags), costs, set, classes and equip locations. **A source's
+`unchained` includes its place's** (AOC-039): it is true when the source row is flagged *or* the
+place it sits in is an Unchained dungeon — the one expression the list filter uses, so an item found
+by `unchained=true` never denies it on its own page. An unknown slug is a
 **404 through the central error mapper**, with the standard JSON body — never a bare string.
 
 Each source carries **both a name and a slug** for place, region and map — `"place": "Kyllikki's
@@ -155,12 +169,18 @@ tiers, regions, places, currencies. ⭐ **Read from the database, never hardcode
 of class names in a filter dropdown is the exact bug the content model exists to prevent
 (`reference/content-model.md` § 0).
 
+Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
+- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …);
+- rarities: `"colour_token"` — the name of the CSS custom property that paints it
+  (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
+
 ### Attribution
 
-Every response on every route carries
-`"attribution": "Data preserved from AoC>TV by Kentarii"`. His release was unconditional, which is
-precisely why the credit is in the payload rather than left to a template
-(`DECISIONS.md`, 2026-09-13).
+Every response on every route carries `"attribution": "AoC Codex — https://aoc-codex.app/info"`.
+It names AoC Codex and the Info page and no other site or person (Pierre, 2026-09-29: the site
+shows no source and no other creator anywhere; origins are explained once, on `/info`). The field
+**stays** — same name, type and meaning as in 0.1.0 — because removing it would be a breaking change
+to this contract (CLAUDE.md 5c) for no gain; only its value changed (AOC-055).
 
 ## Error statuses
 
@@ -187,6 +207,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows). Same parser and service as `/v1/items`. `HX-Request: true` gets the rows fragment; both send `Vary: HX-Request`. `p` past the end is 404; a bad `p` or `sort` is 400 — both as dependency-free HTML (`httpx.RejectHTML`). The canonical never carries `p=1` |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
 | GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |

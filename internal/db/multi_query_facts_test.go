@@ -21,13 +21,11 @@ import (
 //
 // Measured over the whole corpus, all three agree: of 449 sources flagged unchained, 438 sit in one
 // of the 6 unchained places and 11 have no place at all, and there is NOT ONE source in an
-// unchained place whose own flag is false. So the bare expression cannot produce a wrong answer
-// today, and this ticket records it as a limit rather than rewriting it (AOC-039).
-//
-// That agreement is a property of the imported data, not of the SQL — item_sources.unchained comes
-// straight from the snapshot (internal/items/import_children.go) while places.unchained is resolved
-// separately, so nothing in the queries forces them together. What forces them is the importer,
-// and TestAnUnchainedSourceLandsOnTheUnchainedPlace pins that on a fixture.
+// unchained place whose own flag is false. So the bare expression could not produce a wrong answer
+// on that corpus — and AOC-039 then made all three the SAME expression (src OR place), so that the
+// agreement is a property of the SQL and no longer of the data.
+// TestEveryQueryPublishesTheSameUnchainedAndBlanksAnAmbiguousTier plants disagreeing rows and
+// proves it; TestAnUnchainedSourceLandsOnTheUnchainedPlace still pins what the importer writes.
 //
 // This pins it on the REAL corpus, so a future snapshot that breaks the agreement fails here
 // instead of quietly publishing two answers to one question — the item page saying a drop is not

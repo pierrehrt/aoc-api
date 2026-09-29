@@ -8,6 +8,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+The Armory list goes live: the first content page, on the site's shell.
+
+### Added
+
+- The site shell: header with the section nav and a footer, the dark theme as tested tokens
+  (IBM Plex, AA contrast); rarity colours and class short names are database rows, served by
+  `/v1/taxonomies` (AOC-046)
+
+- The Armory list page at `/armory`: search by name or id, sort by item level, name or id, 50 rows
+  a page with a shareable URL for every state, an honest empty state, the rows fragment for HTMX,
+  and the phone row; `/v1/items` gains `sort=`, an id match on `q`, and per-row slots, classes with
+  short names, price and the rarity colour token (AOC-047)
+
+### Changed
+
+- The footer names no source and no other creator, and `/v1`'s `attribution` field now reads
+  "AoC Codex — https://aoc-codex.app/info" (same field, same type); where the data came from is
+  said once, on the Info page (AOC-055)
+
+### Fixed
+
+- `unchained` is one expression in every query that publishes it (source OR its place), so an item
+  found by `unchained=true` never denies it on its own page; a place whose sources disagree about
+  the tier is summarised blank instead of with `min()` (AOC-039)
+
+### Migration
+
+- `20260929120000_shell_rarity_colours_class_short_names`: two nullable columns with seeds (`rarities.colour_token`, `classes.short_name`), run against production **before** this deploy with `scripts/release-migrate.sh` (AOC-046)
+
 ## [0.1.0] - 2026-09-29
 
 The first tagged release: everything built since the repo was created, shipped as one deploy.

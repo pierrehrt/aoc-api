@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
@@ -38,8 +40,47 @@ type AssetResolver interface {
 // pageTemplates maps a page name to the file that defines its "content" block.
 // Adding a page means adding a line here and a file beside it — nothing else.
 var pageTemplates = map[string]string{
-	"home":  "html/home.html",
-	"smoke": "html/smoke.html",
+	"home":   "html/home.html",
+	"smoke":  "html/smoke.html",
+	"armory": "html/armory.html",
+}
+
+// fragmentsIn lists the HTMX partials: every html/*.html that is neither base.html nor a page.
+// Every page is parsed WITH all of them, so a page can {{template "armory_rows" .Data}} the same
+// definition its fragment answer uses — one definition of the rows, two renderings (AOC-047).
+// Derived from the filesystem rather than listed, so a fixture FS in a test carries only the
+// fragments it holds and the real one cannot forget to register a file.
+func fragmentsIn(fsys fs.FS, pageMap map[string]string) ([]string, error) {
+	all, err := fs.Glob(fsys, "html/*.html")
+	if err != nil {
+		return nil, err
+	}
+	isPage := map[string]bool{"html/base.html": true}
+	for _, f := range pageMap {
+		isPage[f] = true
+	}
+	var out []string
+	for _, f := range all {
+		if !isPage[f] {
+			out = append(out, f)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no fragment templates under html/")
+	}
+	return out, nil
+}
+
+// pageProbes is the data the startup probe renders each page with, where the shared probeData is
+// not enough. A page that reads fields nobody declared here fails at boot — the point.
+var pageProbes = map[string]any{
+	"armory": armoryProbe(),
+}
+
+// fragmentProbes likewise, by fragment name.
+var fragmentProbes = map[string]any{
+	"armory_rows":      armoryProbe(),
+	"armory_slot_type": armoryProbe().Result.Items[0],
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.
@@ -62,16 +103,32 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		// asset resolves at RENDER time but is validated at STARTUP by the probe below,
 		// so a template referring to an asset that does not exist cannot reach production.
 		"asset": func(name string) (string, error) { return assets.Path(name) },
+		// typeIsSlot: for armour the item type repeats the slot name; the row shows it once.
+		"typeIsSlot": func(it items.ListItem) bool {
+			if it.ItemType == nil {
+				return false
+			}
+			for _, s := range it.EquipLocations {
+				if strings.EqualFold(s.Slug, *it.ItemType) || strings.EqualFold(s.Name, *it.ItemType) {
+					return true
+				}
+			}
+			return false
+		},
 	}
 
-	frag, err := template.New("fragments").Funcs(funcs).ParseFS(fsys, "html/echo.html")
+	fragmentFiles, err := fragmentsIn(fsys, pageMap)
+	if err != nil {
+		return nil, fmt.Errorf("templates: %w", err)
+	}
+	frag, err := template.New("fragments").Funcs(funcs).ParseFS(fsys, fragmentFiles...)
 	if err != nil {
 		return nil, fmt.Errorf("templates: parsing fragments: %w", err)
 	}
 	e.fragments = frag
 
 	for name, file := range pageMap {
-		t, err := template.New(name).Funcs(funcs).ParseFS(fsys, "html/base.html", "html/echo.html", file)
+		t, err := template.New(name).Funcs(funcs).ParseFS(fsys, append(append([]string{"html/base.html"}, fragmentFiles...), file)...)
 		if err != nil {
 			return nil, fmt.Errorf("templates: parsing page %q: %w", name, err)
 		}
@@ -84,7 +141,11 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 	// here, at boot, instead of on a visitor's screen.
 	probe := View{Title: "probe", Description: "probe", Canonical: "https://example.invalid/"}
 	for name := range e.pages {
-		if err := e.pages[name].ExecuteTemplate(&bytes.Buffer{}, "base", page{View: probe, Data: probeData}); err != nil {
+		data := any(probeData)
+		if p, ok := pageProbes[name]; ok {
+			data = p
+		}
+		if err := e.pages[name].ExecuteTemplate(&bytes.Buffer{}, "base", page{View: probe, Data: data}); err != nil {
 			return nil, fmt.Errorf("templates: page %q parses but does not execute: %w", name, err)
 		}
 	}
@@ -97,7 +158,11 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		if name == "" || name == "fragments" {
 			continue
 		}
-		if err := e.fragments.ExecuteTemplate(&bytes.Buffer{}, name, probeData); err != nil {
+		data := any(probeData)
+		if p, ok := fragmentProbes[name]; ok {
+			data = p
+		}
+		if err := e.fragments.ExecuteTemplate(&bytes.Buffer{}, name, data); err != nil {
 			return nil, fmt.Errorf("templates: fragment %q parses but does not execute: %w", name, err)
 		}
 	}

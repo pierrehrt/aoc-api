@@ -121,7 +121,7 @@ func (q *Queries) ListBindings(ctx context.Context) ([]Binding, error) {
 }
 
 const listClasses = `-- name: ListClasses :many
-SELECT c.id, c.slug, c.name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
+SELECT c.id, c.slug, c.name, c.short_name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
 FROM classes c JOIN archetypes a ON a.id = c.archetype_id
 ORDER BY a.name, c.name
 `
@@ -130,6 +130,7 @@ type ListClassesRow struct {
 	ID              int32
 	Slug            string
 	Name            string
+	ShortName       *string
 	ArchetypeID     int32
 	ArchetypeName   string
 	MaxArmourWeight *int32
@@ -148,6 +149,7 @@ func (q *Queries) ListClasses(ctx context.Context) ([]ListClassesRow, error) {
 			&i.ID,
 			&i.Slug,
 			&i.Name,
+			&i.ShortName,
 			&i.ArchetypeID,
 			&i.ArchetypeName,
 			&i.MaxArmourWeight,
@@ -259,7 +261,7 @@ func (q *Queries) ListItemTypes(ctx context.Context) ([]ItemType, error) {
 }
 
 const listRarities = `-- name: ListRarities :many
-SELECT id, slug, name, sort_order FROM rarities ORDER BY sort_order
+SELECT id, slug, name, sort_order, colour_token FROM rarities ORDER BY sort_order
 `
 
 func (q *Queries) ListRarities(ctx context.Context) ([]Rarity, error) {
@@ -276,6 +278,7 @@ func (q *Queries) ListRarities(ctx context.Context) ([]Rarity, error) {
 			&i.Slug,
 			&i.Name,
 			&i.SortOrder,
+			&i.ColourToken,
 		); err != nil {
 			return nil, err
 		}

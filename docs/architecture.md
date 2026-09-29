@@ -346,7 +346,7 @@ web/src/app.css          Tailwind input      ─┐
 web/src/htmx.min.js      vendored HTMX        │ make assets
                                               ▼
 internal/assets/built/   app.css, htmx.min.js   COMMITTED, embedded, content-hashed
-internal/templates/html/ base · home · smoke · echo
+internal/templates/html/ base (the shell) · home · smoke · echo
 internal/templates/      View + Engine (parse once at boot)
 internal/pages/          handlers: build a View, render a template
 ```
@@ -391,11 +391,61 @@ starts looking different for reasons nobody can find. The binary downloads to `.
 (gitignored); the **output is committed**, and `bin/gate api` fails if it is missing, empty,
 gitignored or stale.
 
+### The shell (AOC-046)
+
+`base.html` renders the same chrome around every page: a header (the logo home, and a
+`<nav aria-label="Sections">` of the site's sections), `<main>`, and a footer. **The footer carries
+no credit, no notice and no contact** (Pierre, 2026-09-29, `DECISIONS.md`): the site names no
+source and no other creator anywhere; where the data came from is said once, on the Info page
+(`/info`, AOC-056). AOC-046 shipped the credit and a Funcom notice there; AOC-055 removed them.
+`TestEveryPageCarriesTheShell` asserts their **absence**. The nav comes through `View.Nav`, filled by
+`pages.(*Handler).view`.
+
+- **The nav lists only routes that exist.** `pages.siteNav` is the list;
+  `TestEveryNavLinkIsARegisteredRoute` follows every href through the real router and wants 200.
+  A section is added to the nav in the ticket that adds its page, never before.
+- **The theme is tokens**, in `web/src/app.css` `@theme static` — `static` because a token reached
+  only through a database value (`var(--color-{{.ColourToken}})`) is invisible to Tailwind's scanner
+  and plain `@theme` would drop it from the build (AOC-046 verify round 1; `DECISIONS.md`
+  2026-09-29). IBM Plex Sans/Mono (Google Fonts, linked
+  from `base.html`), `ink` (the page), `paper`/`muted`/`link` (text), `line` (borders), and the
+  rarity colours. `TestThemeTextTokensPassAA` reads that block and fails any text token under
+  4.5:1 on ink — the design's own note records that the raw game colours fail (Epic 2.0:1, Rare
+  3.1:1), so they were lightened along their hue.
+- **Rarity colours and class short names are data**, not template literals:
+  `rarities.colour_token` names a CSS property (`rarity-epic` → `--color-rarity-epic`; NULL = no
+  colour of its own, renders as paper) and `classes.short_name` holds the abbreviation players use
+  (Conq, DT, Guard … — Pierre, Tier A). `/v1/taxonomies` carries both, so the JSON surface and
+  the pages read one row. A template paints a rarity with
+  `style="color: var(--color-{{.ColourToken}})"` and never names a rarity itself.
+- Pages are wide (`max-w-7xl`): the Armory table needs it; prose pages constrain themselves.
+
 ### Adding a page
 
 1. A template in `internal/templates/html/` defining `content`.
 2. A line in `pageTemplates`.
 3. A handler in `internal/pages/` that builds a `View` and calls `Render`.
+4. If it is a **section**, its `NavItem` in `pages.siteNav` — in the same commit as its route.
+5. If the page reads its own data shape, that shape lives **beside the template**
+   (`templates.ArmoryData`) with a **probe value** in `pageProbes` that exercises every branch, on
+   obviously fake rows — so a field the template reads that nobody declared fails the boot.
+
+**Fragments** are every `html/*.html` that is neither `base.html` nor a page — derived from the
+filesystem, not listed (a fixture FS in a test carries only what it holds). Every page is parsed
+with all of them, so a page can `{{template "armory_rows" .Data}}` the same definition its HTMX
+answer uses: **one definition of the rows, two renderings** (AOC-047). A fragment's probe goes in
+`fragmentProbes`.
+
+**A page's own rejections** (a bad query, a page past the end) go through `httpx.RejectHTML`: the
+same dependency-free HTML as the router's 404/405 on the HTML surface, JSON on a machine surface —
+never `Fail`, which is JSON-only, and never a template, which may be the thing that broke.
+
+**The Armory list** (`/armory`, AOC-047) is the first content page and the pattern for the rest:
+`items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
+service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
+`<title>`/description/canonical per state, and the honest empty state whose numbers come from
+`items.Service.IDSpan`. Rows link to nothing until the item page exists (AOC-048): a link to a 404 is
+a bug, the same rule as the nav.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.
@@ -911,6 +961,12 @@ that is not a slogan, it is these four steps, in order:
 3.  run the migration locally                  against the REAL data, not an empty schema
 4.  back up production, then deploy            forward-only, one migration per deploy
 ```
+
+Steps 3–4 as **one command Pierre runs**: `scripts/release-migrate.sh check` (tunnel, goose status,
+close — writes nothing) then `scripts/release-migrate.sh apply` (a verified `pg_dump` to
+`~/AoC-backups`, `goose up`, status, close). The password comes from Railway with the project token
+and is never printed. ⚠️ A release whose binary reads a new column **migrates first, then merges**:
+the old binary ignores an extra column, the new one 500s without it (0.2.0).
 
 Step 2 is the point. An empty hosted dev database never meets the row that breaks the migration;
 a restored production dump does. **Step 4's backup is not optional** — AOC-006 automates it.

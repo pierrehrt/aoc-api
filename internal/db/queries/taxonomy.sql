@@ -12,12 +12,12 @@
 SELECT id, slug, name FROM archetypes ORDER BY name;
 
 -- name: ListClasses :many
-SELECT c.id, c.slug, c.name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
+SELECT c.id, c.slug, c.name, c.short_name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
 FROM classes c JOIN archetypes a ON a.id = c.archetype_id
 ORDER BY a.name, c.name;
 
 -- name: ListRarities :many
-SELECT id, slug, name, sort_order FROM rarities ORDER BY sort_order;
+SELECT id, slug, name, sort_order, colour_token FROM rarities ORDER BY sort_order;
 
 -- name: ListArmourWeights :many
 SELECT id, slug, name, sort_order FROM armour_weights ORDER BY sort_order;

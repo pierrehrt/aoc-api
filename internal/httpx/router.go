@@ -1,6 +1,8 @@
 package httpx
 
 import (
+	"fmt"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -138,6 +140,29 @@ func htmlAwareFor(hasSite bool, jsonHandler http.HandlerFunc, status int, body s
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
+	}
+}
+
+// RejectHTML answers a page handler's own rejection (a bad query, a page past the end) the way the
+// router's 404/405 do: dependency-free HTML on the HTML surface, JSON on a machine surface. Page
+// handlers call this rather than Fail, which is JSON-only (AOC-047).
+func RejectHTML(w http.ResponseWriter, r *http.Request, status int, title string) {
+	if isMachineSurface(r.URL.Path) {
+		Fail(w, r, fmt.Errorf("%w: %s", errFor(status), title))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%d — AoC Codex</title></head><body style="font-family:system-ui,sans-serif;background:#1b1a18;color:#eae6df;padding:2rem"><h1>%s</h1><p><a href="/" style="color:#cd975b">Home</a> · <a href="/armory" style="color:#cd975b">Armory</a></p></body></html>`, status, template.HTMLEscapeString(title))
+}
+
+// errFor maps a status a page chose back to the sentinel Fail understands, for the JSON shape.
+func errFor(status int) error {
+	switch status {
+	case http.StatusNotFound:
+		return ErrNotFound
+	default:
+		return ErrInvalid
 	}
 }
 

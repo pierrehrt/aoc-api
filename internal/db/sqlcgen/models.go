@@ -51,6 +51,7 @@ type Class struct {
 	Slug            string
 	Name            string
 	MaxArmourWeight *int32
+	ShortName       *string
 }
 
 type ConfidenceLevel struct {
@@ -220,10 +221,11 @@ type Quest struct {
 }
 
 type Rarity struct {
-	ID        int32
-	Slug      string
-	Name      string
-	SortOrder int32
+	ID          int32
+	Slug        string
+	Name        string
+	SortOrder   int32
+	ColourToken *string
 }
 
 type Region struct {

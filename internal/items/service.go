@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,13 +14,14 @@ import (
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
-// Attribution is carried on every response derived from the armory.
+// Attribution is carried on every /v1 response derived from the armory.
 //
-// Kentarii's release was unconditional, which is exactly why this is a constant in the service
-// rather than a line in a template: an unconditional release is what makes a credit easy to
-// quietly drop later (DECISIONS.md, 2026-09-13). The JSON surface and the HTML surface read the
-// same constant, so neither can drift from the other.
-const Attribution = "Data preserved from AoC>TV by Kentarii"
+// ⛔ It names AoC Codex and the Info page, and no other site or person (Pierre, 2026-09-29,
+// DECISIONS.md — the site shows no source and no other creator anywhere; origins are explained
+// once, on /info, in his words). The field stays — same name, type and meaning — because removing
+// it would be a breaking change to a public contract (CLAUDE.md 5c) for no gain. Where the data
+// originally came from is recorded internally (dossiers, the sources table, sourcing-standards.md).
+const Attribution = "AoC Codex — https://aoc-codex.app/info"
 
 // Page bounds. limit=0 and limit=10000 are both clamped rather than rejected: a caller that omits
 // the parameter and a caller that asks for everything are both making a reasonable request, and
@@ -41,6 +43,10 @@ type Querier interface {
 	ListItemCosts(ctx context.Context, sourceIDs []int64) ([]sqlcgen.ListItemCostsRow, error)
 	ListItemEquipLocations(ctx context.Context, itemID int32) ([]sqlcgen.EquipLocation, error)
 	ListItemClasses(ctx context.Context, itemID int32) ([]sqlcgen.ListItemClassesRow, error)
+	ListItemPageEquipLocations(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error)
+	ListItemPageClasses(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageClassesRow, error)
+	ListItemPageCosts(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageCostsRow, error)
+	ItemIDSpan(ctx context.Context) (sqlcgen.ItemIDSpanRow, error)
 }
 
 // Service holds the read logic both surfaces call. The HTML armory page and the /v1 JSON handlers
@@ -69,8 +75,52 @@ type Filters struct {
 	PvP       *bool
 	Unchained *bool
 
+	// Sort is one of the Sorts keys; "" means SortName. Validated by ParseFilters; a value the
+	// service does not know is an error here too, so no surface can order by a key nobody defined.
+	Sort string
+
 	Limit  int
 	Offset int
+}
+
+// The sort keys (AOC-047). Code, not a game concept — so a constant is right here.
+const (
+	SortName = "name" // A→Z, the /v1 default since 0.1.0
+	SortILvl = "ilvl" // item level, highest first, items with no level last
+	SortID   = "id"   // the armory's own id, ascending
+)
+
+// Sorts is every key ParseFilters accepts, in the order a page offers them.
+var Sorts = []string{SortILvl, SortName, SortID}
+
+func validSort(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, k := range Sorts {
+		if k == s {
+			return true
+		}
+	}
+	return false
+}
+
+// idQuery reads q as an item id when it is one: a whole number that fits the id column.
+func idQuery(q string) *int32 {
+	if q == "" || len(q) > 9 {
+		return nil
+	}
+	for _, r := range q {
+		if r < '0' || r > '9' {
+			return nil
+		}
+	}
+	n, err := strconv.ParseInt(q, 10, 32) // bitSize 32: the id column is an integer
+	if err != nil || n <= 0 {
+		return nil
+	}
+	id := int32(n)
+	return &id
 }
 
 // Aggregate reports whether this view is one that CONTAINS several places rather than being one.
@@ -105,6 +155,16 @@ type ListItem struct {
 	TooltipImage *string `json:"tooltip_image,omitempty"`
 	Confidence   string  `json:"confidence"`
 
+	// What the list page's row shows beside the name (AOC-047), all additive to the 0.1.0 shape:
+	// the rarity's colour token (AOC-046), the slots, the class restrictions with their short
+	// names, and the price — the first vendor source's costs, "9 Simple Relic I + 2 Gold"; nil
+	// when no vendor sells it. Loaded in one round trip per page each, never per row.
+	RarityColourToken string  `json:"rarity_colour_token,omitempty"`
+	ArmourWeight      *Term   `json:"armour_weight,omitempty"`
+	EquipLocations    []Term  `json:"equip_locations,omitempty"`
+	Classes           []Term  `json:"classes,omitempty"`
+	Price             *string `json:"price,omitempty"`
+
 	// Place is set only when the caller named specific places: there the item appears once per
 	// named place, because that duplication IS the information. In an aggregate view it is nil
 	// and Places carries the context instead.
@@ -123,6 +183,14 @@ type ListResult struct {
 	Attribution string     `json:"attribution"`
 }
 
+// termIfSet builds a Term from a nullable slug/name pair, nil when the row has none.
+func termIfSet(slug, name *string) *Term {
+	if slug == nil || *slug == "" {
+		return nil
+	}
+	return &Term{Slug: *slug, Name: deref(name)}
+}
+
 func ptrIfSet(s string) *string {
 	if s == "" {
 		return nil
@@ -132,6 +200,9 @@ func ptrIfSet(s string) *string {
 
 // List answers the armory list, applying the collapsing rule described on Filters.Aggregate.
 func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
+	if !validSort(f.Sort) {
+		return ListResult{}, fmt.Errorf("%w: sort must be one of %s", httpx.ErrInvalid, strings.Join(Sorts, ", "))
+	}
 	limit, offset := f.Limit, f.Offset
 	if limit <= 0 {
 		limit = DefaultLimit
@@ -163,6 +234,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Rarity:        ptrIfSet(f.Rarity),
 		ItemType:      ptrIfSet(f.ItemType),
 		NameQuery:     ptrIfSet(escapeLike(f.Query)),
+		IDQuery:       idQuery(f.Query),
 		EquipLocation: ptrIfSet(f.EquipLocation),
 		Class:         ptrIfSet(f.Class),
 		PlaceSlugs:    placeSlugs,
@@ -171,6 +243,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Tier:          ptrIfSet(f.Tier),
 		Unchained:     f.Unchained,
 		Pvp:           f.PvP,
+		SortBy:        f.Sort,
 		PageSize:      int32(limit),
 		PageOffset:    int32(offset),
 	}
@@ -226,6 +299,46 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		}
 	}
 
+	// The row's slots, classes and price: three more round trips for the page, not per row.
+	slotsBy := map[int32][]Term{}
+	classesBy := map[int32][]Term{}
+	priceBy := map[int32]*string{}
+	if len(ids) > 0 {
+		sl, err := s.q.ListItemPageEquipLocations(ctx, ids)
+		if err != nil {
+			return ListResult{}, fmt.Errorf("list item page slots: %w", err)
+		}
+		for _, x := range sl {
+			slotsBy[x.ItemID] = append(slotsBy[x.ItemID], Term{Slug: x.Slug, Name: x.Name})
+		}
+		cl, err := s.q.ListItemPageClasses(ctx, ids)
+		if err != nil {
+			return ListResult{}, fmt.Errorf("list item page classes: %w", err)
+		}
+		for _, x := range cl {
+			classesBy[x.ItemID] = append(classesBy[x.ItemID], Term{Slug: x.Slug, Name: x.Name, ShortName: deref(x.ShortName)})
+		}
+		co, err := s.q.ListItemPageCosts(ctx, ids)
+		if err != nil {
+			return ListResult{}, fmt.Errorf("list item page costs: %w", err)
+		}
+		// The FIRST vendor source's costs, joined: an item sold at two vendors shows one price
+		// here and both on its page.
+		firstSource := map[int32]int64{}
+		parts := map[int32][]string{}
+		for _, x := range co {
+			if src, ok := firstSource[x.ItemID]; ok && src != x.ItemSourceID {
+				continue
+			}
+			firstSource[x.ItemID] = x.ItemSourceID
+			parts[x.ItemID] = append(parts[x.ItemID], money(x.Amount)+" "+x.CurrencyName)
+		}
+		for id, ps := range parts {
+			p := strings.Join(ps, " + ")
+			priceBy[id] = &p
+		}
+	}
+
 	named := map[string]bool{}
 	for _, p := range f.Places {
 		named[p] = true
@@ -237,6 +350,11 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			Rarity: r.Rarity, ItemType: r.ItemType, SlotFit: r.SlotFit,
 			ItemLevel: r.ItemLevel, RequiresLvl: r.RequiresLevel, Armor: r.Armor,
 			TooltipImage: r.TooltipImage, Confidence: r.Confidence,
+			RarityColourToken: deref(r.RarityColourToken),
+			ArmourWeight:      termIfSet(r.ArmourWeight, r.ArmourWeightName),
+			EquipLocations:    slotsBy[r.ItemID],
+			Classes:           classesBy[r.ItemID],
+			Price:             priceBy[r.ItemID],
 		}
 		places := byItem[r.ItemID]
 
@@ -372,6 +490,36 @@ type CostRef struct {
 }
 
 // numeric renders a NUMERIC column without going through a float.
+// money renders a cost amount the way a tooltip does: "9", not "9.00"; "2.5" stays "2.5".
+func money(n pgtype.Numeric) string {
+	s := numeric(n)
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	}
+	return s
+}
+
+// IDSpan is the honest empty state's numbers (AOC-047): computed, never typed.
+type IDSpan struct {
+	MinID  int32
+	MaxID  int32
+	Total  int64
+	Absent int64 // ids inside [MinID, MaxID] that no item carries
+}
+
+// IDSpan reports the id range the corpus covers and how many ids inside it are absent.
+func (s *Service) IDSpan(ctx context.Context) (IDSpan, error) {
+	r, err := s.q.ItemIDSpan(ctx)
+	if err != nil {
+		return IDSpan{}, fmt.Errorf("item id span: %w", err)
+	}
+	out := IDSpan{MinID: r.MinID, MaxID: r.MaxID, Total: r.Total}
+	if r.Total > 0 {
+		out.Absent = int64(r.MaxID-r.MinID+1) - r.Total
+	}
+	return out, nil
+}
+
 func numeric(n pgtype.Numeric) string {
 	if !n.Valid {
 		return ""

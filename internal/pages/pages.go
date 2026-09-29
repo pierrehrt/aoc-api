@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -25,10 +26,12 @@ type Handler struct {
 	// two different canonicals — which is precisely the duplicate-content problem the
 	// canonical tag exists to solve. One configured origin, one canonical.
 	baseURL string
+	// items is THE armory service — the same *items.Service the JSON handlers hold (CLAUDE.md 5b).
+	items *items.Service
 }
 
-func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string) *Handler {
-	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/")}
+func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string, svc *items.Service) *Handler {
+	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc}
 }
 
 func (h *Handler) canonical(path string) string { return h.baseURL + path }
@@ -48,8 +51,14 @@ func (h *Handler) view(title, description, path string) templates.View {
 	if p, err := h.assets.Path(ogImageAsset); err == nil {
 		v.OGImage = h.baseURL + p
 	}
+	v.Nav = siteNav
 	return v
 }
+
+// siteNav is the header's section links (AOC-046). ⛔ Only routes that EXIST go here — a link to a
+// 404 is a bug, and TestEveryNavLinkIsARegisteredRoute walks it against the real router. The
+// Armory entry arrives with AOC-047, the Locations/Sets/Currencies entries with their pages.
+var siteNav = []templates.NavItem{{Label: "Armory", Path: "/armory"}}
 
 // ogImageAsset is the social-card image. Kept as a constant so a missing one is a single
 // obvious edit rather than a string repeated across handlers.
@@ -58,6 +67,7 @@ const ogImageAsset = "og-card.png"
 // Routes mounts the HTML surface on the root router.
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/", h.home)
+	r.Get("/armory", h.armory)
 	r.Get("/_smoke", h.smoke)
 	r.Post("/_smoke/echo", h.echo)
 }
@@ -68,7 +78,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 		"Boss mechanics, loot and builds for Age of Conan: Hyborian Adventures, written to be read in the three minutes before a pull.",
 		"/",
 	)
-	h.render(w, r, http.StatusOK, "home", v, nil)
+	h.render(w, r, "home", v, nil)
 }
 
 // smokeData is what the proving page shows. It has no meaning beyond proving the
@@ -87,7 +97,7 @@ func (h *Handler) smoke(w http.ResponseWriter, r *http.Request) {
 	// noindex because this is machinery, not content. An internal page in a search index
 	// is a small embarrassment that is very hard to get back out again.
 	v.NoIndex = true
-	h.render(w, r, http.StatusOK, "smoke", v, smokeData{Marker: "server-rendered"})
+	h.render(w, r, "smoke", v, smokeData{Marker: "server-rendered"})
 }
 
 // echo is the HTMX target: one handler, one source of truth, two renderings.
@@ -119,11 +129,13 @@ func (h *Handler) echo(w http.ResponseWriter, r *http.Request) {
 	// Vary even on the full-page branch: this URL's body depends on the header, so a
 	// cache must key on it whichever branch answered.
 	w.Header().Add("Vary", "HX-Request")
-	h.render(w, r, http.StatusOK, "smoke", v, data)
+	h.render(w, r, "smoke", v, data)
 }
 
-func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, name string, v templates.View, data any) {
-	if err := h.tpl.Render(w, r, status, name, v, data); err != nil {
+// render writes a full page as 200. A page's own rejections do not come through here: they use
+// httpx.RejectHTML, dependency-free (a bad query, a page past the end — AOC-047).
+func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, v templates.View, data any) {
+	if err := h.tpl.Render(w, r, http.StatusOK, name, v, data); err != nil {
 		h.fail(w, r, err)
 	}
 }

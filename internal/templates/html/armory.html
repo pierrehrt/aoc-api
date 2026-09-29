@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1 class="sr-only">Armory</h1>
+<form method="get" action="/armory" role="search" class="flex flex-wrap items-center gap-3">
+  <label for="q" class="sr-only">Search items by name or id</label>
+  <input id="q" name="q" type="search" value="{{.Data.Query}}" placeholder="Search {{.Data.Span.Total}} items by name or id"
+         class="min-w-0 flex-1 rounded border border-line bg-ink-2 px-3 py-2 text-paper placeholder:text-muted focus:border-link focus:outline-none">
+  {{if .Data.SortInURL}}<input type="hidden" name="sort" value="{{.Data.Sort}}">{{end}}
+  <button type="submit" class="rounded bg-link px-4 py-2 font-medium text-ink">Search</button>
+</form>
+<div id="results" class="mt-6">
+{{template "armory_rows" .Data}}
+</div>
+{{end}}
