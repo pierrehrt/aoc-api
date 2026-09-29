@@ -3,6 +3,7 @@ package items
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -188,11 +189,16 @@ func TestAnEmptyResultIsAnEnvelopeNotAnError(t *testing.T) {
 	}
 }
 
-// Kentarii's release was unconditional, which is exactly why the credit is asserted rather than
-// assumed (DECISIONS.md 2026-09-13).
+// The attribution names AoC Codex and the Info page and no one else (Pierre, 2026-09-29): the site
+// shows no other creator anywhere, and the field stays because dropping it would break the contract.
 func TestEveryResponseCarriesTheAttribution(t *testing.T) {
-	if Attribution != "Data preserved from AoC>TV by Kentarii" {
-		t.Fatalf("attribution text changed to %q — DECISIONS.md fixes this wording", Attribution)
+	if Attribution != "AoC Codex — https://aoc-codex.app/info" {
+		t.Fatalf("attribution text changed to %q — DECISIONS.md 2026-09-29 fixes this wording", Attribution)
+	}
+	for _, banned := range []string{"Kentarii", "AoC>TV", "Johar", "Funcom"} {
+		if strings.Contains(Attribution, banned) {
+			t.Fatalf("attribution names %q — no other site or person is named anywhere on the site", banned)
+		}
 	}
 	res, _ := NewService(sharedItem()).List(context.Background(), Filters{})
 	if res.Attribution != Attribution {

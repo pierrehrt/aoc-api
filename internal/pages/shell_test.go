@@ -11,17 +11,15 @@ import (
 
 // The shell (AOC-046): what every page carries around its content.
 
-// The footer line this site owes on every page carrying Kentarii's data, and the Funcom notice —
-// spelled out here rather than imported, so a change to the attribution constant is a change to
-// this test too, on purpose.
+// The shell on every page — and NOTHING in it that names a source, a creator or a contact: no
+// credit line, no Funcom notice (AOC-055, Pierre 2026-09-29; origins are on the Info page), no
+// contact (Pierre, same day). Asserted as absence, so a well-meant line cannot come back quietly.
 func TestEveryPageCarriesTheShell(t *testing.T) {
 	h := router(t)
 	for _, path := range []string{"/", "/_smoke"} {
 		body := get(t, h, http.MethodGet, path, nil, "").Body.String()
 		for _, want := range []string{
-			"Data preserved from AoC&gt;TV by Kentarii", // html/template escapes the >; the browser shows AoC>TV
-			"not affiliated with or endorsed by Funcom",
-			`<header`, `<nav aria-label="Sections"`, `<footer`,
+			`<header`, `<nav aria-label="Sections"`, `<main`, `<footer`,
 			`href="/"`, // the logo goes home
 			"fonts.googleapis.com/css2?family=IBM+Plex+Sans",
 		} {
@@ -29,13 +27,17 @@ func TestEveryPageCarriesTheShell(t *testing.T) {
 				t.Errorf("%s: missing %q", path, want)
 			}
 		}
-		// No contact line, by Pierre's decision (2026-09-29) — nothing that looks like one either.
+		for _, banned := range []string{"Kentarii", "AoC&gt;TV", "AoC>TV", "Funcom", "affiliated", "preserved from", "Johar"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("%s: renders %q — the site names no source and no other creator (DECISIONS.md 2026-09-29)", path, banned)
+			}
+		}
 		if regexp.MustCompile(`(?i)mailto:|contact`).MatchString(body) {
 			t.Errorf("%s: the footer carries a contact; none was decided", path)
 		}
 	}
-	if items.Attribution != "Data preserved from AoC>TV by Kentarii" {
-		t.Errorf("items.Attribution changed to %q; the footer and this test follow it deliberately", items.Attribution)
+	if strings.Contains(items.Attribution, "Kentarii") || strings.Contains(items.Attribution, "Funcom") {
+		t.Errorf("items.Attribution names another creator: %q", items.Attribution)
 	}
 }
 

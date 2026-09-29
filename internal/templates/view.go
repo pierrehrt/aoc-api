@@ -40,10 +40,9 @@ type View struct {
 	Data        any    // whatever the page's own template needs
 
 	// The shell (AOC-046): what base.html renders around every page. Filled by the handler
-	// package's view helper, so no page can forget the footer line this site owes on every page
-	// carrying Kentarii's data.
-	Nav         []NavItem // the header's section links — only routes that exist
-	Attribution string    // the footer's data credit
+	// package's view helper. The footer carries no credit and no notice (AOC-055, Pierre): where the
+	// data came from is said once, on the Info page (AOC-056).
+	Nav []NavItem // the header's section links — only routes that exist
 }
 
 // NavItem is one header link.

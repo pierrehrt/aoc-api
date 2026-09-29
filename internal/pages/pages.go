@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -50,7 +49,6 @@ func (h *Handler) view(title, description, path string) templates.View {
 		v.OGImage = h.baseURL + p
 	}
 	v.Nav = siteNav
-	v.Attribution = items.Attribution
 	return v
 }
 
