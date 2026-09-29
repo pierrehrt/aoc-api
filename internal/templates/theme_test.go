@@ -20,8 +20,9 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 		t.Fatalf("read app.css: %v", err)
 	}
 	theme := string(src)
-	if i := strings.Index(theme, "@theme {"); i >= 0 {
-		theme = theme[i:]
+	// `@theme static`, so every token reaches the build (verify round 1); either spelling is the block.
+	if loc := regexp.MustCompile(`@theme( static)? \{`).FindStringIndex(theme); loc != nil {
+		theme = theme[loc[0]:]
 	} else {
 		t.Fatal("app.css has no @theme block")
 	}

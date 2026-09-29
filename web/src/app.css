@@ -33,7 +33,12 @@
 /* The 30-second contract (reference/ux-principles.md): someone reads this on a phone,
    on hotel wifi, three minutes before a pull. Dark by default because that is what the
    game looks like and what a second monitor at night should be. */
-@theme {
+/* ⭐ `static`, not plain `@theme` (AOC-046 verify round 1). Plain @theme emits only the variables a
+   scanned utility class uses — and the rarity colours are reached by a DATABASE token
+   (`style="color: var(--color-rarity-epic)"`), which no scanner can see, so the built stylesheet
+   silently shipped without them. `static` emits every token, unconditionally (+244 bytes, measured);
+   TestServedThemeCarriesEveryDeclaredToken reads the BUILT file and pins it. */
+@theme static {
   /* The type the design set: IBM Plex Sans for prose, Plex Mono for data columns (loaded from
      Google Fonts in base.html; the fallbacks are what renders offline). */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

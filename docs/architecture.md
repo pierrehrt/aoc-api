@@ -413,7 +413,7 @@ decision (2026-09-29; to revisit before the site is announced). Both come throug
   colour of its own, renders as paper) and `classes.short_name` holds the abbreviation players use
   (Conq, DT, Guard … — Pierre, Tier A). `/v1/taxonomies` carries both, so the JSON surface and
   the pages read one row. A template paints a rarity with
-  `style="color: var(--color-{{{{.ColourToken}}}})"` and never names a rarity itself.
+  `style="color: var(--color-{{.ColourToken}})"` and never names a rarity itself.
 - Pages are wide (`max-w-7xl`): the Armory table needs it; prose pages constrain themselves.
 
 ### Adding a page
