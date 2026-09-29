@@ -107,7 +107,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	}
 	// The canonical is this state without a redundant p=1, so the first page has one URL.
 	v := h.view(title, desc, link(f.Sort, page))
-	h.render(w, r, http.StatusOK, "armory", v, d)
+	h.render(w, r, "armory", v, d)
 }
 
 // armoryURL builds the list's own URLs: only what differs from the default is in the query

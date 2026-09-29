@@ -78,7 +78,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 		"Boss mechanics, loot and builds for Age of Conan: Hyborian Adventures, written to be read in the three minutes before a pull.",
 		"/",
 	)
-	h.render(w, r, http.StatusOK, "home", v, nil)
+	h.render(w, r, "home", v, nil)
 }
 
 // smokeData is what the proving page shows. It has no meaning beyond proving the
@@ -97,7 +97,7 @@ func (h *Handler) smoke(w http.ResponseWriter, r *http.Request) {
 	// noindex because this is machinery, not content. An internal page in a search index
 	// is a small embarrassment that is very hard to get back out again.
 	v.NoIndex = true
-	h.render(w, r, http.StatusOK, "smoke", v, smokeData{Marker: "server-rendered"})
+	h.render(w, r, "smoke", v, smokeData{Marker: "server-rendered"})
 }
 
 // echo is the HTMX target: one handler, one source of truth, two renderings.
@@ -129,11 +129,13 @@ func (h *Handler) echo(w http.ResponseWriter, r *http.Request) {
 	// Vary even on the full-page branch: this URL's body depends on the header, so a
 	// cache must key on it whichever branch answered.
 	w.Header().Add("Vary", "HX-Request")
-	h.render(w, r, http.StatusOK, "smoke", v, data)
+	h.render(w, r, "smoke", v, data)
 }
 
-func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, name string, v templates.View, data any) {
-	if err := h.tpl.Render(w, r, status, name, v, data); err != nil {
+// render writes a full page as 200. A page's own rejections do not come through here: they use
+// httpx.RejectHTML, dependency-free (a bad query, a page past the end — AOC-047).
+func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, v templates.View, data any) {
+	if err := h.tpl.Render(w, r, http.StatusOK, name, v, data); err != nil {
 		h.fail(w, r, err)
 	}
 }
