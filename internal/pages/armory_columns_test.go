@@ -78,7 +78,7 @@ func TestTheListHasASlotColumnAndATypeColumn(t *testing.T) {
 		"Test Bolt Beta":       {"Main Hand", "Crossbow", "Main Hand · Crossbow"}, // a weapon: the type's NAME
 		"Test Band Gamma":      {"Left Finger, Right Finger", "Ring", "Left Finger, Right Finger · Ring"},
 		"Test Chain Delta":     {"Necklace", "Necklace", "Necklace"}, // two facts on desktop; the phone line does not repeat itself
-		"Test Oddment Epsilon": {"—", "—", ""},
+		"Test Oddment Epsilon": {"—", "—", ""},                       // nothing to say: no phone line at all
 	}
 	rows := rowRE.FindAllStringSubmatch(body, -1)
 	if len(rows) != len(want) {
@@ -100,9 +100,12 @@ func TestTheListHasASlotColumnAndATypeColumn(t *testing.T) {
 		if got := text(cells[1][1]); got != w.typ {
 			t.Errorf("%s: Type %q, want %q", n[1], got, w.typ)
 		}
-		p := phoneRE.FindStringSubmatch(r[1])
-		if p == nil || text(p[1]) != w.phone {
-			t.Errorf("%s: phone line %v, want %q", n[1], p, w.phone)
+		got := ""
+		if p := phoneRE.FindStringSubmatch(r[1]); p != nil {
+			got = text(p[1])
+		}
+		if got != w.phone {
+			t.Errorf("%s: phone line %q, want %q", n[1], got, w.phone)
 		}
 	}
 	// A slug is never printed as a type (the list printed "crossbow" before AOC-062).

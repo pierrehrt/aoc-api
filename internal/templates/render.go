@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"github.com/pierrehrt/aoc-api/internal/items"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -80,10 +79,9 @@ var pageProbes = map[string]any{
 
 // fragmentProbes likewise, by fragment name.
 var fragmentProbes = map[string]any{
-	"armory_rows":      armoryProbe(),
-	"armory_slot_type": armoryProbe().Result.Items[0],
-	"armory_slot":      armoryProbe().Result.Items[0],
-	"armory_type":      armoryProbe().Result.Items[0],
+	"armory_rows": armoryProbe(),
+	"armory_slot": armoryProbe().Result.Items[0],
+	"armory_type": armoryProbe().Result.Items[0],
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.
@@ -108,10 +106,11 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		"asset": func(name string) (string, error) { return assets.Path(name) },
 		// statText: a stat line as the tooltip prints it (AOC-048).
 		"statText": StatText,
-		// typeIsSlot: for armour the item type repeats the slot name; the row shows it once.
-		"typeIsSlot": func(it items.ListItem) bool {
-			return it.ItemType != nil && typeRepeatsSlot(*it.ItemType, "", it.EquipLocations)
-		},
+		// The list row's three display rules (AOC-062), in Go so each is written once: the Slot cell,
+		// the Type cell, and the phone line that joins what is present.
+		"slotNames": SlotNames,
+		"typeLabel": TypeLabel,
+		"phoneLine": PhoneLine,
 	}
 
 	fragmentFiles, err := fragmentsIn(fsys, pageMap)

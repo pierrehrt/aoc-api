@@ -66,9 +66,9 @@ never a free-text value a client invented — except `q`, which is a name search
 - **`sort`** is `name` (the default, unchanged since 0.1.0), `ilvl` (item level, highest first,
   items with no level last) or `id` (ascending). Any other value is a 400. The keys are code, not a
   game concept.
-- **`item_type_name`** (AOC-062, additive): the item type's display name ("Crossbow") beside
-  `item_type`, its slug — the list's Type column prints the name, never the slug.
-- Each row also carries, additively since AOC-047: `rarity_colour_token` (AOC-046),
+- Each row also carries, additively since AOC-047: **`item_type_name`** (AOC-062 — the item type's
+  display name, "Crossbow", beside `item_type`, its slug; absent when the item has no type; the
+  list's Type column prints the name, never the slug), `rarity_colour_token` (AOC-046),
   `armour_weight` (`{slug, name}`, armour only), `equip_locations[]` and `classes[]` (`{slug, name, short_name}`), and `price` — the first vendor
   source's costs as one string (`"9 Simple Relic I + 2 Gold"`), absent when no vendor sells it.
   Loaded in one round trip per page each, never per row.

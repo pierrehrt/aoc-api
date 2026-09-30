@@ -22,10 +22,15 @@ func TestAListRowCarriesItsTypesNameFromItsRow(t *testing.T) {
 	if len(res.Items) == 0 {
 		t.Fatal("no rows")
 	}
+	checked := 0
 	for _, it := range res.Items {
 		if it.ItemType == nil {
+			if it.ItemTypeName != nil {
+				t.Errorf("%s: no type, yet a type name %q", it.Slug, *it.ItemTypeName)
+			}
 			continue
 		}
+		checked++
 		var name string
 		if err := pool.QueryRow(context.Background(), `SELECT name FROM item_types WHERE slug = $1`, *it.ItemType).Scan(&name); err != nil {
 			t.Fatal(err)
@@ -33,5 +38,8 @@ func TestAListRowCarriesItsTypesNameFromItsRow(t *testing.T) {
 		if it.ItemTypeName == nil || *it.ItemTypeName != name {
 			t.Errorf("%s: item_type %q, item_type_name %v, want %q", it.Slug, *it.ItemType, it.ItemTypeName, name)
 		}
+	}
+	if checked == 0 {
+		t.Fatal("no typed row was checked — the fixture or the query changed under this test")
 	}
 }

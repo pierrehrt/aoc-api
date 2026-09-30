@@ -356,7 +356,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			ItemLevel: r.ItemLevel, RequiresLvl: r.RequiresLevel, Armor: r.Armor,
 			TooltipImage: r.TooltipImage, Confidence: r.Confidence,
 			RarityColourToken: deref(r.RarityColourToken),
-			ItemTypeName:      r.ItemTypeName,
+			ItemTypeName:      ptrIfSet(deref(r.ItemTypeName)), // "" is no name, like its neighbours
 			ArmourWeight:      termIfSet(r.ArmourWeight, r.ArmourWeightName),
 			EquipLocations:    slotsBy[r.ItemID],
 			Classes:           classesBy[r.ItemID],

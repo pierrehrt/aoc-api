@@ -11,7 +11,6 @@ import (
 	"html"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -115,7 +114,8 @@ func TestTheCorpusEdgeCasesRender(t *testing.T) {
 }
 
 // AOC-062, on the real corpus: every page of the list, every row's Type cell is an armour weight's
-// name, an item type's name, or a dash — never a slug. Walked in full, not sampled.
+// name, an item type's name, or a dash — never a slug. Walked in full, row by row (the Type cell is
+// each row's second desktop cell — rowRE and cellsRE are armory_columns_test.go's).
 func TestEveryTypeCellOnTheRealListIsAName(t *testing.T) {
 	h, pool := corpusRouter(t)
 	ctx := context.Background()
@@ -133,9 +133,10 @@ func TestEveryTypeCellOnTheRealListIsAName(t *testing.T) {
 			names[n] = true
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	cell := regexp.MustCompile(`(?s)<td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">(.*?)</td>`)
-	tag := regexp.MustCompile(`<[^>]+>`)
 	seen, bad := 0, 0
 	for p := 1; ; p++ {
 		rr := get(t, h, http.MethodGet, fmt.Sprintf("/armory?p=%d", p), nil, "")
@@ -145,12 +146,13 @@ func TestEveryTypeCellOnTheRealListIsAName(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Fatalf("page %d: %d", p, rr.Code)
 		}
-		cells := cell.FindAllStringSubmatch(rr.Body.String(), -1)
-		// Slot, Type, iLvl, Class per row: the Type cell is every 4th, from the 2nd.
-		for i := 1; i < len(cells); i += 4 {
-			txt := strings.TrimSpace(html.UnescapeString(tag.ReplaceAllString(cells[i][1], "")))
+		for _, row := range rowRE.FindAllStringSubmatch(rr.Body.String(), -1) {
+			cells := cellsRE.FindAllStringSubmatch(row[1], -1)
+			if len(cells) < 2 {
+				t.Fatalf("page %d: a row with %d desktop cells — the markup moved", p, len(cells))
+			}
 			seen++
-			if !names[txt] {
+			if txt := text(cells[1][1]); !names[txt] {
 				bad++
 				if bad <= 5 {
 					t.Errorf("page %d: Type cell %q is not a type or weight name", p, txt)
@@ -158,7 +160,11 @@ func TestEveryTypeCellOnTheRealListIsAName(t *testing.T) {
 			}
 		}
 	}
-	if seen < 4000 {
-		t.Fatalf("read only %d Type cells — the page markup moved; update the regexp", seen)
+	var total int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM items`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if seen != total {
+		t.Fatalf("read %d rows' Type cells, the database holds %d items", seen, total)
 	}
 }
