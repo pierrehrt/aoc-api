@@ -14,10 +14,18 @@ import (
 	"testing"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/pierrehrt/aoc-api/internal/items"
 )
 
-// The version just before AOC-054's migration: the state production was in when it shipped.
-const beforeNecklaceSlot = 20260929120000
+// AOC-054's migration, and the version just before it — the state production was in when it
+// shipped. The backfill test migrates to exactly these two, so a later migration's Up or Down never
+// runs against its fixture rows.
+const (
+	beforeNecklaceSlot = 20260929120000
+	necklaceSlot       = 20260930120000
+	necklaceMigration  = "20260930120000_necklace_slot.sql"
+)
 
 func TestTheNecklaceSlotAndItsRuleAreSeeded(t *testing.T) {
 	d, _ := migratedDB(t)
@@ -65,6 +73,15 @@ func TestTheNecklaceSlotAndItsRuleAreSeeded(t *testing.T) {
 	if worn != 24 || notWorn != 6 {
 		t.Errorf("is_equipment: %d worn / %d not, want 24 / 6", worn, notWorn)
 	}
+	// ⭐ Every type is classified, true or false. The column has no default on purpose: a type
+	// added later must be DECIDED, not filed as "not worn" by omission — that omission is this bug.
+	var unclassified int
+	if err := d.QueryRowContext(ctx, `SELECT count(*) FROM item_types WHERE is_equipment IS NULL`).Scan(&unclassified); err != nil {
+		t.Fatal(err)
+	}
+	if unclassified != 0 {
+		t.Errorf("%d item type(s) have no is_equipment — decide whether each is worn, in a migration", unclassified)
+	}
 	var necklaceWorn bool
 	if err := d.QueryRowContext(ctx, `SELECT is_equipment FROM item_types WHERE slug = 'necklace'`).Scan(&necklaceWorn); err != nil || !necklaceWorn {
 		t.Errorf("necklace is_equipment = %v (%v), want true — it is the type this ticket exists for", necklaceWorn, err)
@@ -73,7 +90,8 @@ func TestTheNecklaceSlotAndItsRuleAreSeeded(t *testing.T) {
 
 // ⭐ THE BACKFILL, against rows that exist BEFORE the migration — the only way production meets it.
 // A slotless necklace gains the slot; a necklace that already has one keeps exactly what it had; a
-// slotless consumable is left alone. Then the Down puts every one of them back.
+// slotless consumable is left alone; a consumable carrying a fit with no rows (a shape the Up never
+// makes) keeps its fit through the Down. Then the Down puts every one of them back.
 func TestTheMigrationPlacesTheNecklacesAlreadyThereAndItsDownRemovesThem(t *testing.T) {
 	url := freshDatabase(t)
 	d := openGoose(t, url)
@@ -99,6 +117,7 @@ SELECT $1, $2, $3,
 		{960, "test-pendant-alpha", "Test Pendant Alpha", "necklace", nil},
 		{961, "test-pendant-beta", "Test Pendant Beta", "necklace", "single"},
 		{962, "test-tonic-gamma", "Test Tonic Gamma", "consumable", nil},
+		{963, "test-tonic-delta", "Test Tonic Delta", "consumable", "single"},
 	} {
 		if _, err := d.ExecContext(ctx, insert, it.id, it.slug, it.name, it.typ, it.fit); err != nil {
 			t.Fatalf("seeding %s: %v", it.name, err)
@@ -109,13 +128,14 @@ SELECT $1, $2, $3,
 		t.Fatal(err)
 	}
 
-	if err := goose.Up(d, migrationsDir); err != nil {
-		t.Fatalf("goose up: %v", err)
+	if err := goose.UpTo(d, migrationsDir, necklaceSlot); err != nil {
+		t.Fatalf("goose up to %d: %v", necklaceSlot, err)
 	}
 	for id, want := range map[int]slotState{
 		960: {slots: "necklace", fit: "single"},
 		961: {slots: "chest", fit: "single"}, // its own slot, never replaced by the default
 		962: {},
+		963: {fit: "single"},
 	} {
 		if got := slotsOf(t, d, id); got != want {
 			t.Errorf("after up, item %d = %+v, want %+v", id, got, want)
@@ -129,6 +149,7 @@ SELECT $1, $2, $3,
 		960: {},
 		961: {slots: "chest", fit: "single"},
 		962: {},
+		963: {fit: "single"}, // not a defaulted type: the Down leaves its fit alone
 	} {
 		if got := slotsOf(t, d, id); got != want {
 			t.Errorf("after down, item %d = %+v, want %+v", id, got, want)
@@ -197,4 +218,68 @@ func TestTheImporterPutsASlotlessNecklaceInTheNecklaceSlot(t *testing.T) {
 	if got := r.rep.TypeDefaultSlots; len(got) != 1 || got["Necklace"] != 1 {
 		t.Errorf("report's default-slot counts = %v, want exactly Necklace: 1", got)
 	}
+}
+
+// ⭐ THE TWO PLACES AGREE — checked here, not only by the one-off comparison on a production dump.
+// Production met the rule through the migration's backfill, run over rows an importer WITHOUT
+// default slots had written; every later import applies it through slotFit. This replays both from
+// one fixture: the old importer (DefaultSlots emptied) followed by the backfill statement read
+// verbatim out of the migration file, against the current importer. If the Go rule ever changes,
+// this fails and someone decides whether the frozen backfill still describes it.
+func TestTheBackfillAndTheImporterAgree(t *testing.T) {
+	pool, d := importTarget(t)
+	ctx := context.Background()
+
+	old := runImportAdjusted(t, pool, necklaceFixtureJSON, items.Options{},
+		func(l *items.Lookups) { l.DefaultSlots = map[string]string{} })
+	if old.err != nil {
+		t.Fatalf("import as the pre-AOC-054 importer: %v", old.err)
+	}
+	if got := slotsOf(t, d, 9101); got != (slotState{}) {
+		t.Fatalf("replaying the old importer left 9101 = %+v; the replay is not replaying it", got)
+	}
+	backfill := seedStatementFrom(t, necklaceMigration, "WITH filled AS")
+	if _, err := d.ExecContext(ctx, backfill); err != nil {
+		t.Fatalf("running the migration's backfill: %v", err)
+	}
+	viaMigration := allSlots(t, d)
+
+	if r := runImport(t, pool, necklaceFixtureJSON); r.err != nil {
+		t.Fatalf("import: %v", r.err)
+	}
+	viaImporter := allSlots(t, d)
+
+	if len(viaImporter) != 3 {
+		t.Fatalf("read %d items back, want the fixture's 3", len(viaImporter))
+	}
+	for id, want := range viaImporter {
+		if got := viaMigration[id]; got != want {
+			t.Errorf("item %d: backfill gives %+v, the importer gives %+v", id, got, want)
+		}
+	}
+}
+
+func allSlots(t *testing.T, d *sql.DB) map[int]slotState {
+	t.Helper()
+	rows, err := d.QueryContext(context.Background(), `SELECT item_id FROM items ORDER BY item_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	out := map[int]slotState{}
+	for _, id := range ids {
+		out[id] = slotsOf(t, d, id)
+	}
+	return out
 }

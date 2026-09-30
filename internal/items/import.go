@@ -185,16 +185,11 @@ func checkCounts(live []Item, l *Lookups, rep *Report) error {
 		if it.Set != nil && *it.Set != "" {
 			sets[*it.Set] = true
 		}
-		switch v := it.EquipLocation; {
-		case v == nil || *v == "" || *v == "None":
-			if it.ItemType != nil && l.DefaultSlots[*it.ItemType] != "" {
-				want["item_equip_locations"]++ // AOC-054: its type's default slot
-			}
-		case strings.Contains(*v, ","), strings.Contains(*v, "/"):
-			want["item_equip_locations"] += 2
-		default:
-			want["item_equip_locations"]++
-		}
+		// Slot rows are counted through slotFit — the one reading of equip_location that
+		// insertChildren writes from. A second copy of that rule here could only disagree with it
+		// (it did, briefly, on the default slot's test — AOC-054 review).
+		_, slots, _ := slotFit(it, l)
+		want["item_equip_locations"] += len(slots)
 		for _, s := range it.LiveSources() {
 			want["item_sources"]++
 			want["item_costs"] += len(s.AcquisitionCost)

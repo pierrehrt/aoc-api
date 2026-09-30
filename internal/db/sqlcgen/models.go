@@ -182,7 +182,7 @@ type ItemType struct {
 	Slug                   string
 	Name                   string
 	DefaultEquipLocationID *int32
-	IsEquipment            bool
+	IsEquipment            *bool
 }
 
 type Map struct {

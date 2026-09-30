@@ -236,6 +236,40 @@ func (q *Queries) ListFactions(ctx context.Context) ([]Faction, error) {
 	return items, nil
 }
 
+const listItemTypeDefaultSlots = `-- name: ListItemTypeDefaultSlots :many
+SELECT t.name AS item_type, el.name AS slot
+FROM item_types t
+JOIN equip_locations el ON el.id = t.default_equip_location_id
+ORDER BY t.name
+`
+
+type ListItemTypeDefaultSlotsRow struct {
+	ItemType string
+	Slot     string
+}
+
+// AOC-054: item type -> the slot its items go in when their tooltip names none. By NAME on both
+// sides, because the importer resolves the snapshot's names; read by internal/items LoadLookups.
+func (q *Queries) ListItemTypeDefaultSlots(ctx context.Context) ([]ListItemTypeDefaultSlotsRow, error) {
+	rows, err := q.db.Query(ctx, listItemTypeDefaultSlots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemTypeDefaultSlotsRow{}
+	for rows.Next() {
+		var i ListItemTypeDefaultSlotsRow
+		if err := rows.Scan(&i.ItemType, &i.Slot); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItemTypes = `-- name: ListItemTypes :many
 SELECT id, slug, name FROM item_types ORDER BY name
 `

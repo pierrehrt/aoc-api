@@ -85,6 +85,14 @@ func runImport(t *testing.T, pool *pgxpool.Pool, body string) importResult {
 
 func runImportWith(t *testing.T, pool *pgxpool.Pool, body string, opt items.Options) importResult {
 	t.Helper()
+	return runImportAdjusted(t, pool, body, opt, nil)
+}
+
+// runImportAdjusted lets a test change the lookups before the import runs — to replay what an
+// older importer would have written (AOC-054: one without default slots).
+func runImportAdjusted(t *testing.T, pool *pgxpool.Pool, body string, opt items.Options,
+	adjust func(*items.Lookups)) importResult {
+	t.Helper()
 	ctx := context.Background()
 	its, err := items.DecodeSnapshot(strings.NewReader(body))
 	if err != nil {
@@ -99,6 +107,9 @@ func runImportWith(t *testing.T, pool *pgxpool.Pool, body string, opt items.Opti
 	l, err := items.LoadLookups(ctx, tx)
 	if err != nil {
 		t.Fatalf("lookups: %v", err)
+	}
+	if adjust != nil {
+		adjust(l)
 	}
 	rep, err := items.Import(ctx, tx, its, l, opt)
 	if err == nil {

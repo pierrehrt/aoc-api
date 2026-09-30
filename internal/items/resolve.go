@@ -12,6 +12,11 @@ package items
 // (always a NULL plus an open question, never a guess), and **an entry that stops matching
 // anything fails the import**. Without that last property the list would rot into exactly the
 // "green check that stopped checking" this repo keeps finding (AOC-019, AOC-020, AOC-032).
+//
+// ⚠️ ONE DEFAULT EXISTS, AND IT IS DATA, NOT A GUESS (AOC-054). An item whose tooltip names no slot
+// goes in its TYPE's default slot — `item_types.default_equip_location_id`, set by a migration from
+// a named source (the necklace: AoC>TV's builder, Pierre 2026-09-29) and read into DefaultSlots.
+// Nothing here chooses a slot; it applies one the database was told.
 
 import (
 	"context"
@@ -20,6 +25,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 )
 
 // Lookups is every id the importer needs, read once before anything is written.
@@ -155,13 +162,15 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 
 	// ⭐ A type's default slot, by NAME on both sides: slotFit hands back slot names, and
 	// insertChildren resolves them through EquipLocations like any the snapshot supplied.
-	ds, err := scanStringMap(ctx, q, `SELECT t.name, el.name
-	                                  FROM item_types t
-	                                  JOIN equip_locations el ON el.id = t.default_equip_location_id`)
+	// Through sqlc, not inline: the query reads AOC-054's column, and a rename must break the build.
+	ds, err := sqlcgen.New(q).ListItemTypeDefaultSlots(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
 	}
-	l.DefaultSlots = ds
+	l.DefaultSlots = make(map[string]string, len(ds))
+	for _, d := range ds {
+		l.DefaultSlots[d.ItemType] = d.Slot
+	}
 
 	// ⭐ places join on the PAIR, never a name — the armory's own (instance, dungeon).
 	l.Places = map[PlaceKey]int32{}
@@ -201,23 +210,6 @@ func scanNameMap(ctx context.Context, q pgx.Tx, sql string) (map[string]int32, e
 			return nil, err
 		}
 		m[name] = id
-	}
-	return m, rows.Err()
-}
-
-func scanStringMap(ctx context.Context, q pgx.Tx, sql string) (map[string]string, error) {
-	rows, err := q.Query(ctx, sql)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	m := map[string]string{}
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			return nil, err
-		}
-		m[k] = v
 	}
 	return m, rows.Err()
 }

@@ -756,13 +756,16 @@ The fix is data on `item_types`, read by the importer, never a literal:
 | column | means | set on |
 |---|---|---|
 | `default_equip_location_id` | the slot an item of this type goes in **when its own record names none** — a fallback, never an override | `necklace` only (AoC>TV's builder, Pierre 2026-09-29). ⛔ Not for other types: two items typed Crossbow and Polearm are really a consumable and a companion (AOC-059), and a default would put them in a hand |
-| `is_equipment` | whether an item of this type is worn at all | the 23 types that carry a slot in the data, plus `necklace` |
+| `is_equipment` | whether an item of this type is worn at all — **nullable, no default**, so a type added later must be classified rather than filed as "not worn" by omission; a NULL fails `TestTheNecklaceSlotAndItsRuleAreSeeded` | `true` on the 23 types that carry a slot in the data plus `necklace`, `false` on the other six |
 
 `slotFit` applies the fallback and the report prints how many items it placed, per type. The rule
 runs in **two places that must agree**: the migration `20260930120000_necklace_slot.sql` backfills the
 rows already there — so production got the slot **without a 15-minute re-import** — and the
 importer applies it on every later run. Measured on a restored production dump: the backfill and a
-fresh import produce **byte-identical** `item_equip_locations` and `slot_fit_id` rows.
+fresh import produce **byte-identical** `item_equip_locations` and `slot_fit_id` rows — and
+`TestTheBackfillAndTheImporterAgree` keeps checking it, replaying the pre-AOC-054 importer, running
+the backfill statement read out of the migration file, and comparing with the current importer.
+The default is read through sqlc (`ListItemTypeDefaultSlots`), so a column rename breaks the build.
 
 `is_equipment` is deliberately **independent of the slots**: derived from them, a type whose
 tooltips never name a slot is simply not equipment, and "every piece of equipment has a slot"
@@ -1146,6 +1149,11 @@ cp ../armory_snapshot/items_clean.json "$CTX/armory_snapshot/"
 cd "$CTX" && git init -q && git add -A && git -c user.email=a@b -c user.name=c commit -qm ctx
 railway up -d -s import -e production
 ```
+
+⚠️ **The flip side: it runs the code it was last deployed with.** A release that changes the importer
+redeploys this service in the same release (`workflows/5-release.md` § 4) — AOC-054's migration
+backfilled 146 necklace slots, and an importer from before it would delete them on its next real
+run and exit 0, because its own count check expects no such rows.
 
 ⭐ **A safety consequence worth keeping deliberately: a push to `main` cannot rebuild or trigger this
 service.** `api` and `backup` both carry `source.repo = pierrehrt/aoc-api`, so a merge redeploys

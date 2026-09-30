@@ -22,8 +22,11 @@ WHERE slug = 'necklace';
 -- whose tooltips never name a slot (this bug) is simply not equipment, and the check passes.
 -- Seeded: the 23 types whose items carry a slot in the armory (measured on dev, 2026-09-30) plus
 -- necklace. The other six — backpack, consumable, generic, mount, pet, potion — carry none.
-ALTER TABLE item_types ADD COLUMN is_equipment boolean NOT NULL DEFAULT false;
-UPDATE item_types SET is_equipment = true WHERE slug IN (
+-- ⚠️ NULLABLE WITH NO DEFAULT, on purpose: a default of false would file every type added later
+-- as "not worn" without anyone deciding it — the necklace's blind spot again. Every row is set
+-- here, true or false, and TestTheNecklaceSlotAndItsRuleAreSeeded fails on a NULL.
+ALTER TABLE item_types ADD COLUMN is_equipment boolean NULL;
+UPDATE item_types SET is_equipment = slug IN (
     '1hb', '1he', '2hb', '2he', 'ammunition', 'back', 'belt', 'bow', 'chest', 'crossbow',
     'dagger', 'feet', 'hands', 'head', 'legs', 'necklace', 'polearm', 'ring', 'shield',
     'shoulder', 'staff', 'talisman', 'thrown', 'wrist');
@@ -45,12 +48,14 @@ UPDATE items SET slot_fit_id = (SELECT id FROM slot_fits WHERE slug = 'single')
 WHERE item_id IN (SELECT item_id FROM filled);
 
 -- +goose Down
--- An item left with no slot row after the delete had its fit set by the Up (an imported fit
--- always comes with rows), so it goes back to NULL.
+-- An item of a DEFAULTED type left with no slot row after the delete had its fit set by the Up (or
+-- by an importer applying the same rule), so it goes back to NULL. Scoped to those types, so a fit
+-- the Up never touched survives the rollback — and done before the column that names them goes.
 DELETE FROM item_equip_locations
 WHERE equip_location_id = (SELECT id FROM equip_locations WHERE slug = 'necklace');
 UPDATE items SET slot_fit_id = NULL
 WHERE slot_fit_id IS NOT NULL
+  AND item_type_id IN (SELECT id FROM item_types WHERE default_equip_location_id IS NOT NULL)
   AND NOT EXISTS (SELECT 1 FROM item_equip_locations e WHERE e.item_id = items.item_id);
 ALTER TABLE item_types DROP COLUMN is_equipment;
 ALTER TABLE item_types DROP COLUMN default_equip_location_id;
