@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,7 @@ func TestNoIndexOnlyOffTheCanonicalHost(t *testing.T) {
 		"www.aoc-codex.app":                             "noindex", // 301'd at the edge today; noindex if it ever is not
 		"nnja20lj.up.railway.app":                       "noindex",
 	} {
-		r := httptest.NewRequest(http.MethodGet, "/armory", nil)
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/armory", nil)
 		r.Host = host
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, r)
@@ -31,7 +32,7 @@ func TestNoIndexOnlyOffTheCanonicalHost(t *testing.T) {
 	}
 	// Local development: the base URL carries a port, the request does too.
 	local := NoIndexOffCanonicalHost("http://localhost:8080")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.Host = "localhost:8080"
 	rr := httptest.NewRecorder()
 	local.ServeHTTP(rr, r)
