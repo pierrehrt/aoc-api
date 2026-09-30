@@ -242,7 +242,6 @@ func (q *Queries) ListItemCosts(ctx context.Context, dollar_1 []int64) ([]ListIt
 }
 
 const listItemEquipLocations = `-- name: ListItemEquipLocations :many
-
 SELECT el.id, el.slug, el.name
 FROM item_equip_locations iel
 JOIN equip_locations el ON el.id = iel.equip_location_id
@@ -250,7 +249,6 @@ WHERE iel.item_id = $1
 ORDER BY el.id
 `
 
-// the tooltip's order, like ListItemStats
 func (q *Queries) ListItemEquipLocations(ctx context.Context, itemID int32) ([]EquipLocation, error) {
 	rows, err := q.db.Query(ctx, listItemEquipLocations, itemID)
 	if err != nil {
@@ -614,7 +612,8 @@ type ListItemSpellEffectsRow struct {
 	Pvp        bool
 }
 
-// Deliberately its own query against its own table. See the header.
+// Deliberately its own query against its own table. See the header. In the tooltip's order, like
+// ListItemStats.
 func (q *Queries) ListItemSpellEffects(ctx context.Context, itemID int32) ([]ListItemSpellEffectsRow, error) {
 	rows, err := q.db.Query(ctx, listItemSpellEffects, itemID)
 	if err != nil {
