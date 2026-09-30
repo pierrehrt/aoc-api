@@ -30,16 +30,17 @@ findable: a sitemap, and one indexed host.
 - `/v1/items/{slug}`: `stats` and `spell_effects` now come in the tooltip's own order instead of
   alphabetically (AOC-048)
 - Any host but aoc-codex.app — the service's Railway address — now answers with a 301 to the same
-  path on aoc-codex.app, and production refuses to start unless `PUBLIC_BASE_URL` is exactly an
-  https origin (AOC-025)
+  path on aoc-codex.app (308 for writes; `/health` excepted), and production refuses to start unless
+  `PUBLIC_BASE_URL` is exactly an https origin (AOC-025)
 
 ### Fixed
 
 - The 146 necklaces have the Necklace slot — the slot list gains the necklace, and a type can name
   the slot its items take when their tooltip names none (AOC-054)
-- One-handed weapons fit either hand: `/v1` `slot_fit` is `either` instead of `both` on the 389
-  items carrying `Main Hand, Off Hand`; which types take both hands is recorded as data for the gear
-  builder; the importer refuses a compound slot value nobody has decided about (AOC-058)
+- One-handed weapons whose tooltip reads `Main Hand, Off Hand` fit either hand: `/v1` `slot_fit` is
+  `either` instead of `both` on those 389 items (nine others stay one hand, as their own tooltips
+  say); which types take both hands is recorded as data for the gear builder; the importer refuses a
+  compound slot value nobody has decided about (AOC-058)
 
 ### Migration
 
