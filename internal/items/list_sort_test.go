@@ -74,11 +74,30 @@ func TestMoneyRendersLikeATooltip(t *testing.T) {
 		return v
 	}
 	for in, want := range map[string]string{"9.00": "9", "2.50": "2.5", "100": "100", "0.10": "0.1"} {
-		if got := money(n(in)); got != want {
-			t.Errorf("money(%s) = %q, want %q", in, got, want)
+		// Through the path a price takes: NUMERIC -> numeric -> TrimNumber (Price and the stat lines).
+		if got := TrimNumber(numeric(n(in))); got != want {
+			t.Errorf("TrimNumber(%s) = %q, want %q", in, got, want)
 		}
 	}
 	_ = big.NewInt // keep the import honest if pgtype changes shape
+}
+
+func TestDPSReadsLikeTheTooltip(t *testing.T) {
+	for in, want := range map[string]string{"143.00": "143.0", "125.80": "125.8", "": ""} {
+		if got := dpsText(in); got != want {
+			t.Errorf("dpsText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Price is the ONE spelling of a cost, for the list row and the item page alike (AOC-048 review).
+func TestPriceIsOneFormatForBothPages(t *testing.T) {
+	if got, want := Price([]CostRef{{CurrencyName: "Test Relic", Amount: "9.00"}, {CurrencyName: "Test Gold", Amount: "2.50"}}), "9 Test Relic + 2.5 Test Gold"; got != want {
+		t.Errorf("Price = %q, want %q", got, want)
+	}
+	if got := Price(nil); got != "" {
+		t.Errorf("no costs gave %q", got)
+	}
 }
 
 func TestIDSpanCountsTheAbsentIDs(t *testing.T) {

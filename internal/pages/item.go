@@ -39,10 +39,12 @@ func (h *Handler) item(w http.ResponseWriter, r *http.Request) {
 	data := templates.NewItemData(d)
 	v := h.view(d.Name+" — AoC Codex", itemDescription(data), path)
 	image := ""
-	if d.TooltipImage != nil && *d.TooltipImage != "" {
+	if d.TooltipImage != nil { // hydrate turns an empty string into nil, for both surfaces
 		// The link preview IS the tooltip: a pasted URL in Discord shows the item as the game does.
+		// It is portrait, so the small card — a large one is cropped to 2:1 and loses the name.
 		image = *d.TooltipImage
 		v.OGImage = image
+		v.Card = "summary"
 	}
 	v.JSONLD = templates.NewThingLD(d.Name, v.Description, v.Canonical, image)
 	h.render(w, r, "item", v, data)

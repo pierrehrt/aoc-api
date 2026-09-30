@@ -453,7 +453,10 @@ else. Four things it added that later pages inherit:
 
 - **`Detail.Display`, a `json:"-"` block**: the names and colours the page shows where the contract
   carries slugs (rarity name and colour token, type, weight, binding, slots, classes with short
-  names, DPS, the set's declared size), filled from the **same rows** in `hydrate`. So the page reads
+  names, DPS), filled from the **same rows** in `hydrate`. ⛔ **Not the set's size**:
+  `sets.declared_piece_count` is the last per-item `set_pieces` the importer saw, and inside one set
+  those vary (Waning Dusk: 1, 2, 3 across 16 items) — the page lists the items sharing the name and
+  states no size (AOC-060). So the page reads
   exactly what `/v1` reads without `/v1` growing a field per page need; exposing any of it is an
   additive decision of its own. `SourceRef` carries three the same way (type name, tier name, the
   quest's `armory_label` — shown *as listed*, never as a quest name, which is unknown).
@@ -465,8 +468,15 @@ else. Four things it added that later pages inherit:
   `TestItemPageJSONLDParses` parses it back.
 - **Groups come from the rows, never from a literal.** Sources group by each row's own acquisition
   type, in the order they first appear; one uniform row prints whatever is present (vendor, quest as
-  listed, place — boss, container); a group's **cost column exists only when one of its rows has a
-  cost** — so drops (0 of 3,436 carry one) get none without the page asking which group is drops.
+  listed, place — boss, container, and the `raid` / `Unchained` flags — the latter only when the
+  place's name does not say it, which "Otherworldly Junction" does not); a group's **cost and tier
+  columns exist only when one of its rows has one** — so drops (0 of 3,436 carry a cost) and quests
+  (228 of 229 have no tier) get no column of dashes without the page asking which group is which.
+  A line identical to one already shown is shown once (42 items carry rows equal in every column but
+  the id); `/v1` keeps every row. A row with nothing in it says "No place recorded".
+- **One rule, two pages.** `items.Price` is the only spelling of a cost ("9 Simple Relic I + 2
+  Gold") — the list row and the item page both call it; `templates.typeRepeatsSlot` decides for both
+  when an item type is worth printing beside its slot.
 - **A few lines of inline script may ENHANCE a page, never complete it.** The back link is
   `/armory` in the HTML; the browser upgrades it to the reader's own search when `document.referrer`
   is a same-origin `/armory?…`. It is client-side **because** the page is edge-cached for an hour: a
@@ -474,11 +484,12 @@ else. Four things it added that later pages inherit:
   `TestItemPageIsTheSameWhoeverAsks` pins that the bytes do not change with the Referer. There is no
   Content-Security-Policy today; the day one is added, this script moves to a hashed asset.
 
-⚠️ The tooltip `<img>` carries `loading="lazy"` but **no width/height**: its dimensions vary (90%
-between 208 and 344 px wide and 337–512 tall, measured on the local archive 2026-09-30) and are not
-in the data. It sits in its own column on desktop and after the stats
-on a phone, so nothing reflows below it; storing the dimensions would need the snapshot and a
-re-import, which is not worth it for that.
+⚠️ The tooltip `<img>` is **not lazy** (on desktop it is the page's main above-the-fold image) and
+carries **no width/height**: its dimensions vary (90% between 208 and 344 px wide and 337–512 tall,
+measured on the local archive 2026-09-30) and are not in the data. It sits in its own column on
+desktop and after the stats on a phone, so nothing reflows below it; storing the dimensions would
+need the snapshot and a re-import, which is not worth it for that. It is portrait, so the page sets
+`View.Card = "summary"` — `summary_large_image` crops to 2:1 and can cut the item's name off.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.

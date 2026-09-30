@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -27,38 +28,30 @@ func TestStatTextReadsLikeATooltip(t *testing.T) {
 	}
 }
 
-func TestCostTextIsTheListsPriceFormat(t *testing.T) {
-	got := templates.CostText([]items.CostRef{{CurrencyName: "Test Relic", Amount: "9.00"}, {CurrencyName: "Test Gold", Amount: "2.50"}})
-	if want := "9 Test Relic + 2.5 Test Gold"; got != want {
-		t.Errorf("CostText = %q, want %q", got, want)
-	}
-	if got := templates.CostText(nil); got != "" {
-		t.Errorf("no costs gave %q, want nothing", got)
-	}
-}
-
 // ⭐ Groups follow the rows' own types, in the order the sources first name them, and a group's
 // cost column exists only when one of its rows has a cost — no literal "vendor" anywhere.
 func TestSourcesGroupByTheirOwnTypeAndCostsFollowTheData(t *testing.T) {
 	s := func(v string) *string { return &v }
+	vendor := items.SourceRef{AcquisitionTypeName: s("test-a"), Vendor: s("Test Vendor"), Costs: []items.CostRef{{CurrencyName: "Test Token", Amount: "3.00"}}}
 	d := items.Detail{Sources: []items.SourceRef{
 		{AcquisitionTypeName: s("test-b"), Place: s("Test Place"), Boss: s("Test Boss"), Map: s("Test Map"), Region: s("Test Region"), TierName: s("Test Tier")},
-		{AcquisitionTypeName: s("test-a"), Vendor: s("Test Vendor"), Costs: []items.CostRef{{CurrencyName: "Test Token", Amount: "3.00"}}},
+		vendor,
 		{AcquisitionTypeName: s("test-b"), Container: s("Test Cache")},
+		vendor, vendor, // identical in every shown field: one line, not three
 		{}, // names no type and nothing else
 	}}
 	got := templates.NewItemData(d)
 	if got.Sources != 4 || len(got.Groups) != 3 {
-		t.Fatalf("%d sources in %d groups, want 4 in 3", got.Sources, len(got.Groups))
+		t.Fatalf("%d lines in %d groups, want 4 in 3 (the repeated vendor shown once)", got.Sources, len(got.Groups))
 	}
 	for i, want := range []struct {
-		name    string
-		rows    int
-		hasCost bool
-	}{{"test-b", 2, false}, {"test-a", 1, true}, {"", 1, false}} {
+		name             string
+		rows             int
+		hasCost, hasTier bool
+	}{{"test-b", 2, false, true}, {"test-a", 1, true, false}, {"", 1, false, false}} {
 		g := got.Groups[i]
-		if g.Name != want.name || len(g.Rows) != want.rows || g.HasCost != want.hasCost {
-			t.Errorf("group %d = {%q, %d rows, cost %v}, want {%q, %d, %v}", i, g.Name, len(g.Rows), g.HasCost, want.name, want.rows, want.hasCost)
+		if g.Name != want.name || len(g.Rows) != want.rows || g.HasCost != want.hasCost || g.HasTier != want.hasTier {
+			t.Errorf("group %d = {%q, %d rows, cost %v, tier %v}, want %+v", i, g.Name, len(g.Rows), g.HasCost, g.HasTier, want)
 		}
 	}
 	first := got.Groups[0].Rows[0]
@@ -76,25 +69,22 @@ func TestSourcesGroupByTheirOwnTypeAndCostsFollowTheData(t *testing.T) {
 	}
 }
 
-func TestSetCountNeverPassesAPartialSetOffAsItsSize(t *testing.T) {
-	four, one := int32(4), int32(1)
-	piece := items.SetPiece{Slug: "x", Name: "X"}
+// A row's own flags are printed — "Unchained" only when its place's name does not already say so
+// (109 sources at "Otherworldly Junction" are Unchained by their place's flag alone).
+func TestARowShowsTheFlagsItsNamesDoNotSay(t *testing.T) {
+	s := func(v string) *string { return &v }
 	for _, tc := range []struct {
-		held     int
-		declared *int32
-		want     string
+		src  items.SourceRef
+		want string
 	}{
-		{2, &four, "2 of 4 pieces"},
-		{4, &four, "4 pieces"},
-		{1, &one, "1 piece"},
-		{3, nil, "3 pieces"}, // nothing declared: what is held is all there is to say
+		{items.SourceRef{Place: s("Test Junction"), Unchained: true, IsRaid: true}, "raid,Unchained"},
+		{items.SourceRef{Place: s("Test Hall (Unchained)"), Unchained: true}, ""},
+		{items.SourceRef{Unchained: true}, "Unchained"}, // the flag on a source with no place
+		{items.SourceRef{Place: s("Test Place")}, ""},
 	} {
-		d := items.Detail{Display: items.DetailDisplay{SetDeclaredPieces: tc.declared}}
-		for i := 0; i < tc.held; i++ {
-			d.SetPieces = append(d.SetPieces, piece)
-		}
-		if got := templates.NewItemData(d).SetCount; got != tc.want {
-			t.Errorf("held %d, declared %v: %q, want %q", tc.held, tc.declared, got, tc.want)
+		d := templates.NewItemData(items.Detail{Sources: []items.SourceRef{tc.src}})
+		if got := strings.Join(d.Groups[0].Rows[0].Flags, ","); got != tc.want {
+			t.Errorf("%+v: flags %q, want %q", tc.src, got, tc.want)
 		}
 	}
 }

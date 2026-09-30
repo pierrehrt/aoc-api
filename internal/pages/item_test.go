@@ -27,27 +27,46 @@ func TestItemPageRendersTheWholeItemWithoutJavaScript(t *testing.T) {
 		// stats as text, the way a tooltip prints them, beside the tooltip image
 		"234 Armor", "146 Critigation Amount", "+40 Test Strength", "+258 Test Rating (Test Element)",
 		">Effects<", "-8% Test Drain",
-		`src="https://img.aoc-codex.app/armory/test_item_1.jpg"`, `loading="lazy"`,
-		// the set: what it declares against what the data holds, the other piece linked
-		"Test Set Omega", "2 of 4 pieces", `href="/armory/test-item-2"`, `<span aria-current="page" class="text-paper">Test Item 1</span>`,
+		`src="https://img.aoc-codex.app/armory/test_item_1.jpg"`,
+		// the set: the items that share its name, the other one linked
+		"Test Set Omega", `href="/armory/test-item-2"`, `<span aria-current="page" class="text-paper">Test Item 1</span>`,
 		// sources, grouped by each row's own acquisition type
 		"Sources <span class=\"font-mono\">· 4</span>",
 		`<span class="capitalize">drop</span>`, `<span class="capitalize">vendor</span>`, `<span class="capitalize">quest</span>`,
 		"Type not recorded",
 		"Test Place — Test Boss", "Test Tier", "Test Vendor", "3 Test Token + 2.5 Test Coin", "Test Giver",
+		// the row's own flags, which its place's name does not say; and a source with nothing in it
+		`<span class="rounded border border-line px-1">raid</span>`, `<span class="rounded border border-line px-1">Unchained</span>`,
+		"No place recorded",
 		// the head
 		"<title>Test Item 1 — AoC Codex</title>",
 		`<meta name="description" content="Epic Test Type (Head, Light), item level 80, requires level 78 — an Age of Conan item: stats, where it comes from, its set.">`,
 		`<link rel="canonical" href="https://aoc-codex.app/armory/test-item-1">`,
 		`<meta property="og:image" content="https://img.aoc-codex.app/armory/test_item_1.jpg">`,
+		`<meta name="twitter:card" content="summary">`, // a portrait tooltip: the small card, never cropped to 2:1
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	// The cost column follows the data: the vendor group has one, the drop group none.
+	// The columns follow the data: only the vendor group has a cost, only the drop group a tier.
 	if n := strings.Count(body, `font-medium md:table-cell">Cost</th>`); n != 1 {
 		t.Errorf("%d Cost columns, want exactly 1 (the vendor group's)", n)
+	}
+	if n := strings.Count(body, `font-medium md:table-cell">Tier</th>`); n != 1 {
+		t.Errorf("%d Tier columns, want exactly 1 (the drop group's)", n)
+	}
+	// The vendor listed twice, identically, is one line — and the count says 4, not 5.
+	if n := strings.Count(body, "3 Test Token + 2.5 Test Coin</td>"); n != 1 {
+		t.Errorf("the repeated vendor line appears %d times, want once", n)
+	}
+	// No set size: the data's "declared pieces" is not one (AOC-060).
+	if set := body[strings.Index(body, `id="set-h"`):strings.Index(body, `id="src-h"`)]; strings.Contains(set, "piece") {
+		t.Error("the set section states a size")
+	}
+	// The main image is above the fold on desktop: never lazy.
+	if strings.Contains(body, `loading="lazy"`) {
+		t.Error("the tooltip image is lazy-loaded")
 	}
 	// No confidence marker, provenance or credit anywhere (Pierre, 2026-09-29) — and no drop rate,
 	// chance or stack size: none exists in any source.
@@ -64,7 +83,8 @@ func TestItemPageSaysPlainlyWhatIsNotRecorded(t *testing.T) {
 	body := get(t, h, http.MethodGet, "/armory/test-item-2", nil, "").Body.String()
 	for _, want := range []string{
 		"No stat lines are recorded for this item.", "No source recorded.",
-		"2 of 4 pieces", `href="/armory/test-item-1"`, // the rest of the record is unaffected
+		`href="/armory/test-item-1"`,                               // the rest of the record is unaffected
+		`<meta name="twitter:card" content="summary_large_image">`, // no tooltip: the site's wide card
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
@@ -80,9 +100,14 @@ func TestItemPageSaysPlainlyWhatIsNotRecorded(t *testing.T) {
 	if desc == nil || strings.Contains(desc[1], "stats") || strings.Contains(desc[1], "where it comes from") {
 		t.Errorf("description = %q; it must not promise what the item does not have", desc)
 	}
-	// An item in no set shows no set section.
-	if strings.Contains(get(t, h, http.MethodGet, "/armory/test-item-3", nil, "").Body.String(), `id="set-h"`) {
+	// An item in no set shows no set section; an item with effects and no stat lines does not say
+	// "no stat lines" above the effects it then lists.
+	three := html.UnescapeString(get(t, h, http.MethodGet, "/armory/test-item-3", nil, "").Body.String())
+	if strings.Contains(three, `id="set-h"`) {
 		t.Error("an item in no set renders a set section")
+	}
+	if strings.Contains(three, "No stat lines") || !strings.Contains(three, "-35 Test Stagger") {
+		t.Error("an item with effects but no stats says it has no stat lines, or loses its effects")
 	}
 }
 

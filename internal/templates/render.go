@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
@@ -109,15 +108,7 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		"statText": StatText,
 		// typeIsSlot: for armour the item type repeats the slot name; the row shows it once.
 		"typeIsSlot": func(it items.ListItem) bool {
-			if it.ItemType == nil {
-				return false
-			}
-			for _, s := range it.EquipLocations {
-				if strings.EqualFold(s.Slug, *it.ItemType) || strings.EqualFold(s.Name, *it.ItemType) {
-					return true
-				}
-			}
-			return false
+			return it.ItemType != nil && typeRepeatsSlot(*it.ItemType, "", it.EquipLocations)
 		},
 	}
 

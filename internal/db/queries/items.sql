@@ -51,11 +51,12 @@ WHERE st.item_id = $1
 ORDER BY st.id;
 
 -- name: ListItemSpellEffects :many
--- Deliberately its own query against its own table. See the header.
+-- Deliberately its own query against its own table. See the header. In the tooltip's order, like
+-- ListItemStats.
 SELECT se.item_id, se.stat, se.value, se.sign, se.unit, se.damage_type, se.pvp
 FROM item_spell_effects se
 WHERE se.item_id = $1
-ORDER BY se.id; -- the tooltip's order, like ListItemStats
+ORDER BY se.id;
 
 -- name: ListItemEquipLocations :many
 SELECT el.id, el.slug, el.name

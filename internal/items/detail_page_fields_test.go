@@ -18,12 +18,12 @@ var setID = int32(7)
 
 func (setItemQ) GetItemBySlug(context.Context, string) (int32, error) { return 1, nil }
 func (setItemQ) GetItem(context.Context, int32) (sqlcgen.GetItemRow, error) {
-	tok, typ, typName, lvl := "rarity-epic", "test-type", "Test Type", int32(4)
+	tok, typ, typName, empty := "rarity-epic", "test-type", "Test Type", ""
 	var dps pgtype.Numeric
 	_ = dps.Scan("125.80")
 	return sqlcgen.GetItemRow{ItemID: 1, Slug: "test-relic-alpha", Name: "Test Relic Alpha", Rarity: "epic",
 		RarityName: "Epic", RarityColourToken: &tok, ItemType: &typ, ItemTypeName: &typName, Dps: dps,
-		SetID: &setID, SetName: &typName, DeclaredPieceCount: &lvl, Confidence: "unconfirmed"}, nil
+		SetID: &setID, SetName: &typName, TooltipImage: &empty, Confidence: "unconfirmed"}, nil
 }
 func (setItemQ) ListItemClasses(context.Context, int32) ([]sqlcgen.ListItemClassesRow, error) {
 	short := "TC"
@@ -58,8 +58,9 @@ func TestGetFillsThePagesDisplayFromTheSameRows(t *testing.T) {
 	if d.Display.DPS == nil || *d.Display.DPS != "125.8" {
 		t.Errorf("DPS = %v, want 125.8", d.Display.DPS)
 	}
-	if d.Display.SetDeclaredPieces == nil || *d.Display.SetDeclaredPieces != 4 {
-		t.Errorf("declared pieces = %v", d.Display.SetDeclaredPieces)
+	// An empty tooltip string is no tooltip — so the page's <img> and its og:image agree.
+	if d.TooltipImage != nil {
+		t.Errorf("tooltip_image %q survived as a value; an empty string must be nil", *d.TooltipImage)
 	}
 	if len(d.SetPieces) != 2 || len(d.SpellEffects) != 1 || d.SpellEffects[0].Unit != "percent" {
 		t.Errorf("set pieces %v, spell effects %v", d.SetPieces, d.SpellEffects)

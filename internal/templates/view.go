@@ -36,8 +36,11 @@ type View struct {
 	Description string // ≤ MaxDescription, truncated on a word boundary
 	Canonical   string // absolute URL of this page, and only this page
 	OGImage     string // absolute URL, optional
-	NoIndex     bool   // true keeps the page out of search results
-	Data        any    // whatever the page's own template needs
+	// Card is the twitter:card beside OGImage: "" means summary_large_image (the wide site card);
+	// a page whose image is portrait — an item's tooltip — sets "summary", or X crops it to 2:1.
+	Card    string
+	NoIndex bool // true keeps the page out of search results
+	Data    any  // whatever the page's own template needs
 	// JSONLD is the page's structured data (AOC-048), a value base.html writes into
 	// <script type="application/ld+json">. html/template marshals it as JSON in that context, and
 	// escapes `<`, so no field can close the script. nil writes no block.

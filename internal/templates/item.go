@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -17,36 +16,44 @@ type ItemData struct {
 	// first name them. The group IS the row's own type (a taxonomy row), never a literal the page
 	// knows — so a fourth acquisition type is a fourth group with no change here.
 	Groups []SourceGroup
-	// Sources is how many there are in all, for the section's count.
+	// Sources is how many distinct lines the section shows, for its count.
 	Sources int
-	// SetCount is "5 of 7 pieces" when the data holds fewer than the set declares, "7 pieces" when
-	// it holds them all — so a partial set is never shown as though that were its size.
-	SetCount string
 }
 
 // TypeChip is the item type's name when it says something the slot does not: "Crossbow" beside
-// "Main Hand", but not "Hands" beside "Hands" — the list's typeIsSlot rule, on the page.
+// "Main Hand", but not "Hands" beside "Hands" — typeRepeatsSlot, the rule the list uses too.
 func (d ItemData) TypeChip() string {
 	t := d.Item.Display.ItemType
-	if t == nil {
+	if t == nil || typeRepeatsSlot(t.Slug, t.Name, d.Item.Display.Slots) {
 		return ""
 	}
-	for _, s := range d.Item.Display.Slots {
-		if strings.EqualFold(s.Slug, t.Slug) || strings.EqualFold(s.Name, t.Name) {
-			return ""
+	return t.Name
+}
+
+// typeRepeatsSlot is true when an item type only repeats one of the item's slots ("Hands" type,
+// "Hands" slot). ONE predicate for the list row and the item page, so the two cannot disagree about
+// when the type is worth printing. Either side may be compared by slug or by name.
+func typeRepeatsSlot(slug, name string, slots []items.Term) bool {
+	for _, s := range slots {
+		for _, v := range []string{slug, name} {
+			if v != "" && (strings.EqualFold(s.Slug, v) || strings.EqualFold(s.Name, v)) {
+				return true
+			}
 		}
 	}
-	return t.Name
+	return false
 }
 
 // SourceGroup is the sources of one acquisition type.
 type SourceGroup struct {
 	Name string // the type's name from its row; "" when a source names no type (17 in the corpus)
 	Rows []SourceRow
-	// HasCost is true when any row in the group carries a cost. The cost column follows the data:
-	// no boss drop carries one (0 of 3,436, measured 2026-09-29), so drops get no empty column
-	// without the page ever asking which group is the drops (design 1c, open question 7).
+	// HasCost and HasTier are true when any row in the group carries one. The columns follow the
+	// data: no boss drop carries a cost (0 of 3,436, measured 2026-09-29) and 228 of 229 quest
+	// sources no tier, so those groups get no column of dashes — without the page ever asking which
+	// group is which (design 1c, open question 7).
 	HasCost bool
+	HasTier bool
 }
 
 // SourceRow is one source as the page prints it: what it is, where, which tier, what it costs.
@@ -54,28 +61,39 @@ type SourceRow struct {
 	Main    string // vendor · quest as listed · place — boss · from container, whichever are present
 	Context string // map, region
 	Tier    string
-	Cost    string // "9 Simple Relic I + 2 Gold", the list's price format
-	Phone   string // tier · cost, for the phone line under Main, where those columns are hidden
+	Cost    string   // "9 Simple Relic I + 2 Gold" — items.Price, the list's own format
+	Phone   string   // tier · cost, for the phone line under Main, where those columns are hidden
+	Flags   []string // "raid", "Unchained" — the row's own flags, which its names may not say
 }
 
 // NewItemData groups an item's sources for the page. Pure: every word it prints is a value from
 // the item's own rows.
+//
+// ⭐ A line identical to one already in its group is shown once. 42 items carry source rows that
+// match in every column but the id (measured 2026-09-30: barrier-of-clouded-frost lists one
+// vendor line three times); printed as-is they read as a broken page. /v1 keeps every row.
 func NewItemData(d items.Detail) ItemData {
-	out := ItemData{Item: d, Sources: len(d.Sources), SetCount: setCount(len(d.SetPieces), d.Display.SetDeclaredPieces)}
+	out := ItemData{Item: d}
 	index := map[string]int{}
+	seen := map[string]bool{}
 	for _, s := range d.Sources {
 		name := deref(s.AcquisitionTypeName)
+		row := sourceRow(s)
+		key := name + "\x00" + row.Main + "\x00" + row.Context + "\x00" + row.Tier + "\x00" + row.Cost + "\x00" + strings.Join(row.Flags, ",")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		i, ok := index[name]
 		if !ok {
 			i = len(out.Groups)
 			index[name] = i
 			out.Groups = append(out.Groups, SourceGroup{Name: name})
 		}
-		row := sourceRow(s)
 		out.Groups[i].Rows = append(out.Groups[i].Rows, row)
-		if row.Cost != "" {
-			out.Groups[i].HasCost = true
-		}
+		out.Groups[i].HasCost = out.Groups[i].HasCost || row.Cost != ""
+		out.Groups[i].HasTier = out.Groups[i].HasTier || row.Tier != ""
+		out.Sources++
 	}
 	return out
 }
@@ -108,7 +126,16 @@ func sourceRow(s items.SourceRef) SourceRow {
 		Main:    strings.Join(main, " · "),
 		Context: strings.Join(context, ", "),
 		Tier:    deref(s.TierName),
-		Cost:    CostText(s.Costs),
+		Cost:    items.Price(s.Costs),
+	}
+	if s.IsRaid {
+		row.Flags = append(row.Flags, "raid")
+	}
+	// Unchained is the row's flag (its own or its place's — AOC-039), and most Unchained places say
+	// so in their name. Not all: 109 sources at "Otherworldly Junction" do not (measured
+	// 2026-09-30), so the flag is printed whenever the name does not already carry it.
+	if s.Unchained && !strings.Contains(strings.ToLower(deref(s.Place)), "unchained") {
+		row.Flags = append(row.Flags, "Unchained")
 	}
 	var phone []string
 	for _, v := range []string{row.Tier, row.Cost} {
@@ -118,19 +145,6 @@ func sourceRow(s items.SourceRef) SourceRow {
 	}
 	row.Phone = strings.Join(phone, " · ")
 	return row
-}
-
-func setCount(held int, declared *int32) string {
-	unit := func(n int) string {
-		if n == 1 {
-			return "piece"
-		}
-		return "pieces"
-	}
-	if declared != nil && int(*declared) != held {
-		return fmt.Sprintf("%d of %d %s", held, *declared, unit(int(*declared)))
-	}
-	return fmt.Sprintf("%d %s", held, unit(held))
 }
 
 // StatText renders a stat line the way the tooltip prints it: "+74 Magic Damage (Fire)",
@@ -156,15 +170,6 @@ func StatText(s items.StatLine) string {
 	return b.String()
 }
 
-// CostText is a source's costs in the list's price format: "9 Simple Relic I + 2 Gold".
-func CostText(cs []items.CostRef) string {
-	parts := make([]string, 0, len(cs))
-	for _, c := range cs {
-		parts = append(parts, items.TrimNumber(c.Amount)+" "+c.CurrencyName)
-	}
-	return strings.Join(parts, " + ")
-}
-
 func deref(s *string) string {
 	if s == nil {
 		return ""
@@ -177,7 +182,7 @@ func deref(s *string) string {
 // a cost. Obviously fake, never a real item (CLAUDE.md STEP ZERO).
 func itemProbe() ItemData {
 	s := func(v string) *string { return &v }
-	lvl, n := int32(80), int32(3)
+	lvl := int32(80)
 	armor := int32(100)
 	d := items.Detail{
 		ID: 1, Slug: "test-item-alpha", Name: "Test Item Alpha", Rarity: "epic",
@@ -187,7 +192,8 @@ func itemProbe() ItemData {
 		SpellEffects: []items.StatLine{{Stat: "Test Drain", Value: "8.00", Sign: -1, Unit: "percent"}},
 		SetPieces:    []items.SetPiece{{Slug: "test-item-alpha", Name: "Test Item Alpha", RarityColourToken: "rarity-epic"}, {Slug: "test-item-beta", Name: "Test Item Beta"}},
 		Sources: []items.SourceRef{
-			{AcquisitionTypeName: s("test-type"), Place: s("Test Place"), Boss: s("Test Boss"), Region: s("Test Region"), TierName: s("Test Tier")},
+			{AcquisitionTypeName: s("test-type"), Place: s("Test Place"), Boss: s("Test Boss"), Region: s("Test Region"), TierName: s("Test Tier"), IsRaid: true, Unchained: true},
+			{AcquisitionTypeName: s("test-type")}, // nothing recorded but its type
 			{Vendor: s("Test Vendor"), Costs: []items.CostRef{{CurrencyName: "Test Token", Amount: "3.00"}}},
 		},
 		Display: items.DetailDisplay{
@@ -195,7 +201,7 @@ func itemProbe() ItemData {
 			ItemType: &items.Term{Slug: "test-type", Name: "Test Type"}, ArmourWeight: &items.Term{Slug: "light", Name: "Light"},
 			Binding: &items.Term{Slug: "test-binding", Name: "Test Binding"},
 			Slots:   []items.Term{{Slug: "head", Name: "Head"}}, Classes: []items.Term{{Slug: "test-class", Name: "Test Class", ShortName: "TC"}},
-			DPS: s("1.5"), SetDeclaredPieces: &n,
+			DPS: s("1.5"),
 		},
 	}
 	return NewItemData(d)
