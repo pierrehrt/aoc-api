@@ -221,9 +221,22 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | GET | `/` | Home page, HTML |
 | GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows). Same parser and service as `/v1/items`. `HX-Request: true` gets the rows fragment; both send `Vary: HX-Request`. `p` past the end is 404; a bad `p` or `sort` is 400 — both as dependency-free HTML (`httpx.RejectHTML`). The canonical never carries `p=1` |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
+| GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |
+| GET | `/sitemap.xml` | **AOC-025.** A sitemap **index** (sitemaps.org 0.9) listing every chunk, absolute URLs on `PUBLIC_BASE_URL` |
+| GET | `/sitemaps/{n}.xml` | **AOC-025.** Chunk `n` (1-based) of one sequence: `/`, every section in the nav, then every `/armory/{slug}` in item-id order — at most **50,000** URLs a file, built from the database on each request (edge-cached for an hour). **No `<lastmod>`**: no row has a real modification time. `n` out of range is a 404 |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
 | GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |
+
+**Every request under a host that is not `PUBLIC_BASE_URL`'s is a 301 to the same path on it**
+(AOC-025, `httpx.WithCanonicalHost`, inside the router): the Railway domain
+`aoc-armory-snapshot-production.up.railway.app` served a full 200 copy of the site. 308 for methods
+other than GET/HEAD; `/health` is exempt (monitors read it on any host); hosts compare lowercased
+without a port. `aoc-codex.app` itself is never redirected — requests reach the origin as
+`Host: aoc-codex.app`. **`PUBLIC_BASE_URL` is required when `ENV=production`**, parsed strictly and must be
+**https** (`httpx.ResolvePublicBase`); malformed, missing or http, the boot fails. The redirect's
+Location takes only the request's path and query, always starting with `/` — a target like
+`x:@evil.example/` goes to `https://aoc-codex.app/`, never off the host.
 
 **Rejection shape follows the path**, for **404 and 405 alike**: `/v1/*`, `/health` and
 `/assets/*` are JSON; everything else is a small HTML page. `/health` is included because it is

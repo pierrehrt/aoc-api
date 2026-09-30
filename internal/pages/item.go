@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -35,7 +36,7 @@ func (h *Handler) item(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := "/armory/" + d.Slug
+	path := itemPath(d.Slug)
 	data := templates.NewItemData(d)
 	v := h.view(d.Name+" — AoC Codex", itemDescription(data), path)
 	image := ""
@@ -100,3 +101,7 @@ func itemDescription(data templates.ItemData) string {
 	}
 	return head + " — " + tail + "."
 }
+
+// itemPath is an item page's path — the ONE spelling, used by the page's canonical and by the
+// sitemap, so the two cannot escape a slug differently (AOC-025 verify round 1).
+func itemPath(slug string) string { return "/armory/" + url.PathEscape(slug) }

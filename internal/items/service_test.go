@@ -69,6 +69,9 @@ func (f *fakeQ) ListItemSpellEffects(context.Context, int32) ([]sqlcgen.ListItem
 func (f *fakeQ) ListSetPieces(context.Context, *int32) ([]sqlcgen.ListSetPiecesRow, error) {
 	return nil, nil
 }
+func (f *fakeQ) ListItemSlugs(context.Context, sqlcgen.ListItemSlugsParams) ([]string, error) {
+	return nil, nil
+}
 
 // firstArgs is what the REQUEST asked for, before any follow-up probe.
 func (f *fakeQ) ListItemPageEquipLocations(context.Context, []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {

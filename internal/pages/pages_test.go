@@ -18,7 +18,11 @@ import (
 
 const base = "https://aoc-codex.app"
 
-func router(t *testing.T) http.Handler {
+func router(t *testing.T) http.Handler { return routerWith(t, newFakeItems(120), 0) }
+
+// routerWith is the site over any fake corpus; sitemapMax > 0 overrides the sitemap's chunk size on
+// this handler only (AOC-025).
+func routerWith(t *testing.T, q *fakeItems, sitemapMax int) http.Handler {
 	t.Helper()
 	set, err := assets.Load()
 	if err != nil {
@@ -28,7 +32,10 @@ func router(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("templates.New: %v", err)
 	}
-	h := pages.New(tpl, set, base, items.NewService(newFakeItems(120)))
+	h := pages.New(tpl, set, base, items.NewService(q))
+	if sitemapMax > 0 {
+		h.SetSitemapMax(sitemapMax)
+	}
 	return httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 }
 

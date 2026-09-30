@@ -58,10 +58,18 @@ func (f *fakeItems) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]s
 func (f *fakeItems) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItemPlacesRow, error) {
 	return nil, nil
 }
+
+// Every list row has a page (AOC-025: every sitemap URL must answer 200). Items 1–3 carry the
+// detailed fixtures in fake_item_detail_test.go; the rest are their bare list rows.
 func (f *fakeItems) GetItemBySlug(_ context.Context, slug string) (int32, error) {
 	for id, d := range fakeDetails {
 		if d.row.Slug == slug {
 			return id, nil
+		}
+	}
+	for _, r := range f.rows {
+		if r.Slug == slug {
+			return r.ItemID, nil
 		}
 	}
 	return 0, pgx.ErrNoRows
@@ -69,6 +77,11 @@ func (f *fakeItems) GetItemBySlug(_ context.Context, slug string) (int32, error)
 func (f *fakeItems) GetItem(_ context.Context, id int32) (sqlcgen.GetItemRow, error) {
 	if d, ok := fakeDetails[id]; ok {
 		return d.row, nil
+	}
+	for _, r := range f.rows {
+		if r.ItemID == id {
+			return sqlcgen.GetItemRow{ItemID: r.ItemID, Slug: r.Slug, Name: r.Name, Rarity: r.Rarity, RarityName: "Test Rarity", Confidence: r.Confidence}, nil
+		}
 	}
 	return sqlcgen.GetItemRow{}, pgx.ErrNoRows
 }
@@ -99,6 +112,13 @@ func (f *fakeItems) ListItemEquipLocations(_ context.Context, id int32) ([]sqlcg
 }
 func (f *fakeItems) ListItemClasses(_ context.Context, id int32) ([]sqlcgen.ListItemClassesRow, error) {
 	return fakeDetails[id].classes, nil
+}
+func (f *fakeItems) ListItemSlugs(_ context.Context, a sqlcgen.ListItemSlugsParams) ([]string, error) {
+	var out []string
+	for i := int(a.PageOffset); i < len(f.rows) && len(out) < int(a.PageSize); i++ {
+		out = append(out, f.rows[i].Slug)
+	}
+	return out, nil
 }
 func (f *fakeItems) ListSetPieces(_ context.Context, setID *int32) ([]sqlcgen.ListSetPiecesRow, error) {
 	if setID != nil && *setID == setOmega {

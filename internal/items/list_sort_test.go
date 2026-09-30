@@ -2,6 +2,8 @@ package items
 
 import (
 	"context"
+	"errors"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
 // AOC-047: the list's sort and id search, at the service and the parser.
@@ -110,4 +114,18 @@ func TestIDSpanCountsTheAbsentIDs(t *testing.T) {
 		t.Errorf("span = %+v", span)
 	}
 	_ = httptest.NewRecorder
+}
+
+// Slugs refuses a page it cannot pass to Postgres as it was asked — a negative or oversized offset
+// would otherwise wrap in int32 and come back as a 500 (AOC-025 review).
+func TestSlugsRefusesAPageItCannotAsk(t *testing.T) {
+	s := NewService(sharedItem())
+	for _, tc := range []struct{ limit, offset int }{{0, 0}, {-1, 0}, {10, -1}, {10, math.MaxInt32 + 1}, {math.MaxInt32 + 1, 0}} {
+		if _, err := s.Slugs(context.Background(), tc.limit, tc.offset); !errors.Is(err, httpx.ErrInvalid) {
+			t.Errorf("Slugs(%d, %d) = %v, want ErrInvalid", tc.limit, tc.offset, err)
+		}
+	}
+	if _, err := s.Slugs(context.Background(), 10, 0); err != nil {
+		t.Errorf("a valid page failed: %v", err)
+	}
 }

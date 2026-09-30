@@ -11,6 +11,7 @@ import (
 	"html"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -109,6 +110,39 @@ func TestTheCorpusEdgeCasesRender(t *testing.T) {
 		}
 		if strings.Contains(body, `id="set-h"`) && what == "no set and no source" {
 			t.Errorf("%s (%s): a set section for an item in no set", what, slug)
+		}
+	}
+}
+
+// AOC-025, on the real corpus: the sitemap lists every item, and a sample of its URLs — every
+// 97th, so it spans the id range — answers 200 naming itself as canonical.
+func TestTheRealSitemapWalks(t *testing.T) {
+	h, pool := corpusRouter(t)
+	var total int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM items`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, h, http.MethodGet, "/sitemaps/1.xml", nil, "").Body.String()
+	locs := regexp.MustCompile(`<loc>([^<]*)</loc>`).FindAllStringSubmatch(body, -1)
+	items := 0
+	for _, m := range locs {
+		if strings.HasPrefix(m[1], base+"/armory/") {
+			items++
+		}
+	}
+	if items != total {
+		t.Fatalf("the sitemap lists %d items, the database holds %d", items, total)
+	}
+	canon := regexp.MustCompile(`<link rel="canonical" href="([^"]*)">`)
+	for i := 0; i < len(locs); i += 97 {
+		loc := locs[i][1]
+		rr := get(t, h, http.MethodGet, strings.TrimPrefix(loc, base), nil, "")
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: %d", loc, rr.Code)
+			continue
+		}
+		if m := canon.FindStringSubmatch(rr.Body.String()); m == nil || m[1] != loc {
+			t.Errorf("%s names canonical %v", loc, m)
 		}
 	}
 }
