@@ -142,7 +142,7 @@ ORDER BY ic.item_source_id, cu.name;
 -- TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
-       it.slug AS item_type,
+       it.slug AS item_type, it.name AS item_type_name,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, aw.name AS armour_weight_name,
        i.item_level, i.requires_level, i.armor, i.dps,

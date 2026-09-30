@@ -693,7 +693,7 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 const listItems = `-- name: ListItems :many
 SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
-       it.slug AS item_type,
+       it.slug AS item_type, it.name AS item_type_name,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, aw.name AS armour_weight_name,
        i.item_level, i.requires_level, i.armor, i.dps,
@@ -800,6 +800,7 @@ type ListItemsRow struct {
 	RaritySort        int32
 	RarityColourToken *string
 	ItemType          *string
+	ItemTypeName      *string
 	SlotFit           *string
 	ArmourWeight      *string
 	ArmourWeightName  *string
@@ -857,6 +858,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.RaritySort,
 			&i.RarityColourToken,
 			&i.ItemType,
+			&i.ItemTypeName,
 			&i.SlotFit,
 			&i.ArmourWeight,
 			&i.ArmourWeightName,

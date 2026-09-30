@@ -14,7 +14,8 @@ import (
 // tested without a database. It never sorts: the ORDER BY is the SQL's job and is pinned by the
 // corpus tests; here the rows come back in the order given.
 type fakeItems struct {
-	rows []sqlcgen.ListItemsRow
+	rows  []sqlcgen.ListItemsRow
+	slots []sqlcgen.ListItemPageEquipLocationsRow // the rows' slots, when a test needs them (AOC-062)
 }
 
 func newFakeItems(n int) *fakeItems {
@@ -106,8 +107,16 @@ func (f *fakeItems) ListSetPieces(_ context.Context, setID *int32) ([]sqlcgen.Li
 	}
 	return nil, nil
 }
-func (f *fakeItems) ListItemPageEquipLocations(context.Context, []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemPageEquipLocations(_ context.Context, ids []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {
+	var out []sqlcgen.ListItemPageEquipLocationsRow
+	for _, s := range f.slots {
+		for _, id := range ids {
+			if s.ItemID == id {
+				out = append(out, s)
+			}
+		}
+	}
+	return out, nil
 }
 func (f *fakeItems) ListItemPageClasses(context.Context, []int32) ([]sqlcgen.ListItemPageClassesRow, error) {
 	return nil, nil
