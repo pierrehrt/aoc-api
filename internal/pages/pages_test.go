@@ -57,8 +57,9 @@ func TestPublicPagesRenderWithoutJavaScript(t *testing.T) {
 	// Each page asserts its OWN visible text. A shared string would pass on a page that
 	// happens to mention it in the layout while its actual content never rendered.
 	pagesUnderTest := map[string]string{
-		"/":       "A reference for",
-		"/_smoke": "Server-rendered marker",
+		"/":                   "A reference for",
+		"/_smoke":             "Server-rendered marker",
+		"/armory/test-item-1": "Test Item 1", // AOC-048
 	}
 	for path, visible := range pagesUnderTest {
 		t.Run(path, func(t *testing.T) {
@@ -87,7 +88,7 @@ func TestPublicPagesRenderWithoutJavaScript(t *testing.T) {
 // undoes the reason this service renders HTML at all.
 func TestEveryPageCarriesItsHeadContract(t *testing.T) {
 	h := router(t)
-	for _, path := range []string{"/", "/_smoke"} {
+	for _, path := range []string{"/", "/_smoke", "/armory/test-item-1", "/armory/test-item-2"} {
 		t.Run(path, func(t *testing.T) {
 			body := get(t, h, http.MethodGet, path, nil, "").Body.String()
 			for _, want := range []string{

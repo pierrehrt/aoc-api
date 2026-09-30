@@ -68,6 +68,7 @@ const ogImageAsset = "og-card.png"
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/", h.home)
 	r.Get("/armory", h.armory)
+	r.Get("/armory/{slug}", h.item)
 	r.Get("/_smoke", h.smoke)
 	r.Post("/_smoke/echo", h.echo)
 }

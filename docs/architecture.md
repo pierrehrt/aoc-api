@@ -444,8 +444,41 @@ never `Fail`, which is JSON-only, and never a template, which may be the thing t
 `items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
 service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
 `<title>`/description/canonical per state, and the honest empty state whose numbers come from
-`items.Service.IDSpan`. Rows link to nothing until the item page exists (AOC-048): a link to a 404 is
-a bug, the same rule as the nav.
+`items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
+linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
+
+**The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
+— rendered through `templates.NewItemData`, which groups the sources for display and does nothing
+else. Four things it added that later pages inherit:
+
+- **`Detail.Display`, a `json:"-"` block**: the names and colours the page shows where the contract
+  carries slugs (rarity name and colour token, type, weight, binding, slots, classes with short
+  names, DPS, the set's declared size), filled from the **same rows** in `hydrate`. So the page reads
+  exactly what `/v1` reads without `/v1` growing a field per page need; exposing any of it is an
+  additive decision of its own. `SourceRef` carries three the same way (type name, tier name, the
+  quest's `armory_label` — shown *as listed*, never as a quest name, which is unknown).
+- **Per-page `og:image` and JSON-LD.** `View.OGImage` is the tooltip image, so a pasted link
+  previews the item as the game shows it; `View.JSONLD` is a value `base.html` writes into
+  `<script type="application/ld+json">` — html/template marshals it as JSON there and escapes `<`,
+  so no field can close the script. `templates.ThingLD` is schema.org **`Thing`, not `Product`**:
+  Google reports a Product with no offer, review or rating as an error, and a game item has none.
+  `TestItemPageJSONLDParses` parses it back.
+- **Groups come from the rows, never from a literal.** Sources group by each row's own acquisition
+  type, in the order they first appear; one uniform row prints whatever is present (vendor, quest as
+  listed, place — boss, container); a group's **cost column exists only when one of its rows has a
+  cost** — so drops (0 of 3,436 carry one) get none without the page asking which group is drops.
+- **A few lines of inline script may ENHANCE a page, never complete it.** The back link is
+  `/armory` in the HTML; the browser upgrades it to the reader's own search when `document.referrer`
+  is a same-origin `/armory?…`. It is client-side **because** the page is edge-cached for an hour: a
+  server that read the Referer would store one reader's search and hand it to everyone.
+  `TestItemPageIsTheSameWhoeverAsks` pins that the bytes do not change with the Referer. There is no
+  Content-Security-Policy today; the day one is added, this script moves to a hashed asset.
+
+⚠️ The tooltip `<img>` carries `loading="lazy"` but **no width/height**: its dimensions vary (90%
+between 208 and 344 px wide and 337–512 tall, measured on the local archive 2026-09-30) and are not
+in the data. It sits in its own column on desktop and after the stats
+on a phone, so nothing reflows below it; storing the dimensions would need the snapshot and a
+re-import, which is not worth it for that.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.

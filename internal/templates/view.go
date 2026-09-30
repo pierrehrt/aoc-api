@@ -38,11 +38,31 @@ type View struct {
 	OGImage     string // absolute URL, optional
 	NoIndex     bool   // true keeps the page out of search results
 	Data        any    // whatever the page's own template needs
+	// JSONLD is the page's structured data (AOC-048), a value base.html writes into
+	// <script type="application/ld+json">. html/template marshals it as JSON in that context, and
+	// escapes `<`, so no field can close the script. nil writes no block.
+	JSONLD any
 
 	// The shell (AOC-046): what base.html renders around every page. Filled by the handler
 	// package's view helper. The footer carries no credit and no notice (AOC-055, Pierre): where the
 	// data came from is said once, on the Info page (AOC-056).
 	Nav []NavItem // the header's section links — only routes that exist
+}
+
+// ThingLD is schema.org's Thing — what an item page describes. Not Product: Google reports a
+// Product with no offer, review or rating as an error, and a game item has none of them.
+type ThingLD struct {
+	Context     string `json:"@context"`
+	Type        string `json:"@type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Image       string `json:"image,omitempty"`
+}
+
+// NewThingLD fills the two constant fields, so a page cannot misspell them.
+func NewThingLD(name, description, url, image string) ThingLD {
+	return ThingLD{Context: "https://schema.org", Type: "Thing", Name: name, Description: description, URL: url, Image: image}
 }
 
 // NavItem is one header link.

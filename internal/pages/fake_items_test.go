@@ -58,23 +58,52 @@ func (f *fakeItems) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]s
 func (f *fakeItems) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItemPlacesRow, error) {
 	return nil, nil
 }
-func (f *fakeItems) GetItemBySlug(context.Context, string) (int32, error) { return 0, pgx.ErrNoRows }
-func (f *fakeItems) GetItem(context.Context, int32) (sqlcgen.GetItemRow, error) {
+func (f *fakeItems) GetItemBySlug(_ context.Context, slug string) (int32, error) {
+	for id, d := range fakeDetails {
+		if d.row.Slug == slug {
+			return id, nil
+		}
+	}
+	return 0, pgx.ErrNoRows
+}
+func (f *fakeItems) GetItem(_ context.Context, id int32) (sqlcgen.GetItemRow, error) {
+	if d, ok := fakeDetails[id]; ok {
+		return d.row, nil
+	}
 	return sqlcgen.GetItemRow{}, pgx.ErrNoRows
 }
-func (f *fakeItems) ListItemStats(context.Context, int32) ([]sqlcgen.ListItemStatsRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemStats(_ context.Context, id int32) ([]sqlcgen.ListItemStatsRow, error) {
+	return fakeDetails[id].stats, nil
 }
-func (f *fakeItems) ListItemSources(context.Context, int32) ([]sqlcgen.ListItemSourcesRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemSpellEffects(_ context.Context, id int32) ([]sqlcgen.ListItemSpellEffectsRow, error) {
+	return fakeDetails[id].effects, nil
 }
-func (f *fakeItems) ListItemCosts(context.Context, []int64) ([]sqlcgen.ListItemCostsRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemSources(_ context.Context, id int32) ([]sqlcgen.ListItemSourcesRow, error) {
+	return fakeDetails[id].sources, nil
 }
-func (f *fakeItems) ListItemEquipLocations(context.Context, int32) ([]sqlcgen.EquipLocation, error) {
-	return nil, nil
+func (f *fakeItems) ListItemCosts(_ context.Context, ids []int64) ([]sqlcgen.ListItemCostsRow, error) {
+	var out []sqlcgen.ListItemCostsRow
+	for _, d := range fakeDetails {
+		for _, c := range d.costs {
+			for _, id := range ids {
+				if c.ItemSourceID == id {
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	return out, nil
 }
-func (f *fakeItems) ListItemClasses(context.Context, int32) ([]sqlcgen.ListItemClassesRow, error) {
+func (f *fakeItems) ListItemEquipLocations(_ context.Context, id int32) ([]sqlcgen.EquipLocation, error) {
+	return fakeDetails[id].slots, nil
+}
+func (f *fakeItems) ListItemClasses(_ context.Context, id int32) ([]sqlcgen.ListItemClassesRow, error) {
+	return fakeDetails[id].classes, nil
+}
+func (f *fakeItems) ListSetPieces(_ context.Context, setID *int32) ([]sqlcgen.ListSetPiecesRow, error) {
+	if setID != nil && *setID == setOmega {
+		return fakeSetPieces, nil
+	}
 	return nil, nil
 }
 func (f *fakeItems) ListItemPageEquipLocations(context.Context, []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {

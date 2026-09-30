@@ -17,6 +17,9 @@ SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, it.slug AS item_type,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, b.slug AS binding,
+       -- the display names and the rarity's colour, for the item PAGE (AOC-048); /v1 keeps the slugs
+       r.name AS rarity_name, r.colour_token AS rarity_colour_token, it.name AS item_type_name,
+       aw.name AS armour_weight_name, b.name AS binding_name,
        i.item_level, i.requires_level, i.armor, i.critigation, i.dps, i.damage_range,
        i.set_id, s.name AS set_name, s.declared_piece_count,
        f.slug AS faction, i.faction_rank,
@@ -44,6 +47,11 @@ type GetItemRow struct {
 	SlotFit            *string
 	ArmourWeight       *string
 	Binding            *string
+	RarityName         string
+	RarityColourToken  *string
+	ItemTypeName       *string
+	ArmourWeightName   *string
+	BindingName        *string
 	ItemLevel          *int32
 	RequiresLevel      *int32
 	Armor              *int32
@@ -92,6 +100,11 @@ func (q *Queries) GetItem(ctx context.Context, itemID int32) (GetItemRow, error)
 		&i.SlotFit,
 		&i.ArmourWeight,
 		&i.Binding,
+		&i.RarityName,
+		&i.RarityColourToken,
+		&i.ItemTypeName,
+		&i.ArmourWeightName,
+		&i.BindingName,
 		&i.ItemLevel,
 		&i.RequiresLevel,
 		&i.Armor,
@@ -149,7 +162,7 @@ func (q *Queries) ItemIDSpan(ctx context.Context) (ItemIDSpanRow, error) {
 }
 
 const listItemClasses = `-- name: ListItemClasses :many
-SELECT cl.id, cl.slug, cl.name
+SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
@@ -157,9 +170,10 @@ ORDER BY cl.name
 `
 
 type ListItemClassesRow struct {
-	ID   int32
-	Slug string
-	Name string
+	ID        int32
+	Slug      string
+	Name      string
+	ShortName *string
 }
 
 func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItemClassesRow, error) {
@@ -171,7 +185,12 @@ func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItem
 	items := []ListItemClassesRow{}
 	for rows.Next() {
 		var i ListItemClassesRow
-		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -223,6 +242,7 @@ func (q *Queries) ListItemCosts(ctx context.Context, dollar_1 []int64) ([]ListIt
 }
 
 const listItemEquipLocations = `-- name: ListItemEquipLocations :many
+
 SELECT el.id, el.slug, el.name
 FROM item_equip_locations iel
 JOIN equip_locations el ON el.id = iel.equip_location_id
@@ -230,6 +250,7 @@ WHERE iel.item_id = $1
 ORDER BY el.id
 `
 
+// the tooltip's order, like ListItemStats
 func (q *Queries) ListItemEquipLocations(ctx context.Context, itemID int32) ([]EquipLocation, error) {
 	rows, err := q.db.Query(ctx, listItemEquipLocations, itemID)
 	if err != nil {
@@ -446,15 +467,18 @@ func (q *Queries) ListItemPlaces(ctx context.Context, itemIds []int32) ([]ListIt
 
 const listItemSources = `-- name: ListItemSources :many
 SELECT src.id, src.item_id,
-       at.slug AS acquisition_type,
+       at.slug AS acquisition_type, at.name AS acquisition_type_name,
        src.place_id, p.name AS place_name, p.slug AS place_slug,
        src.boss_id, bo.name AS boss_name,
        src.vendor_id, v.name AS vendor_name,
        src.quest_id, q.name AS quest_name,
+       -- what the armory's quest column said: a giver, a hub or a bucket as often as a title, so
+       -- the page shows it as listed and never calls it the quest's name (quests.name is NULL)
+       q.armory_label AS quest_label,
        src.container_id, ct.name AS container_name,
        src.region_id, rg.name AS region_name, rg.slug AS region_slug,
        src.map_id, mp.name AS map_name, mp.slug AS map_slug,
-       src.tier_id, tr.slug AS tier,
+       src.tier_id, tr.slug AS tier, tr.name AS tier_name,
        src.is_raid, src.coords, src.section_raw,
        -- ⭐ src OR place (AOC-039): the one unchained expression, shared with the list filter and
        -- ListItemPlaces. This was the bare src.unchained -- the third spelling of one rule, which
@@ -477,35 +501,38 @@ ORDER BY src.id
 `
 
 type ListItemSourcesRow struct {
-	ID              int64
-	ItemID          int32
-	AcquisitionType *string
-	PlaceID         *int32
-	PlaceName       *string
-	PlaceSlug       *string
-	BossID          *int32
-	BossName        *string
-	VendorID        *int32
-	VendorName      *string
-	QuestID         *int32
-	QuestName       *string
-	ContainerID     *int32
-	ContainerName   *string
-	RegionID        *int32
-	RegionName      *string
-	RegionSlug      *string
-	MapID           *int32
-	MapName         *string
-	MapSlug         *string
-	TierID          *int32
-	Tier            *string
-	IsRaid          bool
-	Coords          *string
-	SectionRaw      *string
-	Unchained       bool
-	Confidence      string
-	SourceNote      string
-	OpenQuestion    *string
+	ID                  int64
+	ItemID              int32
+	AcquisitionType     *string
+	AcquisitionTypeName *string
+	PlaceID             *int32
+	PlaceName           *string
+	PlaceSlug           *string
+	BossID              *int32
+	BossName            *string
+	VendorID            *int32
+	VendorName          *string
+	QuestID             *int32
+	QuestName           *string
+	QuestLabel          *string
+	ContainerID         *int32
+	ContainerName       *string
+	RegionID            *int32
+	RegionName          *string
+	RegionSlug          *string
+	MapID               *int32
+	MapName             *string
+	MapSlug             *string
+	TierID              *int32
+	Tier                *string
+	TierName            *string
+	IsRaid              bool
+	Coords              *string
+	SectionRaw          *string
+	Unchained           bool
+	Confidence          string
+	SourceNote          string
+	OpenQuestion        *string
 }
 
 // An item page's "where does this come from". 237 items have more than one place — 8 with two and
@@ -530,6 +557,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.ID,
 			&i.ItemID,
 			&i.AcquisitionType,
+			&i.AcquisitionTypeName,
 			&i.PlaceID,
 			&i.PlaceName,
 			&i.PlaceSlug,
@@ -539,6 +567,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.VendorName,
 			&i.QuestID,
 			&i.QuestName,
+			&i.QuestLabel,
 			&i.ContainerID,
 			&i.ContainerName,
 			&i.RegionID,
@@ -549,6 +578,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.MapSlug,
 			&i.TierID,
 			&i.Tier,
+			&i.TierName,
 			&i.IsRaid,
 			&i.Coords,
 			&i.SectionRaw,
@@ -571,7 +601,7 @@ const listItemSpellEffects = `-- name: ListItemSpellEffects :many
 SELECT se.item_id, se.stat, se.value, se.sign, se.unit, se.damage_type, se.pvp
 FROM item_spell_effects se
 WHERE se.item_id = $1
-ORDER BY se.stat
+ORDER BY se.id
 `
 
 type ListItemSpellEffectsRow struct {
@@ -617,7 +647,7 @@ const listItemStats = `-- name: ListItemStats :many
 SELECT st.item_id, st.stat, st.value, st.sign, st.unit, st.damage_type, st.pvp
 FROM item_stats st
 WHERE st.item_id = $1
-ORDER BY st.stat
+ORDER BY st.id
 `
 
 type ListItemStatsRow struct {
@@ -630,6 +660,9 @@ type ListItemStatsRow struct {
 	Pvp        bool
 }
 
+// In the TOOLTIP's order (AOC-048): the importer writes each item's stats in the order its tooltip
+// prints them, so the id is that order — Dexterity before Combat Rating, as the game shows it.
+// It was alphabetical until then, which no reader of a tooltip would recognise.
 func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemStatsRow, error) {
 	rows, err := q.db.Query(ctx, listItemStats, itemID)
 	if err != nil {
@@ -987,6 +1020,49 @@ func (q *Queries) ListOpenItemQuestions(ctx context.Context) ([]ListOpenItemQues
 			&i.ID,
 			&i.Name,
 			&i.OpenQuestion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSetPieces = `-- name: ListSetPieces :many
+SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token
+FROM items i
+JOIN rarities r ON r.id = i.rarity_id
+WHERE i.set_id = $1
+ORDER BY i.name, i.item_id
+`
+
+type ListSetPiecesRow struct {
+	ItemID            int32
+	Slug              string
+	Name              string
+	RarityColourToken *string
+}
+
+// AOC-048: every piece of one set, for the item page and /v1's set_pieces. Bounded by the data's
+// own shape — the largest set holds 16 (measured 2026-09-30) — so it is part of one item's detail,
+// not a list endpoint.
+func (q *Queries) ListSetPieces(ctx context.Context, setID *int32) ([]ListSetPiecesRow, error) {
+	rows, err := q.db.Query(ctx, listSetPieces, setID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSetPiecesRow{}
+	for rows.Next() {
+		var i ListSetPiecesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.Slug,
+			&i.Name,
+			&i.RarityColourToken,
 		); err != nil {
 			return nil, err
 		}

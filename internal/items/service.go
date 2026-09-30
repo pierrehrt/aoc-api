@@ -43,6 +43,8 @@ type Querier interface {
 	ListItemCosts(ctx context.Context, sourceIDs []int64) ([]sqlcgen.ListItemCostsRow, error)
 	ListItemEquipLocations(ctx context.Context, itemID int32) ([]sqlcgen.EquipLocation, error)
 	ListItemClasses(ctx context.Context, itemID int32) ([]sqlcgen.ListItemClassesRow, error)
+	ListItemSpellEffects(ctx context.Context, itemID int32) ([]sqlcgen.ListItemSpellEffectsRow, error)
+	ListSetPieces(ctx context.Context, setID *int32) ([]sqlcgen.ListSetPiecesRow, error)
 	ListItemPageEquipLocations(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error)
 	ListItemPageClasses(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageClassesRow, error)
 	ListItemPageCosts(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageCostsRow, error)
@@ -422,6 +424,41 @@ type Detail struct {
 	Sources     []SourceRef `json:"sources"`
 	Costs       []CostRef   `json:"costs"`
 	Attribution string      `json:"attribution"`
+
+	// AOC-048, additive. Spell effects are a DIFFERENT table from stats on purpose (a build
+	// calculator sums stats and must never reach these); the page lists them apart. SetPieces is
+	// every piece of the item's set, this one included — a sibling of `set`, which stays a string
+	// (turning it into an object would retype a /v1 field, rule 5c).
+	SpellEffects []StatLine `json:"spell_effects"`
+	SetPieces    []SetPiece `json:"set_pieces"`
+
+	// Display is what the item PAGE reads beside the contract: names where /v1 carries slugs.
+	// `json:"-"` on purpose — /v1/items/{slug} keeps its shape, and exposing any of this is an
+	// additive decision of its own. Filled from the same rows, so the two surfaces cannot disagree.
+	Display DetailDisplay `json:"-"`
+}
+
+// DetailDisplay is the item page's names and colours for what Detail holds as slugs.
+type DetailDisplay struct {
+	Rarity       Term // Name, and ColourToken when the rarity has a colour of its own
+	ItemType     *Term
+	ArmourWeight *Term
+	Binding      *Term
+	Slots        []Term
+	Classes      []Term // with ShortName
+	// DPS is the weapon's damage per second as the tooltip prints it ("125.8"). Not yet in /v1:
+	// the contract never carried it, and adding it is its own additive decision.
+	DPS *string
+	// SetDeclaredPieces is how many pieces the set says it has, which is not always how many the
+	// data holds (92 of 368 sets differ, measured 2026-09-30): "5 of 7", never "5" as its size.
+	SetDeclaredPieces *int32
+}
+
+// SetPiece is one item of a set.
+type SetPiece struct {
+	Slug              string `json:"slug"`
+	Name              string `json:"name"`
+	RarityColourToken string `json:"rarity_colour_token,omitempty"`
 }
 
 // Get returns one item by slug, with everything the item page shows, in one response.
@@ -480,6 +517,13 @@ type SourceRef struct {
 	SourceNote      string    `json:"source_note"`
 	OpenQuestion    *string   `json:"open_question,omitempty"`
 	Costs           []CostRef `json:"costs,omitempty"`
+
+	// For the item page (AOC-048), `json:"-"` like Detail.Display. QuestLabel is what the armory's
+	// quest column said — a giver, a hub or a bucket as often as a title — shown as listed and never
+	// as the quest's name, which is unknown (quests.name is NULL on every row).
+	AcquisitionTypeName *string `json:"-"`
+	TierName            *string `json:"-"`
+	QuestLabel          *string `json:"-"`
 }
 
 // CostRef is what a vendor asks for an item.
@@ -491,13 +535,19 @@ type CostRef struct {
 
 // numeric renders a NUMERIC column without going through a float.
 // money renders a cost amount the way a tooltip does: "9", not "9.00"; "2.5" stays "2.5".
-func money(n pgtype.Numeric) string {
-	s := numeric(n)
+func money(n pgtype.Numeric) string { return trimNumber(numeric(n)) }
+
+// trimNumber drops a NUMERIC's trailing zeros: "40.00" -> "40", "4.50" -> "4.5", "125.80" -> "125.8".
+func trimNumber(s string) string {
 	if strings.Contains(s, ".") {
 		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
 	}
 	return s
 }
+
+// TrimNumber is trimNumber for the HTML surface: a stat's value and a cost's amount are rendered
+// the way a tooltip prints them, from the same rule the list's price uses.
+func TrimNumber(s string) string { return trimNumber(s) }
 
 // IDSpan is the honest empty state's numbers (AOC-047): computed, never typed.
 type IDSpan struct {
@@ -556,7 +606,18 @@ func (s *Service) hydrate(ctx context.Context, id int32) (Detail, error) {
 		PvPSource: row.PvpSource, HasPvPStats: row.HasPvpStats, PvPPenalty: row.PvpPenalty,
 		EquipLocation: []string{}, Classes: []string{},
 		Stats: []StatLine{}, Sources: []SourceRef{}, Costs: []CostRef{},
+		SpellEffects: []StatLine{}, SetPieces: []SetPiece{},
 		Attribution: Attribution,
+		Display: DetailDisplay{
+			Rarity:            Term{Slug: row.Rarity, Name: row.RarityName, ColourToken: deref(row.RarityColourToken)},
+			ItemType:          termIfSet(row.ItemType, row.ItemTypeName),
+			ArmourWeight:      termIfSet(row.ArmourWeight, row.ArmourWeightName),
+			Binding:           termIfSet(row.Binding, row.BindingName),
+			Slots:             []Term{},
+			Classes:           []Term{},
+			DPS:               ptrIfSet(trimNumber(numeric(row.Dps))),
+			SetDeclaredPieces: row.DeclaredPieceCount,
+		},
 	}
 
 	locs, err := s.q.ListItemEquipLocations(ctx, id)
@@ -565,6 +626,7 @@ func (s *Service) hydrate(ctx context.Context, id int32) (Detail, error) {
 	}
 	for _, l := range locs {
 		out.EquipLocation = append(out.EquipLocation, l.Slug)
+		out.Display.Slots = append(out.Display.Slots, Term{Slug: l.Slug, Name: l.Name})
 	}
 
 	classes, err := s.q.ListItemClasses(ctx, id)
@@ -573,6 +635,28 @@ func (s *Service) hydrate(ctx context.Context, id int32) (Detail, error) {
 	}
 	for _, c := range classes {
 		out.Classes = append(out.Classes, c.Slug)
+		out.Display.Classes = append(out.Display.Classes, Term{Slug: c.Slug, Name: c.Name, ShortName: deref(c.ShortName)})
+	}
+
+	effects, err := s.q.ListItemSpellEffects(ctx, id)
+	if err != nil {
+		return Detail{}, fmt.Errorf("list spell effects: %w", err)
+	}
+	for _, e := range effects {
+		out.SpellEffects = append(out.SpellEffects, StatLine{
+			Stat: e.Stat, Value: numeric(e.Value), Sign: e.Sign,
+			Unit: e.Unit, DamageType: e.DamageType, PvP: e.Pvp,
+		})
+	}
+
+	if row.SetID != nil {
+		pieces, err := s.q.ListSetPieces(ctx, row.SetID)
+		if err != nil {
+			return Detail{}, fmt.Errorf("list set pieces: %w", err)
+		}
+		for _, p := range pieces {
+			out.SetPieces = append(out.SetPieces, SetPiece{Slug: p.Slug, Name: p.Name, RarityColourToken: deref(p.RarityColourToken)})
+		}
 	}
 
 	stats, err := s.q.ListItemStats(ctx, id)
@@ -617,6 +701,7 @@ func (s *Service) hydrate(ctx context.Context, id int32) (Detail, error) {
 			IsRaid: sr.IsRaid, Unchained: sr.Unchained,
 			Confidence: sr.Confidence, SourceNote: sr.SourceNote,
 			OpenQuestion: sr.OpenQuestion, Costs: costsBySource[sr.ID],
+			AcquisitionTypeName: sr.AcquisitionTypeName, TierName: sr.TierName, QuestLabel: sr.QuestLabel,
 		})
 	}
 
