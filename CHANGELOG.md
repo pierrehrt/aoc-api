@@ -8,6 +8,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-30
+
+Every item gets its own page, the list gains separate Slot and Type columns, and the site becomes
+findable: a sitemap, and one indexed host.
+
+### Added
+
+- The item page at `/armory/{slug}`: stats as the tooltip prints them beside the tooltip image, the
+  items sharing its set linked, sources grouped by their own acquisition type with the costs of each,
+  honest empty states, a tooltip link preview and JSON-LD; the list's rows link to it; `/v1/items/{slug}`
+  gains `spell_effects` and `set_pieces` (AOC-048)
+- `/robots.txt` and a sitemap (`/sitemap.xml` index, `/sitemaps/{n}.xml` chunks) built from the
+  database and the nav, so every item page can be found (AOC-025)
+- `/v1/items` rows gain `item_type_name`, the type's display name beside its slug (AOC-062)
+
+### Changed
+
+- The Armory list shows **Slot** and **Type** in two columns — Type is the armour weight, otherwise
+  the item type's name, never its slug (AOC-062)
+- `/v1/items/{slug}`: `stats` and `spell_effects` now come in the tooltip's own order instead of
+  alphabetically (AOC-048)
+- Any host but aoc-codex.app — the service's Railway address — now answers with a 301 to the same
+  path on aoc-codex.app, and production refuses to start unless `PUBLIC_BASE_URL` is exactly an
+  https origin (AOC-025)
+
+### Fixed
+
+- The 146 necklaces have the Necklace slot — the slot list gains the necklace, and a type can name
+  the slot its items take when their tooltip names none (AOC-054)
+- One-handed weapons fit either hand: `/v1` `slot_fit` is `either` instead of `both` on the 389
+  items carrying `Main Hand, Off Hand`; which types take both hands is recorded as data for the gear
+  builder; the importer refuses a compound slot value nobody has decided about (AOC-058)
+
+### Migration
+
+- `20260930120000_necklace_slot`: the `necklace` slot, `item_types.default_equip_location_id` and
+  `item_types.is_equipment`, and the 146 necklaces backfilled — run against production **before**
+  this deploy with `scripts/release-migrate.sh` (AOC-054)
+- `20260930130000_weapon_hands`: `slot_fit` `both` → `either` on the 389 one-handers, and
+  `item_types.two_handed` — run in the same step, after the one above (AOC-058)
+- The `import` service is redeployed in this release: an importer from before it would undo both
+  data fixes on its next real run (AOC-054, AOC-058)
+
 ## [0.2.0] - 2026-09-29
 
 The Armory list goes live: the first content page, on the site's shell.

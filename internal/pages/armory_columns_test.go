@@ -7,12 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pierrehrt/aoc-api/internal/assets"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
-	"github.com/pierrehrt/aoc-api/internal/httpx"
-	"github.com/pierrehrt/aoc-api/internal/items"
-	"github.com/pierrehrt/aoc-api/internal/pages"
-	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
 // AOC-062 (Pierre: "Slot / type should be in two different column"). Five obviously fake items, one
@@ -44,28 +39,12 @@ var (
 	tagsRE  = regexp.MustCompile(`<[^>]+>`)
 )
 
-// siteOver is router(t) over a given fake. Local to this file on purpose: AOC-025's branch reshapes
-// router(t) into routerWith, and the two merge into one helper when both land.
-func siteOver(t *testing.T, q *fakeItems) http.Handler {
-	t.Helper()
-	set, err := assets.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl, err := templates.New(set)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := pages.New(tpl, set, base, items.NewService(q))
-	return httpx.NewRouterWithSite(httpx.Build{Version: "t", Commit: "t", Env: "test"}, h.Routes, set.Handler())
-}
-
 func text(s string) string {
 	return strings.TrimSpace(html.UnescapeString(tagsRE.ReplaceAllString(s, "")))
 }
 
 func TestTheListHasASlotColumnAndATypeColumn(t *testing.T) {
-	body := get(t, siteOver(t, columnsFake()), http.MethodGet, "/armory?sort=id", nil, "").Body.String()
+	body := get(t, routerWith(t, columnsFake(), 0), http.MethodGet, "/armory?sort=id", nil, "").Body.String()
 	if !strings.Contains(body, `md:table-cell">Slot</th>`) || !strings.Contains(body, `md:table-cell">Type</th>`) {
 		t.Fatal("the table has no separate Slot and Type headers")
 	}

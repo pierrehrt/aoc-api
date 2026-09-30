@@ -20,7 +20,7 @@ func TestAWeightWithNoSlotAndARowWithNothingToSay(t *testing.T) {
 			ArmourWeight: s("test-weight"), ArmourWeightName: s("Test Weight"), ItemLevel: &lvl, Confidence: "unconfirmed"},
 		{ItemID: 2, Slug: "test-blank-eta", Name: "Test Blank Eta", Rarity: "epic", Confidence: "unconfirmed"},
 	}}
-	body := get(t, siteOver(t, q), http.MethodGet, "/armory?sort=id", nil, "").Body.String()
+	body := get(t, routerWith(t, q, 0), http.MethodGet, "/armory?sort=id", nil, "").Body.String()
 	rows := rowRE.FindAllStringSubmatch(body, -1)
 	if len(rows) != 2 {
 		t.Fatalf("%d rows, want 2", len(rows))
