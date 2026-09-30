@@ -626,12 +626,16 @@ Four shapes that are not obvious, each of which a simpler schema would have got 
 1. **Equip location is a JOIN, not a column on `items`.** Two of the snapshot's 16
    `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items (a two-hander
    occupying both slots at once) and `Left/Right Finger` on **188** (a ring occupying either) —
-   and AOC-009 seeds only the **13 atomic slots**. Flattened into one column, *"show me every Off
+   and AOC-009 seeds only the **13 atomic slots** (**14** since AOC-054 added the necklace, which
+   no tooltip names as a slot). Flattened into one column, *"show me every Off
    Hand item"* silently returns 141 instead of 531. `items.slot_fit_id`
    (`single` · `both` · `either`) says how to read an item's rows, and it lives on the **item**
    because it describes the whole set: two join rows could otherwise contradict each other.
    `TestListItemsFindsTwoHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
    is mutation-tested: break that query and it fails naming the lost two-hander.
+   ⚠️ **AOC-058:** measured 2026-09-30, `Main Hand, Off Hand` sits on the *one-handed* types
+   (1HB, 1HE, dagger, talisman) and 2HB/2HE carry `Main Hand` alone, which questions reading it
+   as `both`. Open, waiting on a game answer; the pages print slot names and never the fit.
    `TestAskingForOffHandItemsReturnsTwoHandersToo` pins the same property at the schema level.
    ⚠️ The distinction matters — an earlier version of this paragraph cited only the schema-level
    test, which passes even when the shipped query is wrong.
@@ -745,6 +749,27 @@ never a guess:
 list above would rot into an exemption nobody rechecks — the shape this repo has now found four
 times (AOC-019, AOC-020, AOC-032, and the guard inside AOC-032's own fix).
 
+**A slot the tooltip does not name (AOC-054).** A necklace's tooltip line reads `Necklace` where
+armour's reads `Light Armor - Hands`, so the OCR had no slot to find and all 146 arrived slotless.
+The fix is data on `item_types`, read by the importer, never a literal:
+
+| column | means | set on |
+|---|---|---|
+| `default_equip_location_id` | the slot an item of this type goes in **when its own record names none** — a fallback, never an override | `necklace` only (AoC>TV's builder, Pierre 2026-09-29). ⛔ Not for other types: two items typed Crossbow and Polearm are really a consumable and a companion (AOC-059), and a default would put them in a hand |
+| `is_equipment` | whether an item of this type is worn at all | the 23 types that carry a slot in the data, plus `necklace` |
+
+`slotFit` applies the fallback and the report prints how many items it placed, per type. The rule
+runs in **two places that must agree**: the migration `20260930120000_necklace_slot.sql` backfills the
+rows already there — so production got the slot **without a 15-minute re-import** — and the
+importer applies it on every later run. Measured on a restored production dump: the backfill and a
+fresh import produce **byte-identical** `item_equip_locations` and `slot_fit_id` rows.
+
+`is_equipment` is deliberately **independent of the slots**: derived from them, a type whose
+tooltips never name a slot is simply not equipment, and "every piece of equipment has a slot"
+passes on exactly the bug it exists to catch. `TestEveryPieceOfEquipmentHasASlot` (corpus) holds
+it, with seven recorded exceptions each read off its own tooltip — and, as with `knownUnresolved`,
+**an exception that stops matching fails the test**.
+
 **Join keys that are not names.** Places join on the armory's own pair
 `(armory_instance, armory_dungeon)` — `places_armory_key` is UNIQUE on it. Quests join on
 `quests.armory_label`, because `quests.name` is **NULL on all 51 rows**: the real quest names are
@@ -768,7 +793,8 @@ snapshot says next. Mutation-tested: dropping nine stat rows fails the import an
 
 As of 2026-09-20, against dev: **items 4,646 · item_stats 23,063 · item_spell_effects 19 ·
 item_sources 6,571 · item_costs 5,956 · item_classes 4,259 · item_equip_locations 4,882 ·
-sets 368 · vendors 23.**
+sets 368 · vendors 23.** Since AOC-054 (2026-09-30): **item_equip_locations 5,028** — the 146
+necklaces.
 
 ### The pool
 

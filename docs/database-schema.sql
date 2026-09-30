@@ -606,7 +606,9 @@ ALTER SEQUENCE public.item_stats_id_seq OWNED BY public.item_stats.id;
 CREATE TABLE public.item_types (
     id integer NOT NULL,
     slug character varying(64) NOT NULL,
-    name character varying(64) NOT NULL
+    name character varying(64) NOT NULL,
+    default_equip_location_id integer,
+    is_equipment boolean DEFAULT false NOT NULL
 );
 
 
@@ -2065,6 +2067,14 @@ ALTER TABLE ONLY public.item_spell_effects
 
 ALTER TABLE ONLY public.item_stats
     ADD CONSTRAINT item_stats_item_id_fkey FOREIGN KEY (item_id) REFERENCES public.items(item_id) ON DELETE CASCADE;
+
+
+--
+-- Name: item_types item_types_default_equip_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types
+    ADD CONSTRAINT item_types_default_equip_location_id_fkey FOREIGN KEY (default_equip_location_id) REFERENCES public.equip_locations(id);
 
 
 --

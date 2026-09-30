@@ -43,6 +43,9 @@ type Lookups struct {
 	PlaceGeo         map[int32]PlaceGeo
 	SlotFits         map[string]int32
 	Confidence       map[string]int32
+	// DefaultSlots is item type name -> the slot name its items go in when their tooltip names
+	// none (AOC-054). Read from item_types.default_equip_location_id — never a literal here.
+	DefaultSlots map[string]string
 }
 
 // PlaceKey is how a source row finds its place: the PAIR the armory used, never a name.
@@ -149,6 +152,28 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 		return nil, fmt.Errorf("loading quests: %w", err)
 	}
 	l.Quests = qm
+
+	// ⭐ A type's default slot, by NAME on both sides: slotFit hands back slot names, and
+	// insertChildren resolves them through EquipLocations like any the snapshot supplied.
+	l.DefaultSlots = map[string]string{}
+	drows, err := q.Query(ctx, `SELECT t.name, el.name
+	                            FROM item_types t
+	                            JOIN equip_locations el ON el.id = t.default_equip_location_id`)
+	if err != nil {
+		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
+	}
+	for drows.Next() {
+		var typ, slot string
+		if err := drows.Scan(&typ, &slot); err != nil {
+			drows.Close()
+			return nil, err
+		}
+		l.DefaultSlots[typ] = slot
+	}
+	drows.Close()
+	if err := drows.Err(); err != nil {
+		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
+	}
 
 	// ⭐ places join on the PAIR, never a name — the armory's own (instance, dungeon).
 	l.Places = map[PlaceKey]int32{}

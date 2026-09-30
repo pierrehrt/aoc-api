@@ -31,6 +31,9 @@ type Report struct {
 	AppliedNulls   map[string]int // "kind: value" -> rows nulled under a recorded decision
 	ItemsNoSources []int
 	Nulls          map[string]int // "table.column" -> null rows
+	// TypeDefaultSlots is item type -> items placed by that type's default slot because their
+	// tooltip names none (AOC-054). Printed, so the rule's reach is stated rather than assumed.
+	TypeDefaultSlots map[string]int
 }
 
 // tables in delete order: children first, then items, then the two things items point at.
@@ -97,9 +100,10 @@ func checkFloor(ctx context.Context, tx pgx.Tx, incoming int, allowShrink bool) 
 // database exactly as it was.
 func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options) (*Report, error) {
 	rep := &Report{
-		Counts:       map[string]int{},
-		AppliedNulls: map[string]int{},
-		Nulls:        map[string]int{},
+		Counts:           map[string]int{},
+		AppliedNulls:     map[string]int{},
+		Nulls:            map[string]int{},
+		TypeDefaultSlots: map[string]int{},
 	}
 
 	confUnconfirmed, ok := l.Confidence["unconfirmed"]
@@ -155,7 +159,7 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 	if err := countNulls(ctx, tx, rep); err != nil {
 		return nil, err
 	}
-	if err := checkCounts(live, rep); err != nil {
+	if err := checkCounts(live, l, rep); err != nil {
 		return nil, err
 	}
 	return rep, nil
@@ -167,7 +171,7 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 // a data-quality ticket regenerates the snapshot, and somebody would "fix" it by editing the
 // number — which is how a check stops checking. Derived from the input it cannot drift: it only
 // ever asks "did every row I read arrive?", which stays true whatever the snapshot says next.
-func checkCounts(live []Item, rep *Report) error {
+func checkCounts(live []Item, l *Lookups, rep *Report) error {
 	want := map[string]int{
 		"items": len(live), "sets": 0, "vendors": 0,
 		"item_stats": 0, "item_spell_effects": 0, "item_sources": 0,
@@ -183,6 +187,9 @@ func checkCounts(live []Item, rep *Report) error {
 		}
 		switch v := it.EquipLocation; {
 		case v == nil || *v == "" || *v == "None":
+			if it.ItemType != nil && l.DefaultSlots[*it.ItemType] != "" {
+				want["item_equip_locations"]++ // AOC-054: its type's default slot
+			}
 		case strings.Contains(*v, ","), strings.Contains(*v, "/"):
 			want["item_equip_locations"] += 2
 		default:
@@ -301,7 +308,7 @@ func insertItems(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 		if rarityID == nil {
 			return fmt.Errorf("item %d %q has no resolvable rarity — items.rarity_id is NOT NULL", it.ItemID, it.Name)
 		}
-		fit, _ := slotFit(it, l)
+		fit, _, _ := slotFit(it, l)
 		rows = append(rows, []any{
 			it.ItemID, slugs[it.ItemID], it.Name, *rarityID,
 			lookupPtr(it.ItemType, l.ItemTypes), fit,
@@ -328,19 +335,31 @@ func insertItems(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 	return nil
 }
 
-// slotFit turns the snapshot's equip_location into (slot_fit_id, atomic slot names).
+// slotFit turns the snapshot's equip_location into (slot_fit_id, atomic slot names), and says
+// whether the slot came from the item's TYPE rather than its tooltip.
 //
 // ⭐ This is the compound-value handling AOC-010's whole schema shape exists for: "Main Hand, Off
 // Hand" is ONE item occupying BOTH slots, "Left/Right Finger" is one occupying EITHER.
-func slotFit(it Item, l *Lookups) (*int32, []string) {
+// (⚠️ AOC-058: the data puts "Main Hand, Off Hand" on the one-handers, which questions `both`.)
+//
+// ⭐ A tooltip that names no slot falls back to its type's default slot (AOC-054): a necklace's
+// tooltip says `Necklace` and nothing else, so without this all 146 had no slot. The default is
+// item_types data — the migration's backfill applies the same rule to the rows already there.
+func slotFit(it Item, l *Lookups) (fit *int32, slots []string, fromType bool) {
 	if it.EquipLocation == nil || *it.EquipLocation == "" || *it.EquipLocation == "None" {
-		return nil, nil
+		if it.ItemType != nil {
+			if s, ok := l.DefaultSlots[*it.ItemType]; ok {
+				id := l.SlotFits["single"]
+				return &id, []string{s}, true
+			}
+		}
+		return nil, nil, false
 	}
 	v := *it.EquipLocation
 	switch {
 	case strings.Contains(v, ","):
 		id := l.SlotFits["both"]
-		return &id, splitTrim(v, ",")
+		return &id, splitTrim(v, ","), false
 	case strings.Contains(v, "/"):
 		// "Left/Right Finger" -> "Left Finger", "Right Finger"
 		i := strings.Index(v, "/")
@@ -348,14 +367,14 @@ func slotFit(it Item, l *Lookups) (*int32, []string) {
 		sp := strings.LastIndex(rest, " ")
 		if sp < 0 {
 			id := l.SlotFits["either"]
-			return &id, []string{strings.TrimSpace(head), strings.TrimSpace(rest)}
+			return &id, []string{strings.TrimSpace(head), strings.TrimSpace(rest)}, false
 		}
 		noun := rest[sp+1:]
 		id := l.SlotFits["either"]
-		return &id, []string{strings.TrimSpace(head) + " " + noun, strings.TrimSpace(rest[:sp]) + " " + noun}
+		return &id, []string{strings.TrimSpace(head) + " " + noun, strings.TrimSpace(rest[:sp]) + " " + noun}, false
 	default:
 		id := l.SlotFits["single"]
-		return &id, []string{v}
+		return &id, []string{v}, false
 	}
 }
 

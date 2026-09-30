@@ -57,13 +57,16 @@ func count(t *testing.T, d *sql.DB, table string) int {
 // AOC-017 changed the data underneath it: item_types 32 -> 30, equip_locations 37 -> 13 (the two
 // compound values are not slots), factions 16 -> 14 (three spellings of Wolves of the Steppes),
 // currencies 26 -> 24. The ticket's table was never a source; the snapshot is.
+//
+// equip_locations 13 -> 14 on 2026-09-30 (AOC-054): the necklace, which no tooltip names as a slot
+// and AoC>TV's builder does (Pierre, 2026-09-29).
 func TestTheSeededCountsAreWhatWasMeasured(t *testing.T) {
 	d, _ := migratedDB(t)
 
 	for table, want := range map[string]int{
 		// taxonomy
 		"archetypes": 4, "classes": 12, "rarities": 6, "armour_weights": 5,
-		"item_types": 30, "equip_locations": 13, "currencies": 24, "acquisition_types": 3,
+		"item_types": 30, "equip_locations": 14, "currencies": 24, "acquisition_types": 3,
 		"tiers": 10, "bindings": 3, "factions": 14,
 		// place entities
 		"confidence_levels": 4, "regions": 8, "maps": 26, "places": 86,

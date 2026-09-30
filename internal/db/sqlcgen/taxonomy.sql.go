@@ -240,15 +240,21 @@ const listItemTypes = `-- name: ListItemTypes :many
 SELECT id, slug, name FROM item_types ORDER BY name
 `
 
-func (q *Queries) ListItemTypes(ctx context.Context) ([]ItemType, error) {
+type ListItemTypesRow struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+func (q *Queries) ListItemTypes(ctx context.Context) ([]ListItemTypesRow, error) {
 	rows, err := q.db.Query(ctx, listItemTypes)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ItemType{}
+	items := []ListItemTypesRow{}
 	for rows.Next() {
-		var i ItemType
+		var i ListItemTypesRow
 		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
 			return nil, err
 		}
