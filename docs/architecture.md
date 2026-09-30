@@ -630,14 +630,20 @@ Four shapes that are not obvious, each of which a simpler schema would have got 
    fits **either** slot: `Main Hand, Off Hand` sits on the one-handed weapons (1HB, 1HE, dagger,
    talisman), which go in either hand — Pierre, 2026-09-30 (**AOC-058**). ⚠️ Until then it was read
    as `both` ("a two-hander occupying both slots at once"), from the value's shape alone; the data
-   put it on the one-handers all along. Flattened into one column, *"show me every Off Hand item"*
+   put it on the one-handers all along. The importer now reads compounds from **`compoundSlots`**,
+   one recorded meaning per value, and **refuses an import carrying any other** `,`/`/` value before
+   it deletes anything — the shape of a value is never read as its meaning again. Nine one-handers
+   are `Main Hand` or `Off Hand` alone, and their own tooltips say so ("Talisman - Off Hand"): the
+   game restricts those items; they are `single`. Flattened into one column, *"show me every Off Hand item"*
    silently returns 141 instead of 530. `items.slot_fit_id` (`single` · `either`; `both` stays a
    row, and no item carries it) says how to read an item's rows, and it lives on the **item**
    because it describes the whole set: two join rows could otherwise contradict each other.
    **What takes both hands is a fact about the TYPE**: `item_types.two_handed` — true for 2HB, 2HE,
    staff, bow, polearm, thrown; false for 1HB, 1HE, dagger, talisman, crossbow (Pierre); NULL for
    types with no main-hand item. The gear builder reads it; nothing lists weapon types in code.
-   `TestEveryWeaponFollowsPierresHands` (corpus) holds the rule over every item.
+   `TestEveryWeaponFollowsPierresHands` (corpus) checks every weapon's fit against its own rows;
+   `TestTheWeaponMigrationAndTheImporterAgree` runs the migration's UPDATE, read from the file,
+   against what the importer writes.
    `TestListItemsFindsOneHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
    is mutation-tested: break that query and it fails naming the lost one-hander.
    `TestAskingForOffHandItemsReturnsOneHandersToo` pins the same property at the schema level.

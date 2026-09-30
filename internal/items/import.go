@@ -127,6 +127,9 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 	if err := checkFloor(ctx, tx, len(live), opt.AllowShrink); err != nil {
 		return nil, err
 	}
+	if err := checkCompounds(live); err != nil {
+		return nil, err
+	}
 
 	for _, t := range deleteOrder {
 		if _, err := tx.Exec(ctx, "DELETE FROM "+t); err != nil { // #nosec G202 -- literals above
@@ -354,37 +357,53 @@ func slotFit(it Item, l *Lookups) (fit *int32, slots []string, fromType bool) {
 		return nil, nil, false
 	}
 	v := *it.EquipLocation
-	switch {
-	case strings.Contains(v, ","):
-		id := l.SlotFits["either"]
-		return &id, splitTrim(v, ","), false
-	case strings.Contains(v, "/"):
-		// "Left/Right Finger" -> "Left Finger", "Right Finger"
-		i := strings.Index(v, "/")
-		head, rest := v[:i], v[i+1:]
-		sp := strings.LastIndex(rest, " ")
-		if sp < 0 {
-			id := l.SlotFits["either"]
-			return &id, []string{strings.TrimSpace(head), strings.TrimSpace(rest)}, false
-		}
-		noun := rest[sp+1:]
-		id := l.SlotFits["either"]
-		return &id, []string{strings.TrimSpace(head) + " " + noun, strings.TrimSpace(rest[:sp]) + " " + noun}, false
-	default:
-		id := l.SlotFits["single"]
-		return &id, []string{v}, false
+	if c, ok := compoundSlots[v]; ok {
+		id := l.SlotFits[c.fit]
+		return &id, c.slots, false
 	}
+	// checkCompounds refused any other compound before anything was written, so this is one slot.
+	id := l.SlotFits["single"]
+	return &id, []string{v}, false
 }
 
-func splitTrim(s, sep string) []string {
-	parts := strings.Split(s, sep)
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
+// compoundSlots is every equip_location that names more than one slot, and what each MEANS — a
+// recorded decision per value, never a reading of its punctuation. Reading the shape is exactly how
+// "Main Hand, Off Hand" came to mean "occupies both" for three weeks (AOC-058). Both are an item that
+// fits EITHER slot: the first sits on the one-handed weapons, which Pierre confirmed go in either
+// hand (2026-09-30); the second on rings. Measured 2026-09-30: the snapshot holds these two and no
+// other (390 and 188 items).
+var compoundSlots = map[string]struct {
+	fit   string
+	slots []string
+}{
+	"Main Hand, Off Hand": {"either", []string{"Main Hand", "Off Hand"}},
+	"Left/Right Finger":   {"either", []string{"Left Finger", "Right Finger"}},
+}
+
+// checkCompounds refuses a snapshot that carries a compound equip_location nobody has decided about
+// — a ',' or '/' in a value compoundSlots does not know — before the import deletes anything.
+func checkCompounds(its []Item) error {
+	unknown := map[string]int{}
+	for _, it := range its {
+		if it.EquipLocation == nil {
+			continue
+		}
+		v := *it.EquipLocation
+		if _, ok := compoundSlots[v]; !ok && strings.ContainsAny(v, ",/") {
+			unknown[v]++
 		}
 	}
-	return out
+	if len(unknown) == 0 {
+		return nil
+	}
+	vals := make([]string, 0, len(unknown))
+	for v, n := range unknown {
+		vals = append(vals, fmt.Sprintf("%q (%d items)", v, n))
+	}
+	sort.Strings(vals)
+	return fmt.Errorf("REFUSING TO GUESS: the snapshot has compound equip locations nobody has decided "+
+		"about: %s.\nNothing has been deleted. Say what each means in compoundSlots (internal/items/import.go)",
+		strings.Join(vals, ", "))
 }
 
 // assignSlugs gives every item a unique slug. Three naive slugs collide, two of them because the

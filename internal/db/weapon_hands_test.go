@@ -6,14 +6,16 @@ package db_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pressly/goose/v3"
 )
 
 const (
-	beforeWeaponHands = 20260930120000
+	beforeWeaponHands = necklaceSlot // AOC-054's migration, the one before this
 	weaponHands       = 20260930130000
+	weaponMigration   = "20260930130000_weapon_hands.sql"
 )
 
 func TestTwoHandedIsSeededForEveryMainHandTypePierreAnswered(t *testing.T) {
@@ -59,31 +61,14 @@ func TestTheMigrationMakesOneHandersEitherAndItsDownOnlyThem(t *testing.T) {
 	if err := goose.UpTo(d, migrationsDir, beforeWeaponHands); err != nil {
 		t.Fatalf("goose up to %d: %v", beforeWeaponHands, err)
 	}
-	ctx := context.Background()
-	const insert = `
-INSERT INTO items (item_id, slug, name, rarity_id, item_type_id, slot_fit_id, confidence_id, source_note)
-SELECT $1, $2, $3, (SELECT id FROM rarities LIMIT 1), (SELECT id FROM item_types WHERE slug = $4),
-       (SELECT id FROM slot_fits WHERE slug = $5), (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'),
-       'fixture — internal/db/weapon_hands_test.go, not a game fact'`
-	for _, it := range []struct {
-		id              int
-		slug, name, typ string
-		fit             string
-		slots           []string
-	}{
+	for _, it := range []migrationItem{
 		{970, "test-sword-alpha", "Test Sword Alpha", "1he", "both", []string{"main-hand", "off-hand"}},
 		{971, "test-band-beta", "Test Band Beta", "ring", "either", []string{"left-finger", "right-finger"}},
 		{972, "test-maul-gamma", "Test Maul Gamma", "2hb", "single", []string{"main-hand"}},
+		// a `both` of another shape (one row): not what the Up is for, so it stays `both` both ways
+		{973, "test-odd-delta", "Test Odd Delta", "1he", "both", []string{"main-hand"}},
 	} {
-		if _, err := d.ExecContext(ctx, insert, it.id, it.slug, it.name, it.typ, it.fit); err != nil {
-			t.Fatalf("seeding %s: %v", it.name, err)
-		}
-		for _, sl := range it.slots {
-			if _, err := d.ExecContext(ctx, `INSERT INTO item_equip_locations (item_id, equip_location_id)
-			                                 VALUES ($1, (SELECT id FROM equip_locations WHERE slug = $2))`, it.id, sl); err != nil {
-				t.Fatal(err)
-			}
-		}
+		it.seed(t, d)
 	}
 
 	if err := goose.UpTo(d, migrationsDir, weaponHands); err != nil {
@@ -93,6 +78,7 @@ SELECT $1, $2, $3, (SELECT id FROM rarities LIMIT 1), (SELECT id FROM item_types
 		970: {slots: "main-hand,off-hand", fit: "either"},
 		971: {slots: "left-finger,right-finger", fit: "either"},
 		972: {slots: "main-hand", fit: "single"},
+		973: {slots: "main-hand", fit: "both"},
 	} {
 		if got := slotsOf(t, d, id); got != want {
 			t.Errorf("after up, item %d = %+v, want %+v", id, got, want)
@@ -106,6 +92,7 @@ SELECT $1, $2, $3, (SELECT id FROM rarities LIMIT 1), (SELECT id FROM item_types
 		970: {slots: "main-hand,off-hand", fit: "both"},
 		971: {slots: "left-finger,right-finger", fit: "either"}, // was either before the Up: stays
 		972: {slots: "main-hand", fit: "single"},
+		973: {slots: "main-hand", fit: "both"},
 	} {
 		if got := slotsOf(t, d, id); got != want {
 			t.Errorf("after down, item %d = %+v, want %+v", id, got, want)
@@ -125,5 +112,50 @@ func TestTheImporterReadsMainHandOffHandAsEither(t *testing.T) {
 	}
 	if got, want := slotsOf(t, d, 9002), (slotState{slots: "left-finger,right-finger", fit: "either"}); got != want {
 		t.Errorf("Test Ring Beta = %+v, want %+v", got, want)
+	}
+}
+
+// ⭐ The migration and the importer apply ONE rule — checked here, not only by the one-off comparison
+// on a production dump (the AOC-054 pattern). The fixture is imported by the current importer; its
+// one-hander is put back to `both`, the way production holds it before this migration; the
+// migration's own UPDATE, read out of the file, must land it where the importer did.
+func TestTheWeaponMigrationAndTheImporterAgree(t *testing.T) {
+	pool, d := importTarget(t)
+	if r := runImport(t, pool, fixtureJSON); r.err != nil {
+		t.Fatalf("import: %v", r.err)
+	}
+	viaImporter := allSlots(t, d)
+	ctx := context.Background()
+	if _, err := d.ExecContext(ctx, `UPDATE items SET slot_fit_id = (SELECT id FROM slot_fits WHERE slug = 'both') WHERE item_id = 9001`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ExecContext(ctx, seedStatementFrom(t, weaponMigration, "UPDATE items SET slot_fit_id")); err != nil {
+		t.Fatalf("running the migration's UPDATE: %v", err)
+	}
+	for id, want := range viaImporter {
+		if got := allSlots(t, d)[id]; got != want {
+			t.Errorf("item %d: the migration gives %+v, the importer %+v", id, got, want)
+		}
+	}
+}
+
+// A compound slot value nobody has decided about stops the import BEFORE anything is deleted —
+// punctuation is never read as meaning again (AOC-058 review).
+func TestAnUnknownCompoundSlotStopsTheImport(t *testing.T) {
+	pool, d := importTarget(t)
+	if r := runImport(t, pool, fixtureJSON); r.err != nil {
+		t.Fatalf("first import: %v", r.err)
+	}
+	before := count(t, d, "items")
+	odd := strings.Replace(fixtureJSON, `"equip_location":"Left/Right Finger"`, `"equip_location":"Head, Chest"`, 1)
+	if odd == fixtureJSON {
+		t.Fatal("the fixture no longer carries the ring's compound value")
+	}
+	r := runImport(t, pool, odd)
+	if r.err == nil || !strings.Contains(r.err.Error(), "REFUSING TO GUESS") || !strings.Contains(r.err.Error(), `"Head, Chest"`) {
+		t.Fatalf("import of an unknown compound = %v, want a refusal naming it", r.err)
+	}
+	if after := count(t, d, "items"); after != before {
+		t.Errorf("items went from %d to %d — the refusal must come before the delete", before, after)
 	}
 }

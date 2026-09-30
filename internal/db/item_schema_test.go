@@ -62,7 +62,7 @@ SELECT $1, $2, $3,
 INSERT INTO item_equip_locations (item_id, equip_location_id)
 VALUES ($1, (SELECT id FROM equip_locations WHERE slug = $2))`
 	links := [][2]interface{}{
-		{900, "main-hand"}, {900, "off-hand"}, // occupies BOTH
+		{900, "main-hand"}, {900, "off-hand"}, // EITHER hand (a one-hander, AOC-058)
 		{901, "off-hand"},
 		{902, "left-finger"}, {902, "right-finger"}, // EITHER
 		{903, "head"},
@@ -103,7 +103,7 @@ func TestAskingForOffHandItemsReturnsOneHandersToo(t *testing.T) {
 // says each occupies only one of them.
 // The distinction is invisible in the rows and lives entirely in slot_fit — so it is worth a test
 // that says out loud which one each fixture is.
-func TestSlotFitDistinguishesBothFromEither(t *testing.T) {
+func TestSlotFitIsStatedPerItem(t *testing.T) {
 	d, _ := migratedDB(t)
 	seedFixtureItems(t, d)
 

@@ -98,34 +98,14 @@ func TestTheMigrationPlacesTheNecklacesAlreadyThereAndItsDownRemovesThem(t *test
 	if err := goose.UpTo(d, migrationsDir, beforeNecklaceSlot); err != nil {
 		t.Fatalf("goose up to %d: %v", beforeNecklaceSlot, err)
 	}
-	ctx := context.Background()
 
-	const insert = `
-INSERT INTO items (item_id, slug, name, rarity_id, item_type_id, slot_fit_id, confidence_id, source_note)
-SELECT $1, $2, $3,
-       (SELECT id FROM rarities LIMIT 1),
-       (SELECT id FROM item_types WHERE slug = $4),
-       (SELECT id FROM slot_fits WHERE slug = $5),
-       (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'),
-       'fixture — internal/db/necklace_slot_test.go, not a game fact'`
-	for _, it := range []struct {
-		id         int
-		slug, name string
-		typ        string
-		fit        interface{}
-	}{
-		{960, "test-pendant-alpha", "Test Pendant Alpha", "necklace", nil},
-		{961, "test-pendant-beta", "Test Pendant Beta", "necklace", "single"},
-		{962, "test-tonic-gamma", "Test Tonic Gamma", "consumable", nil},
-		{963, "test-tonic-delta", "Test Tonic Delta", "consumable", "single"},
+	for _, it := range []migrationItem{
+		{960, "test-pendant-alpha", "Test Pendant Alpha", "necklace", "", nil},
+		{961, "test-pendant-beta", "Test Pendant Beta", "necklace", "single", []string{"chest"}},
+		{962, "test-tonic-gamma", "Test Tonic Gamma", "consumable", "", nil},
+		{963, "test-tonic-delta", "Test Tonic Delta", "consumable", "single", nil},
 	} {
-		if _, err := d.ExecContext(ctx, insert, it.id, it.slug, it.name, it.typ, it.fit); err != nil {
-			t.Fatalf("seeding %s: %v", it.name, err)
-		}
-	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO item_equip_locations (item_id, equip_location_id)
-	                                 VALUES (961, (SELECT id FROM equip_locations WHERE slug = 'chest'))`); err != nil {
-		t.Fatal(err)
+		it.seed(t, d)
 	}
 
 	if err := goose.UpTo(d, migrationsDir, necklaceSlot); err != nil {
@@ -158,6 +138,38 @@ SELECT $1, $2, $3,
 }
 
 type slotState struct{ slots, fit string }
+
+// migrationItem is an obviously fake item a migration test writes BEFORE the migration under test —
+// the way production meets it. One scaffold for every such test, so a column change (AOC-057 drops
+// confidence_id and source_note) is one edit. fit "" writes NULL.
+type migrationItem struct {
+	id              int
+	slug, name, typ string
+	fit             string
+	slots           []string
+}
+
+func (it migrationItem) seed(t *testing.T, d *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	var fit interface{}
+	if it.fit != "" {
+		fit = it.fit
+	}
+	if _, err := d.ExecContext(ctx, `
+INSERT INTO items (item_id, slug, name, rarity_id, item_type_id, slot_fit_id, confidence_id, source_note)
+SELECT $1, $2, $3, (SELECT id FROM rarities LIMIT 1), (SELECT id FROM item_types WHERE slug = $4),
+       (SELECT id FROM slot_fits WHERE slug = $5), (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'),
+       'fixture — a migration test, not a game fact'`, it.id, it.slug, it.name, it.typ, fit); err != nil {
+		t.Fatalf("seeding %s: %v", it.name, err)
+	}
+	for _, sl := range it.slots {
+		if _, err := d.ExecContext(ctx, `INSERT INTO item_equip_locations (item_id, equip_location_id)
+		                                 VALUES ($1, (SELECT id FROM equip_locations WHERE slug = $2))`, it.id, sl); err != nil {
+			t.Fatalf("linking %s to %s: %v", it.name, sl, err)
+		}
+	}
+}
 
 func slotsOf(t *testing.T, d *sql.DB, itemID int) slotState {
 	t.Helper()
