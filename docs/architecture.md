@@ -484,12 +484,18 @@ else. Four things it added that later pages inherit:
   `TestItemPageIsTheSameWhoeverAsks` pins that the bytes do not change with the Referer. There is no
   Content-Security-Policy today; the day one is added, this script moves to a hashed asset.
 
-⚠️ The tooltip `<img>` is **not lazy** (on desktop it is the page's main above-the-fold image) and
-carries **no width/height**: its dimensions vary (90% between 208 and 344 px wide and 337–512 tall,
-measured on the local archive 2026-09-30) and are not in the data. It sits in its own column on
-desktop and after the stats on a phone, so nothing reflows below it; storing the dimensions would
-need the snapshot and a re-import, which is not worth it for that. It is portrait, so the page sets
-`View.Card = "summary"` — `summary_large_image` crops to 2:1 and can cut the item's name off.
+⛔ **Nothing sits below the tooltip image.** Its size is not in the data (90% of tooltips are 208–344
+px wide and 337–512 tall, measured on the local archive 2026-09-30), so the browser cannot reserve its
+box — and the first build, which put Set and Sources under it, moved them **260–460 px** when it
+arrived (CLS 0.08–0.19; AOC-048 verify round 1). So the page is **one block of text, then the
+image**: from `lg` up the image has its own fixed `22rem` column beside the text, which is
+top-aligned and never moves; below `lg` it comes last. Measured with the image served 2 s late:
+headings stay put, CLS ≤ 0.02 on a phone and ≈ 0 on desktop.
+`TestNothingOnTheItemPageSitsBelowTheTooltip` pins the order. A wider tooltip (744 of 4,645) scales
+to the column, so the image links to itself at full size. It is **not lazy** (on desktop it is the
+main above-the-fold image), and it is portrait, so the page sets `View.Card = "summary"` —
+`summary_large_image` crops to 2:1 and can cut the item's name off. Storing the dimensions would let
+the browser reserve the box anywhere, but needs the snapshot and a re-import.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.
