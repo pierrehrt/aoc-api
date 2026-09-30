@@ -95,14 +95,18 @@ func run() error {
 	q := sqlcgen.New(pool)
 	itemsSvc := items.NewService(q)
 	itemsAPI := items.NewHandler(itemsSvc, items.NewTaxonomyService(q))
-	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")), itemsSvc)
+	baseURL := envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080"))
+	site := pages.New(tpl, assetSet, baseURL, itemsSvc)
+	router := httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
+		v1.Mount("/items", itemsAPI.Routes())
+		v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
+	})
 
 	srv := &http.Server{
 		Addr: addr,
-		Handler: httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
-			v1.Mount("/items", itemsAPI.Routes())
-			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
-		}),
+		// Outermost, so every response under a host that is not the canonical one — the Railway
+		// domain's full copy of the site — says noindex, whatever route answered (AOC-025).
+		Handler: httpx.NoIndexOffCanonicalHost(baseURL)(router),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that
 		// net/http leaves unset by default.

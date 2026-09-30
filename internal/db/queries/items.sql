@@ -115,6 +115,14 @@ LEFT JOIN tiers tr ON tr.id = src.tier_id
 WHERE src.item_id = $1
 ORDER BY src.id;
 
+-- name: ListItemSlugs :many
+-- AOC-025: the sitemap's item URLs, one page of them. Ordered by the source site's own id, which
+-- never changes, so a chunk holds the same items from one crawl to the next.
+SELECT i.slug
+FROM items i
+ORDER BY i.item_id
+LIMIT sqlc.arg('page_size')::int OFFSET sqlc.arg('page_offset')::int;
+
 -- name: ListSetPieces :many
 -- AOC-048: every piece of one set, for the item page and /v1's set_pieces. Bounded by the data's
 -- own shape — the largest set holds 16 (measured 2026-09-30) — so it is part of one item's detail,

@@ -463,6 +463,40 @@ func (q *Queries) ListItemPlaces(ctx context.Context, itemIds []int32) ([]ListIt
 	return items, nil
 }
 
+const listItemSlugs = `-- name: ListItemSlugs :many
+SELECT i.slug
+FROM items i
+ORDER BY i.item_id
+LIMIT $2::int OFFSET $1::int
+`
+
+type ListItemSlugsParams struct {
+	PageOffset int32
+	PageSize   int32
+}
+
+// AOC-025: the sitemap's item URLs, one page of them. Ordered by the source site's own id, which
+// never changes, so a chunk holds the same items from one crawl to the next.
+func (q *Queries) ListItemSlugs(ctx context.Context, arg ListItemSlugsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listItemSlugs, arg.PageOffset, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItemSources = `-- name: ListItemSources :many
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type, at.name AS acquisition_type_name,

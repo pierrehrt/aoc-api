@@ -69,6 +69,9 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/", h.home)
 	r.Get("/armory", h.armory)
 	r.Get("/armory/{slug}", h.item)
+	r.Get("/robots.txt", h.robots)
+	r.Get("/sitemap.xml", h.sitemap)
+	r.Get("/sitemaps/{n}.xml", h.sitemapChunk)
 	r.Get("/_smoke", h.smoke)
 	r.Post("/_smoke/echo", h.echo)
 }

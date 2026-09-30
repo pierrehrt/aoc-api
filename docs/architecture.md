@@ -500,6 +500,31 @@ the browser reserve the box anywhere, but needs the snapshot and a re-import.
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.
 
+### Being found: robots.txt, the sitemap, one indexed host (AOC-025)
+
+`internal/pages/seo.go`. **The sitemap is built from the database and the nav, never from a list**:
+`/`, every `siteNav` section (which lists only routes that exist), then every item slug in item-id
+order (`items.Service.Slugs`, paged by the chunk) — so an import that adds items adds their URLs,
+and a new section is in the sitemap the day it enters the nav. `/sitemap.xml` is an index; chunks
+hold at most the protocol's **50,000** URLs (`sitemapMaxURLs`, boundary-tested; a full chunk of the
+longest possible slug is well under 50 MB). XML is written with **`encoding/xml`**, not a template —
+html/template escapes for HTML.
+
+- ⛔ **No `<lastmod>`.** No row carries a real modification time and the import is a full replace;
+  a stamp would be the last import's, on all 4,646 at once, and a lastmod that is not accurate is
+  one Google learns to ignore for the whole site. Revisit when community edits (EP-06) give rows a
+  real one.
+- **`robots.txt` disallows machinery only** (`/_smoke`, `/v1/`, `/health`) and names the sitemap.
+  `/assets` stays open — Google renders with our CSS. ⚠️ Cloudflare's managed robots.txt is on for
+  the zone and **prepends its comment block** to ours; the origin's rules follow it.
+- **One indexed host.** Requests reach the origin as `Host: aoc-codex.app` (Railway routes custom
+  domains by Host, measured 2026-09-30); the service's own Railway domain is a crawlable copy.
+  `httpx.NoIndexOffCanonicalHost`, wrapped around the whole router in `cmd/api`, adds
+  `X-Robots-Tag: noindex` to every response whose host is not `PUBLIC_BASE_URL`'s. Not robots.txt:
+  disallowing the crawl would hide the noindex from Google. ⚠️ If `PUBLIC_BASE_URL` were ever unset
+  in production it would default to localhost and **every page would say noindex** — the release
+  check `curl -sI https://aoc-codex.app/ | grep -i x-robots` must print nothing.
+
 ## Database
 
 Added by **AOC-005**. `goose` for migrations, `sqlc` for typed queries, `pgx` for the pool.

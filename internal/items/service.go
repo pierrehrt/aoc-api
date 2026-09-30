@@ -45,6 +45,7 @@ type Querier interface {
 	ListItemClasses(ctx context.Context, itemID int32) ([]sqlcgen.ListItemClassesRow, error)
 	ListItemSpellEffects(ctx context.Context, itemID int32) ([]sqlcgen.ListItemSpellEffectsRow, error)
 	ListSetPieces(ctx context.Context, setID *int32) ([]sqlcgen.ListSetPiecesRow, error)
+	ListItemSlugs(ctx context.Context, arg sqlcgen.ListItemSlugsParams) ([]string, error)
 	ListItemPageEquipLocations(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error)
 	ListItemPageClasses(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageClassesRow, error)
 	ListItemPageCosts(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageCostsRow, error)
@@ -563,6 +564,19 @@ func Price(cs []CostRef) string {
 		parts = append(parts, TrimNumber(c.Amount)+" "+c.CurrencyName)
 	}
 	return strings.Join(parts, " + ")
+}
+
+// Slugs is one page of every item's slug, in item-id order — the sitemap's item URLs (AOC-025).
+// Paged by the caller's chunk, so a sitemap never loads more than one chunk's worth.
+func (s *Service) Slugs(ctx context.Context, limit, offset int) ([]string, error) {
+	if limit <= 0 || offset < 0 {
+		return nil, fmt.Errorf("%w: limit %d, offset %d", httpx.ErrInvalid, limit, offset)
+	}
+	slugs, err := s.q.ListItemSlugs(ctx, sqlcgen.ListItemSlugsParams{PageSize: int32(limit), PageOffset: int32(offset)}) // #nosec G115 -- bounded by the sitemap chunk size
+	if err != nil {
+		return nil, fmt.Errorf("list item slugs: %w", err)
+	}
+	return slugs, nil
 }
 
 // IDSpan is the honest empty state's numbers (AOC-047): computed, never typed.
