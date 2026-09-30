@@ -49,12 +49,52 @@ func canonicalHost(base *url.URL) func(http.Handler) http.Handler {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				code = http.StatusPermanentRedirect
 			}
-			// #nosec G710 -- not an open redirect: scheme and host are PUBLIC_BASE_URL's, only the path
-			// and query are the request's, so even "//evil.example/x" stays on the canonical host
-			// (pinned by TestEveryOtherHostIsRedirectedToTheCanonicalOne).
-			http.Redirect(w, r, base.Scheme+"://"+base.Host+r.URL.RequestURI(), code)
+			http.Redirect(w, r, canonicalLocation(base, r.URL), code) // #nosec G710 -- see canonicalLocation
 		})
 	}
+}
+
+// canonicalLocation is the redirect target: the canonical scheme and host, then the request's path
+// and query — and NOTHING of the request can reach the host part.
+//
+// ⛔ Not `base + r.URL.RequestURI()` (the first build, AOC-025 verify round 1): a request target with
+// a scheme and no "//" — `GET x:@evil.example/` — has a RequestURI with no leading "/", so it was
+// glued onto the host: `https://aoc-codex.app@evil.example/`, a redirect to evil.example, and a
+// cacheable one. Here the path always starts with "/", so whatever follows the host is a path.
+func canonicalLocation(base *url.URL, u *url.URL) string {
+	p := u.EscapedPath()
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	loc := base.Scheme + "://" + base.Host + p
+	if u.RawQuery != "" {
+		loc += "?" + u.RawQuery
+	}
+	return loc
+}
+
+// ResolvePublicBase decides the site's origin from ENV and PUBLIC_BASE_URL (AOC-025), so the rule is
+// tested rather than living in main:
+//
+//   - production: PUBLIC_BASE_URL is REQUIRED, parsed strictly, and must be https — unset it would
+//     default to localhost and every canonical and sitemap URL would point there, silently; http
+//     would downgrade every one of them, just as silently
+//   - elsewhere, unset: the local fallback, and no host redirect
+//   - elsewhere, set: parsed strictly, and other hosts redirect to it
+//
+// canonical is the origin other hosts redirect to; nil means no redirect.
+func ResolvePublicBase(env, raw string, set bool, localFallback string) (baseURL string, canonical *url.URL, err error) {
+	if !set && env != "production" {
+		return localFallback, nil, nil
+	}
+	u, err := ParsePublicBaseURL(raw)
+	if err != nil {
+		return "", nil, err
+	}
+	if env == "production" && u.Scheme != "https" {
+		return "", nil, fmt.Errorf("PUBLIC_BASE_URL %q must be https in production", raw)
+	}
+	return u.String(), u, nil
 }
 
 func hostOnly(h string) string {

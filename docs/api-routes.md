@@ -233,8 +233,10 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 `aoc-armory-snapshot-production.up.railway.app` served a full 200 copy of the site. 308 for methods
 other than GET/HEAD; `/health` is exempt (monitors read it on any host); hosts compare lowercased
 without a port. `aoc-codex.app` itself is never redirected — requests reach the origin as
-`Host: aoc-codex.app`. **`PUBLIC_BASE_URL` is required when `ENV=production`** and parsed strictly;
-malformed or missing, the boot fails.
+`Host: aoc-codex.app`. **`PUBLIC_BASE_URL` is required when `ENV=production`**, parsed strictly and must be
+**https** (`httpx.ResolvePublicBase`); malformed, missing or http, the boot fails. The redirect's
+Location takes only the request's path and query, always starting with `/` — a target like
+`x:@evil.example/` goes to `https://aoc-codex.app/`, never off the host.
 
 **Rejection shape follows the path**, for **404 and 405 alike**: `/v1/*`, `/health` and
 `/assets/*` are JSON; everything else is a small HTML page. `/health` is included because it is

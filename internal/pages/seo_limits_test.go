@@ -7,8 +7,10 @@ import (
 )
 
 // The protocol's two limits per file are 50,000 URLs and 50 MB uncompressed (sitemaps.org). The
-// count is sitemapProtocolMax, which New gives every handler; the size is proved on the WORST case — a full chunk of the longest slug
-// items.slug can hold (varchar 160) — so growth cannot cross it unnoticed.
+// count is sitemapProtocolMax, which New gives every handler; the size is proved on a full chunk of
+// the longest slug the IMPORTER can make — 160 characters of slugify's [a-z0-9-], each one byte in the
+// URL. (A slug of other characters would escape to up to three bytes each; the importer never writes
+// one, and a writer that could, EP-06's edits, must re-prove this.)
 func TestAFullChunkOfTheLongestURLsStaysUnder50MB(t *testing.T) {
 	if h := New(nil, nil, "", nil); sitemapProtocolMax != 50000 || h.sitemapMax != sitemapProtocolMax {
 		t.Fatalf("limit %d, a new handler's %d; the protocol's is 50,000", sitemapProtocolMax, h.sitemapMax)

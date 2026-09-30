@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -57,6 +58,11 @@ func TestEveryOtherHostIsRedirectedToTheCanonicalOne(t *testing.T) {
 		{"GET", "www.aoc-codex.app", "/", 301, "https://aoc-codex.app/"},
 		// not an open redirect: a path that looks like a host stays a path on the canonical host
 		{"GET", "aoc-armory-snapshot-production.up.railway.app", "//evil.example/x", 301, "https://aoc-codex.app//evil.example/x"},
+		// ⛔ verify round 1's two: a target with a scheme and no "//" has no leading "/", and the first
+		// build glued it onto the host — https://aoc-codex.app@evil.example/ and
+		// https://aoc-codex.app.evil.example/phish. Such a target has no path, so it goes home.
+		{"GET", "aoc-armory-snapshot-production.up.railway.app", "x:@evil.example/", 301, "https://aoc-codex.app/"},
+		{"GET", "aoc-armory-snapshot-production.up.railway.app", "x:.evil.example/phish", 301, "https://aoc-codex.app/"},
 	} {
 		r := httptest.NewRequestWithContext(context.Background(), tc.method, tc.target, nil)
 		r.Host = tc.host
@@ -64,6 +70,14 @@ func TestEveryOtherHostIsRedirectedToTheCanonicalOne(t *testing.T) {
 		h.ServeHTTP(rr, r)
 		if rr.Code != tc.code || rr.Header().Get("Location") != tc.location {
 			t.Errorf("%s %s%s: %d %q, want %d %q", tc.method, tc.host, tc.target, rr.Code, rr.Header().Get("Location"), tc.code, tc.location)
+		}
+		// ⭐ Whatever the target, every Location's HOST is the canonical one, with no userinfo — the
+		// property, asserted on each redirect rather than trusted to the cases above.
+		if loc := rr.Header().Get("Location"); loc != "" {
+			u, err := url.Parse(loc)
+			if err != nil || u.Scheme != "https" || u.Host != "aoc-codex.app" || u.User != nil {
+				t.Errorf("%s%s: Location %q leaves the canonical host", tc.host, tc.target, loc)
+			}
 		}
 		if tc.code == 301 && !strings.Contains(rr.Header().Get("Cache-Control"), "public") {
 			t.Errorf("%s%s: the 301 left without the page cache policy (%q)", tc.host, tc.target, rr.Header().Get("Cache-Control"))
@@ -78,5 +92,40 @@ func TestEveryOtherHostIsRedirectedToTheCanonicalOne(t *testing.T) {
 	plain.ServeHTTP(rr, r)
 	if rr.Code != http.StatusOK {
 		t.Errorf("no canonical host configured, yet %d", rr.Code)
+	}
+}
+
+// ⭐ The production rule, held by a test (verify round 1: in main, reducing it to "only when set"
+// failed nothing — and a production boot without PUBLIC_BASE_URL then pointed every canonical and
+// sitemap URL at localhost while the apex still answered 200).
+func TestPublicBaseIsRequiredAndHTTPSInProduction(t *testing.T) {
+	const local = "http://localhost:8080"
+	for _, tc := range []struct {
+		env, raw string
+		set      bool
+		base     string // "" = must fail
+		redirect bool
+	}{
+		{"production", "", false, "", false},                      // unset
+		{"production", "", true, "", false},                       // blank
+		{"production", " https://aoc-codex.app", true, "", false}, // pasted with a space
+		{"production", "http://aoc-codex.app", true, "", false},   // http would downgrade every URL
+		{"production", "aoc-codex.app", true, "", false},          // no scheme
+		{"production", "https://aoc-codex.app", true, "https://aoc-codex.app", true},
+		{"production", "https://aoc-codex.app/", true, "https://aoc-codex.app", true},
+		{"local", "", false, local, false},                         // development, unset: localhost, no redirect
+		{"local", "http://localhost:8080", true, local, true},      // set: parsed, and other hosts redirect
+		{"local", "https://aoc-codex.app/armory", true, "", false}, // set but malformed still fails
+	} {
+		base, canonical, err := ResolvePublicBase(tc.env, tc.raw, tc.set, local)
+		if tc.base == "" {
+			if err == nil {
+				t.Errorf("%s %q (set %v): accepted as %q; the boot must fail", tc.env, tc.raw, tc.set, base)
+			}
+			continue
+		}
+		if err != nil || base != tc.base || (canonical != nil) != tc.redirect {
+			t.Errorf("%s %q (set %v) = %q, redirect %v, %v; want %q, redirect %v", tc.env, tc.raw, tc.set, base, canonical != nil, err, tc.base, tc.redirect)
+		}
 	}
 }

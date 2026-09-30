@@ -526,9 +526,12 @@ html/template escapes for HTML.
   carry to the target, and a redirect is also *loud* — a wrong host rule shows as a broken site at
   the release check, not as a site quietly dropping out of the index. Not robots.txt: disallowing
   the crawl would stop Google seeing any signal at all.
-  ⛔ **`PUBLIC_BASE_URL` is required in production and parsed strictly** (`httpx.ParsePublicBaseURL`:
-  an origin, nothing else) — unset or malformed, the boot fails, where Railway keeps the previous
-  deploy serving. The release checks that the live apex answers 200, not a redirect
+  ⛔ **`PUBLIC_BASE_URL` is required in production, parsed strictly and must be https**
+  (`httpx.ResolvePublicBase`, table-tested — the rule was first written in `main`, where dropping it
+  failed no test) — unset, malformed or http, the boot fails, where Railway keeps the previous deploy
+  serving. The Location is built by `canonicalLocation` from the request's path and query only, the
+  path always starting with `/`: the first build's `base + RequestURI()` let `GET x:@evil.example/`
+  become `https://aoc-codex.app@evil.example/` (verify round 1). The release checks that the live apex answers 200, not a redirect
   (`workflows/5-release.md` § 4).
 
 ## Database

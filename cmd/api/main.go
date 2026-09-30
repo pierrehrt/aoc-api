@@ -99,15 +99,16 @@ func run() error {
 	// ⛔ Required in production and parsed strictly: unset, it would default to localhost and every
 	// canonical would point there; malformed, the redirect would send the whole site elsewhere. Both
 	// must stop the boot — where Railway keeps the previous deploy serving — never ship quietly.
-	baseURL := "http://localhost:" + envOr("PORT", "8080")
+	// The rule lives in httpx.ResolvePublicBase, where a table test holds it (verify round 1: here in
+	// main, dropping the production requirement failed no test).
+	raw, set := os.LookupEnv("PUBLIC_BASE_URL")
+	baseURL, canonical, err := httpx.ResolvePublicBase(build.Env, raw, set, "http://localhost:"+envOr("PORT", "8080"))
+	if err != nil {
+		return err // it names PUBLIC_BASE_URL and the value itself
+	}
 	var routerOpts []httpx.RouterOption
-	if raw, set := os.LookupEnv("PUBLIC_BASE_URL"); set || build.Env == "production" {
-		base, err := httpx.ParsePublicBaseURL(raw)
-		if err != nil {
-			return fmt.Errorf("PUBLIC_BASE_URL: %w", err)
-		}
-		baseURL = base.String()
-		routerOpts = append(routerOpts, httpx.WithCanonicalHost(base))
+	if canonical != nil {
+		routerOpts = append(routerOpts, httpx.WithCanonicalHost(canonical))
 	}
 	site := pages.New(tpl, assetSet, baseURL, itemsSvc)
 

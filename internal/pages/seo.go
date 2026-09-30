@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -138,7 +137,7 @@ func (h *Handler) sitemapChunk(w http.ResponseWriter, r *http.Request) {
 			if s == "" {
 				continue
 			}
-			set.URLs = append(set.URLs, sitemapLoc{Loc: h.canonical("/armory/" + url.PathEscape(s))})
+			set.URLs = append(set.URLs, sitemapLoc{Loc: h.canonical(itemPath(s))})
 		}
 	}
 	writeXML(w, r, h, set)
