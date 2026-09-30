@@ -37,6 +37,7 @@ func TestItemPageRendersTheWholeItemWithoutJavaScript(t *testing.T) {
 		"Test Place — Test Boss", "Test Tier", "Test Vendor", "3 Test Token + 2.5 Test Coin", "Test Giver",
 		// the head
 		"<title>Test Item 1 — AoC Codex</title>",
+		`<meta name="description" content="Epic Test Type (Head, Light), item level 80, requires level 78 — an Age of Conan item: stats, where it comes from, its set.">`,
 		`<link rel="canonical" href="https://aoc-codex.app/armory/test-item-1">`,
 		`<meta property="og:image" content="https://img.aoc-codex.app/armory/test_item_1.jpg">`,
 	} {

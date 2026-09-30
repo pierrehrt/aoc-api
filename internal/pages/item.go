@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
-	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
@@ -37,8 +36,8 @@ func (h *Handler) item(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := "/armory/" + d.Slug
-	desc := itemDescription(d)
-	v := h.view(d.Name+" — AoC Codex", desc, path)
+	data := templates.NewItemData(d)
+	v := h.view(d.Name+" — AoC Codex", itemDescription(data), path)
 	image := ""
 	if d.TooltipImage != nil && *d.TooltipImage != "" {
 		// The link preview IS the tooltip: a pasted URL in Discord shows the item as the game does.
@@ -46,28 +45,36 @@ func (h *Handler) item(w http.ResponseWriter, r *http.Request) {
 		v.OGImage = image
 	}
 	v.JSONLD = templates.NewThingLD(d.Name, v.Description, v.Canonical, image)
-	h.render(w, r, "item", v, templates.NewItemData(d))
+	h.render(w, r, "item", v, data)
 }
 
 // itemDescription is the search snippet, built only from the item's own values:
-// "Epic Necklace, item level 80, requires level 80 — an Age of Conan item: stats and sources."
-// It names a section only when the item has something in it.
-func itemDescription(d items.Detail) string {
-	var what []string
-	what = append(what, d.Display.Rarity.Name)
-	switch {
-	case len(d.Display.Slots) > 0:
-		names := make([]string, 0, len(d.Display.Slots))
-		for _, s := range d.Display.Slots {
-			names = append(names, s.Name)
-		}
-		what = append(what, strings.Join(names, "/"))
-	case d.Display.ItemType != nil:
-		what = append(what, d.Display.ItemType.Name)
+// "Epic Crossbow (Main Hand), item level 80, requires level 80 — an Age of Conan item: stats and
+// where it comes from." The noun is the type when it says more than the slot (the page's TypeChip
+// rule), else the slot; it names a section only when the item has something in it.
+func itemDescription(data templates.ItemData) string {
+	d := data.Item
+	slots := make([]string, 0, len(d.Display.Slots))
+	for _, s := range d.Display.Slots {
+		slots = append(slots, s.Name)
 	}
-	head := strings.Join(what, " ")
+	var noun string
+	var quals []string
+	switch t := data.TypeChip(); {
+	case t != "":
+		noun = t
+		if len(slots) > 0 {
+			quals = append(quals, strings.Join(slots, "/"))
+		}
+	case len(slots) > 0:
+		noun = strings.Join(slots, "/")
+	}
 	if d.Display.ArmourWeight != nil {
-		head += " (" + d.Display.ArmourWeight.Name + ")"
+		quals = append(quals, d.Display.ArmourWeight.Name)
+	}
+	head := strings.TrimSpace(d.Display.Rarity.Name + " " + noun)
+	if len(quals) > 0 {
+		head += " (" + strings.Join(quals, ", ") + ")"
 	}
 	if d.ItemLevel != nil {
 		head += fmt.Sprintf(", item level %d", *d.ItemLevel)
