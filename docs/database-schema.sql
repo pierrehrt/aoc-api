@@ -608,7 +608,8 @@ CREATE TABLE public.item_types (
     slug character varying(64) NOT NULL,
     name character varying(64) NOT NULL,
     default_equip_location_id integer,
-    is_equipment boolean
+    is_equipment boolean,
+    two_handed boolean
 );
 
 
