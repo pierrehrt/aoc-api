@@ -161,11 +161,14 @@ type ListItem struct {
 	// the rarity's colour token (AOC-046), the slots, the class restrictions with their short
 	// names, and the price — the first vendor source's costs, "9 Simple Relic I + 2 Gold"; nil
 	// when no vendor sells it. Loaded in one round trip per page each, never per row.
-	RarityColourToken string  `json:"rarity_colour_token,omitempty"`
-	ArmourWeight      *Term   `json:"armour_weight,omitempty"`
-	EquipLocations    []Term  `json:"equip_locations,omitempty"`
-	Classes           []Term  `json:"classes,omitempty"`
-	Price             *string `json:"price,omitempty"`
+	RarityColourToken string `json:"rarity_colour_token,omitempty"`
+	// ItemTypeName is the type's display name ("Crossbow") beside item_type's slug — the list's Type
+	// column prints a name, never a slug (AOC-062). Additive.
+	ItemTypeName   *string `json:"item_type_name,omitempty"`
+	ArmourWeight   *Term   `json:"armour_weight,omitempty"`
+	EquipLocations []Term  `json:"equip_locations,omitempty"`
+	Classes        []Term  `json:"classes,omitempty"`
+	Price          *string `json:"price,omitempty"`
 
 	// Place is set only when the caller named specific places: there the item appears once per
 	// named place, because that duplication IS the information. In an aggregate view it is nil
@@ -353,6 +356,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 			ItemLevel: r.ItemLevel, RequiresLvl: r.RequiresLevel, Armor: r.Armor,
 			TooltipImage: r.TooltipImage, Confidence: r.Confidence,
 			RarityColourToken: deref(r.RarityColourToken),
+			ItemTypeName:      r.ItemTypeName,
 			ArmourWeight:      termIfSet(r.ArmourWeight, r.ArmourWeightName),
 			EquipLocations:    slotsBy[r.ItemID],
 			Classes:           classesBy[r.ItemID],

@@ -46,16 +46,17 @@ type PageLink struct {
 func armoryProbe() ArmoryData {
 	lvl := int32(80)
 	price := "3 Test Token"
-	typ := "test-type"
+	typ, typName := "test-type", "Test Type"
 	return ArmoryData{
 		Query: "probe", Sort: items.SortILvl,
 		Sorts: []SortOption{{Key: items.SortILvl, Label: "Item level", URL: "/armory?sort=ilvl", Current: true}, {Key: items.SortName, Label: "Name", URL: "/armory?sort=name"}},
 		Result: items.ListResult{
 			Items: []items.ListItem{
-				{ID: 1, Slug: "test-item-alpha", Name: "Test Item Alpha", Rarity: "epic", RarityColourToken: "rarity-epic", ItemType: &typ, ItemLevel: &lvl, ArmourWeight: &items.Term{Slug: "light", Name: "Light"},
+				{ID: 1, Slug: "test-item-alpha", Name: "Test Item Alpha", Rarity: "epic", RarityColourToken: "rarity-epic", ItemType: &typ, ItemTypeName: &typName, ItemLevel: &lvl, ArmourWeight: &items.Term{Slug: "light", Name: "Light"},
 					EquipLocations: []items.Term{{Slug: "head", Name: "Head"}}, Classes: []items.Term{{Slug: "test-class", Name: "Test Class", ShortName: "TC"}}, Price: &price,
 					Places: []items.PlaceRef{{Slug: "test-place", Name: "Test Place"}}},
 				{ID: 2, Slug: "test-item-beta", Name: "Test Item Beta", Rarity: "mundane"},
+				{ID: 3, Slug: "test-item-gamma", Name: "Test Item Gamma", Rarity: "rare", ItemType: &typ, ItemTypeName: &typName},
 			},
 			Total: 2, Limit: 50, Collapsed: true,
 		},

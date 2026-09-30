@@ -440,7 +440,10 @@ answer uses: **one definition of the rows, two renderings** (AOC-047). A fragmen
 same dependency-free HTML as the router's 404/405 on the HTML surface, JSON on a machine surface —
 never `Fail`, which is JSON-only, and never a template, which may be the thing that broke.
 
-**The Armory list** (`/armory`, AOC-047) is the first content page and the pattern for the rest:
+**The Armory list** (`/armory`, AOC-047; Slot and Type in two columns since AOC-062 — Type is the
+armour weight when there is one, otherwise the item type's **name**, following the tooltip's own
+`Light Armor - Hands` / `Crossbow - Main Hand`; the phone row keeps one line) is the first content
+page and the pattern for the rest:
 `items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
 service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
 `<title>`/description/canonical per state, and the honest empty state whose numbers come from

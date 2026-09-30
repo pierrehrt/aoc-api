@@ -11,6 +11,7 @@ import (
 	"html"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -110,5 +111,54 @@ func TestTheCorpusEdgeCasesRender(t *testing.T) {
 		if strings.Contains(body, `id="set-h"`) && what == "no set and no source" {
 			t.Errorf("%s (%s): a set section for an item in no set", what, slug)
 		}
+	}
+}
+
+// AOC-062, on the real corpus: every page of the list, every row's Type cell is an armour weight's
+// name, an item type's name, or a dash — never a slug. Walked in full, not sampled.
+func TestEveryTypeCellOnTheRealListIsAName(t *testing.T) {
+	h, pool := corpusRouter(t)
+	ctx := context.Background()
+	names := map[string]bool{"—": true}
+	for _, q := range []string{`SELECT name FROM item_types`, `SELECT name FROM armour_weights`} {
+		rows, err := pool.Query(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			names[n] = true
+		}
+		rows.Close()
+	}
+	cell := regexp.MustCompile(`(?s)<td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">(.*?)</td>`)
+	tag := regexp.MustCompile(`<[^>]+>`)
+	seen, bad := 0, 0
+	for p := 1; ; p++ {
+		rr := get(t, h, http.MethodGet, fmt.Sprintf("/armory?p=%d", p), nil, "")
+		if rr.Code == http.StatusNotFound {
+			break
+		}
+		if rr.Code != http.StatusOK {
+			t.Fatalf("page %d: %d", p, rr.Code)
+		}
+		cells := cell.FindAllStringSubmatch(rr.Body.String(), -1)
+		// Slot, Type, iLvl, Class per row: the Type cell is every 4th, from the 2nd.
+		for i := 1; i < len(cells); i += 4 {
+			txt := strings.TrimSpace(html.UnescapeString(tag.ReplaceAllString(cells[i][1], "")))
+			seen++
+			if !names[txt] {
+				bad++
+				if bad <= 5 {
+					t.Errorf("page %d: Type cell %q is not a type or weight name", p, txt)
+				}
+			}
+		}
+	}
+	if seen < 4000 {
+		t.Fatalf("read only %d Type cells — the page markup moved; update the regexp", seen)
 	}
 }
