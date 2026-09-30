@@ -9,10 +9,13 @@
 -- ours still share. It is NOT re-numbered, so there is no `serial` here.
 --
 -- ⭐ EQUIP LOCATION IS A JOIN, NOT A COLUMN. Two of the snapshot's 16 values are COMPOUND:
--- `Main Hand, Off Hand` (390 items — a two-hander occupying BOTH slots) and `Left/Right Finger`
--- (188 items — a ring occupying EITHER slot). AOC-009 seeded only the 13 atomic slots on purpose.
--- Flattened into one column, "show me every Off Hand item" silently misses 390 two-handers, which
--- is the kind of wrong answer that reaches a raid. `items.slot_fit_id` says how to read an item's
+-- `Main Hand, Off Hand` (390 items) and `Left/Right Finger` (188 items — a ring occupying EITHER
+-- slot). AOC-009 seeded only the 13 atomic slots on purpose. Flattened into one column, "show me
+-- every Off Hand item" silently misses the 390, which is the kind of wrong answer that reaches a raid.
+-- ⛔ CORRECTED 2026-09-30 (AOC-058, a comment-only edit): this header first read `Main Hand, Off Hand`
+-- as "a two-hander occupying BOTH slots". That was wrong — the value sits on the ONE-handed weapons,
+-- which fit EITHER hand (Pierre). The data fix is 20260930130000_weapon_hands.sql; what takes both
+-- hands is item_types.two_handed there. The `both` seeded below stays a row that no item carries. `items.slot_fit_id` says how to read an item's
 -- rows; the qualifier lives on the ITEM because it describes the whole set and two join rows could
 -- otherwise contradict each other.
 --
