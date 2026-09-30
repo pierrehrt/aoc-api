@@ -70,8 +70,9 @@ type GetItemRow struct {
 // public endpoints to AOC-012; what is here is the shape both of them read through.
 //
 // ⭐ EQUIP LOCATION IS A JOIN. `ListItems` filters slots through item_equip_locations, never
-// through a column on items, because 390 two-handers occupy Main Hand AND Off Hand and 188 rings
-// occupy EITHER finger. A query that filtered a single column would silently drop the 390 —
+// through a column on items, because 389 one-handed weapons fit EITHER hand and 187 rings EITHER
+// finger (AOC-058: the first were read as "two-handers occupying both" until Pierre said otherwise).
+// A query that filtered a single column would silently drop the 389 —
 // the reason the join exists at all (see the migration header).
 //
 // ⚠️ Every read returns confidence and open_question with the row, like places.sql. A page that
@@ -785,9 +786,9 @@ type ListItemsRow struct {
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //
 // ⭐ The equip-location filter goes through the join (EXISTS), so asking for 'off-hand' returns
-// the 390 two-handers as well as the 141 off-hand-only items — 531, not 141. That is the
-// acceptance criterion this whole schema shape exists for, and
-// TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
+// the 389 one-handed weapons (they fit either hand) as well as the 141 off-hand-only items — 530,
+// not 141 (measured 2026-09-30). That is the acceptance criterion this whole schema shape exists for,
+// and TestListItemsFindsOneHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 // ⭐ ONE query, three orders (AOC-047). A CASE per sort key keeps every filter above in one
 // place; the keys are code ('name', 'ilvl', 'id' — not a game concept), validated before they
 // get here. ilvl is DESCENDING with NULLs LAST, so the 50 items with no recorded level end the

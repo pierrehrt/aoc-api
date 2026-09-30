@@ -26,11 +26,11 @@ import (
 	"github.com/pierrehrt/aoc-api/internal/items"
 )
 
-// A small corpus exercising the shapes that matter: a two-hander (both slots), a ring (either
+// A small corpus exercising the shapes that matter: a one-hander (either hand), a ring (either
 // slot), an item with no slot and no stats, a multi-source item, a quarantined source, an
 // excluded item, and a source with two currencies.
 const fixtureJSON = `[
-{"item_id":9001,"name":"Test Blade Alpha","rarity":"Epic","item_type":"2HE",
+{"item_id":9001,"name":"Test Blade Alpha","rarity":"Epic","item_type":"1HE",
  "pvp_source":false,"has_pvp_stats":false,"pvp_penalty":false,"classes":["Barbarian"],
  "armour_weight":null,"equip_location":"Main Hand, Off Hand","item_level":80,"requires_level":80,
  "armor":null,"critigation":null,"dps":157.1,"damage_range":"132-173",
@@ -135,7 +135,7 @@ func TestTheFixtureImportsWithTheCountsItReports(t *testing.T) {
 		"item_sources":         2, // 3 on the blade, 1 of them quarantined
 		"item_costs":           2, // one source, two currencies
 		"item_classes":         1,
-		"item_equip_locations": 4, // blade both slots + ring either slot; relic none
+		"item_equip_locations": 4, // blade either hand + ring either finger; relic none
 		"sets":                 1,
 		"vendors":              1,
 	} {

@@ -333,9 +333,12 @@ func insertItems(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 // slotFit turns the snapshot's equip_location into (slot_fit_id, atomic slot names), and says
 // whether the slot came from the item's TYPE rather than its tooltip.
 //
-// ⭐ This is the compound-value handling AOC-010's whole schema shape exists for: "Main Hand, Off
-// Hand" is ONE item occupying BOTH slots, "Left/Right Finger" is one occupying EITHER.
-// (⚠️ AOC-058: the data puts "Main Hand, Off Hand" on the one-handers, which questions `both`.)
+// ⭐ This is the compound-value handling AOC-010's whole schema shape exists for: one item, two slot
+// rows, and a fit that says how to read them. "Main Hand, Off Hand" and "Left/Right Finger" are both
+// an item that fits EITHER slot — the first sits on the one-handed weapons (1HB, 1HE, dagger,
+// talisman), which Pierre confirmed go in either hand (AOC-058, 2026-09-30). It was read as `both`
+// ("occupies both at once") from its shape alone until then. What takes both hands is a fact about
+// the TYPE, item_types.two_handed, not about the slot rows.
 //
 // ⭐ A tooltip that names no slot falls back to its type's default slot (AOC-054): a necklace's
 // tooltip says `Necklace` and nothing else, so without this all 146 had no slot. The default is
@@ -353,7 +356,7 @@ func slotFit(it Item, l *Lookups) (fit *int32, slots []string, fromType bool) {
 	v := *it.EquipLocation
 	switch {
 	case strings.Contains(v, ","):
-		id := l.SlotFits["both"]
+		id := l.SlotFits["either"]
 		return &id, splitTrim(v, ","), false
 	case strings.Contains(v, "/"):
 		// "Left/Right Finger" -> "Left Finger", "Right Finger"

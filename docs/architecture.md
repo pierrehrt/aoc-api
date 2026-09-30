@@ -624,19 +624,23 @@ live in `internal/db/queries/items.sql` and the service layer that wraps them ar
 Four shapes that are not obvious, each of which a simpler schema would have got confidently wrong:
 
 1. **Equip location is a JOIN, not a column on `items`.** Two of the snapshot's 16
-   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items (a two-hander
-   occupying both slots at once) and `Left/Right Finger` on **188** (a ring occupying either) —
-   and AOC-009 seeds only the **13 atomic slots** (**14** since AOC-054 added the necklace, which
-   no tooltip names as a slot). Flattened into one column, *"show me every Off
-   Hand item"* silently returns 141 instead of 531. `items.slot_fit_id`
-   (`single` · `both` · `either`) says how to read an item's rows, and it lives on the **item**
+   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items and
+   `Left/Right Finger` on **188** — and AOC-009 seeds only the **atomic slots** (**14** since
+   AOC-054 added the necklace, which no tooltip names as a slot). Both compounds are an item that
+   fits **either** slot: `Main Hand, Off Hand` sits on the one-handed weapons (1HB, 1HE, dagger,
+   talisman), which go in either hand — Pierre, 2026-09-30 (**AOC-058**). ⚠️ Until then it was read
+   as `both` ("a two-hander occupying both slots at once"), from the value's shape alone; the data
+   put it on the one-handers all along. Flattened into one column, *"show me every Off Hand item"*
+   silently returns 141 instead of 530. `items.slot_fit_id` (`single` · `either`; `both` stays a
+   row, and no item carries it) says how to read an item's rows, and it lives on the **item**
    because it describes the whole set: two join rows could otherwise contradict each other.
-   `TestListItemsFindsTwoHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
-   is mutation-tested: break that query and it fails naming the lost two-hander.
-   ⚠️ **AOC-058:** measured 2026-09-30, `Main Hand, Off Hand` sits on the *one-handed* types
-   (1HB, 1HE, dagger, talisman) and 2HB/2HE carry `Main Hand` alone, which questions reading it
-   as `both`. Open, waiting on a game answer; the pages print slot names and never the fit.
-   `TestAskingForOffHandItemsReturnsTwoHandersToo` pins the same property at the schema level.
+   **What takes both hands is a fact about the TYPE**: `item_types.two_handed` — true for 2HB, 2HE,
+   staff, bow, polearm, thrown; false for 1HB, 1HE, dagger, talisman, crossbow (Pierre); NULL for
+   types with no main-hand item. The gear builder reads it; nothing lists weapon types in code.
+   `TestEveryWeaponFollowsPierresHands` (corpus) holds the rule over every item.
+   `TestListItemsFindsOneHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
+   is mutation-tested: break that query and it fails naming the lost one-hander.
+   `TestAskingForOffHandItemsReturnsOneHandersToo` pins the same property at the schema level.
    ⚠️ The distinction matters — an earlier version of this paragraph cited only the schema-level
    test, which passes even when the shipped query is wrong.
 2. **Stat values are `numeric(8,2)`, not `integer`.** The 2026-09-13 decision said *"integers"*
