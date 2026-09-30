@@ -155,25 +155,13 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 
 	// ⭐ A type's default slot, by NAME on both sides: slotFit hands back slot names, and
 	// insertChildren resolves them through EquipLocations like any the snapshot supplied.
-	l.DefaultSlots = map[string]string{}
-	drows, err := q.Query(ctx, `SELECT t.name, el.name
-	                            FROM item_types t
-	                            JOIN equip_locations el ON el.id = t.default_equip_location_id`)
+	ds, err := scanStringMap(ctx, q, `SELECT t.name, el.name
+	                                  FROM item_types t
+	                                  JOIN equip_locations el ON el.id = t.default_equip_location_id`)
 	if err != nil {
 		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
 	}
-	for drows.Next() {
-		var typ, slot string
-		if err := drows.Scan(&typ, &slot); err != nil {
-			drows.Close()
-			return nil, err
-		}
-		l.DefaultSlots[typ] = slot
-	}
-	drows.Close()
-	if err := drows.Err(); err != nil {
-		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
-	}
+	l.DefaultSlots = ds
 
 	// ⭐ places join on the PAIR, never a name — the armory's own (instance, dungeon).
 	l.Places = map[PlaceKey]int32{}
@@ -213,6 +201,23 @@ func scanNameMap(ctx context.Context, q pgx.Tx, sql string) (map[string]int32, e
 			return nil, err
 		}
 		m[name] = id
+	}
+	return m, rows.Err()
+}
+
+func scanStringMap(ctx context.Context, q pgx.Tx, sql string) (map[string]string, error) {
+	rows, err := q.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		m[k] = v
 	}
 	return m, rows.Err()
 }

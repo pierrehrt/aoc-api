@@ -39,6 +39,7 @@ func TestTheNecklaceSlotAndItsRuleAreSeeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	defaults := map[string]string{}
 	for rows.Next() {
 		var typ, slot string
@@ -47,7 +48,7 @@ func TestTheNecklaceSlotAndItsRuleAreSeeded(t *testing.T) {
 		}
 		defaults[typ] = slot
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if len(defaults) != 1 || defaults["necklace"] != "necklace" {

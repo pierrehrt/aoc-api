@@ -45,6 +45,7 @@ ORDER BY i.item_id`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	slotless := map[int]string{}
 	for rows.Next() {
 		var id int
@@ -54,7 +55,6 @@ ORDER BY i.item_id`)
 		}
 		slotless[id] = fmt.Sprintf("%d %s (%s)", id, name, typ)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
