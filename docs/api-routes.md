@@ -228,11 +228,13 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
 | GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |
 
-**Every response under a host that is not `PUBLIC_BASE_URL`'s carries `X-Robots-Tag: noindex`**
-(AOC-025, `httpx.NoIndexOffCanonicalHost`, outermost around the router): the Railway domain
-`aoc-armory-snapshot-production.up.railway.app` serves a full 200 copy of the site, and a canonical
-tag is only a hint. The host is compared lowercased and without its port; `aoc-codex.app` itself
-never carries it.
+**Every request under a host that is not `PUBLIC_BASE_URL`'s is a 301 to the same path on it**
+(AOC-025, `httpx.WithCanonicalHost`, inside the router): the Railway domain
+`aoc-armory-snapshot-production.up.railway.app` served a full 200 copy of the site. 308 for methods
+other than GET/HEAD; `/health` is exempt (monitors read it on any host); hosts compare lowercased
+without a port. `aoc-codex.app` itself is never redirected — requests reach the origin as
+`Host: aoc-codex.app`. **`PUBLIC_BASE_URL` is required when `ENV=production`** and parsed strictly;
+malformed or missing, the boot fails.
 
 **Rejection shape follows the path**, for **404 and 405 alike**: `/v1/*`, `/health` and
 `/assets/*` are JSON; everything else is a small HTML page. `/health` is included because it is

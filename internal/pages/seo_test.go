@@ -8,11 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pierrehrt/aoc-api/internal/assets"
-	"github.com/pierrehrt/aoc-api/internal/httpx"
-	"github.com/pierrehrt/aoc-api/internal/items"
-	"github.com/pierrehrt/aoc-api/internal/pages"
-	"github.com/pierrehrt/aoc-api/internal/templates"
+	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 )
 
 // robots.txt and the sitemap (AOC-025), against the fake corpus of 120 obviously fake items.
@@ -23,20 +19,6 @@ type index struct {
 type urlset struct {
 	XMLName xml.Name
 	Locs    []string `xml:"url>loc"`
-}
-
-func routerWith(t *testing.T, n int) http.Handler {
-	t.Helper()
-	set, err := assets.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl, err := templates.New(set)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := pages.New(tpl, set, base, items.NewService(newFakeItems(n)))
-	return httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 }
 
 // sitemapURLs follows the index to every chunk and returns every URL, failing on anything invalid.
@@ -166,8 +148,7 @@ func TestEverySitemapURLIsACanonical200(t *testing.T) {
 // lists as many chunks as needed, and together they hold every URL exactly once.
 func TestTheSitemapSplitsAtTheLimit(t *testing.T) {
 	for _, tc := range []struct{ max, chunks int }{{50, 3}, {61, 2}, {122, 1}, {121, 2}} {
-		restore := pages.SetSitemapMaxURLs(tc.max)
-		h := router(t)
+		h := routerWith(t, newFakeItems(120), tc.max)
 		var idx index
 		rr := get(t, h, http.MethodGet, "/sitemap.xml", nil, "")
 		if err := xml.Unmarshal(rr.Body.Bytes(), &idx); err != nil || len(idx.Locs) != tc.chunks {
@@ -193,18 +174,19 @@ func TestTheSitemapSplitsAtTheLimit(t *testing.T) {
 		if len(seen) != 122 {
 			t.Errorf("max %d: the chunks hold %d distinct URLs, want all 122", tc.max, len(seen))
 		}
-		for _, n := range []string{"0", itoa(tc.chunks + 1), "x"} {
+		// Out of range, not a number, or chunk 1 spelled another way ("01", "+1" — Atoi accepts
+		// both): each is a 404, so chunk 1 has exactly one URL.
+		for _, n := range []string{"0", itoa(tc.chunks + 1), "x", "01", "+1", "-1"} {
 			if c := get(t, h, http.MethodGet, "/sitemaps/"+n+".xml", nil, "").Code; c != http.StatusNotFound {
 				t.Errorf("max %d: /sitemaps/%s.xml answered %d, want 404", tc.max, n, c)
 			}
 		}
-		restore()
 	}
 }
 
 // Zero items is a valid sitemap, not a 500: the index points at one chunk holding the static pages.
 func TestAnEmptyArmoryStillHasAValidSitemap(t *testing.T) {
-	urls := sitemapURLs(t, routerWith(t, 0))
+	urls := sitemapURLs(t, routerWith(t, newFakeItems(0), 0))
 	if len(urls) != 2 {
 		t.Errorf("an empty armory's sitemap holds %v, want the home page and the Armory", urls)
 	}
@@ -217,5 +199,28 @@ func TestTheSitemapIsCachedAtTheEdge(t *testing.T) {
 		if cc := get(t, h, http.MethodGet, p, nil, "").Header().Get("Cache-Control"); !strings.Contains(cc, "s-maxage=3600") {
 			t.Errorf("%s: Cache-Control %q, want the page policy", p, cc)
 		}
+	}
+}
+
+// A slug is path-escaped into its URL, and an empty one is never listed — /armory/ is a 404, and a
+// sitemap may list only 200s. The corpus has neither today; nothing in the schema forbids them.
+func TestSitemapEscapesSlugsAndSkipsAnEmptyOne(t *testing.T) {
+	q := &fakeItems{rows: []sqlcgen.ListItemsRow{
+		{ItemID: 1, Slug: "", Name: "Test Blank", Rarity: "epic", Confidence: "unconfirmed"},
+		{ItemID: 2, Slug: "test item", Name: "Test Spaced", Rarity: "epic", Confidence: "unconfirmed"},
+	}}
+	h := routerWith(t, q, 0)
+	urls := sitemapURLs(t, h)
+	want := map[string]bool{"https://aoc-codex.app/": true, "https://aoc-codex.app/armory": true, "https://aoc-codex.app/armory/test%20item": true}
+	if len(urls) != len(want) {
+		t.Fatalf("sitemap = %v, want %v", urls, want)
+	}
+	for _, u := range urls {
+		if !want[u] {
+			t.Errorf("unexpected %q", u)
+		}
+	}
+	if c := get(t, h, http.MethodGet, "/armory/test%20item", nil, "").Code; c != http.StatusOK {
+		t.Errorf("the escaped URL answers %d, want 200", c)
 	}
 }

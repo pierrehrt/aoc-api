@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -569,10 +570,10 @@ func Price(cs []CostRef) string {
 // Slugs is one page of every item's slug, in item-id order — the sitemap's item URLs (AOC-025).
 // Paged by the caller's chunk, so a sitemap never loads more than one chunk's worth.
 func (s *Service) Slugs(ctx context.Context, limit, offset int) ([]string, error) {
-	if limit <= 0 || offset < 0 {
+	if limit <= 0 || offset < 0 || limit > math.MaxInt32 || offset > math.MaxInt32 {
 		return nil, fmt.Errorf("%w: limit %d, offset %d", httpx.ErrInvalid, limit, offset)
 	}
-	slugs, err := s.q.ListItemSlugs(ctx, sqlcgen.ListItemSlugsParams{PageSize: int32(limit), PageOffset: int32(offset)}) // #nosec G115 -- bounded by the sitemap chunk size
+	slugs, err := s.q.ListItemSlugs(ctx, sqlcgen.ListItemSlugsParams{PageSize: int32(limit), PageOffset: int32(offset)}) // #nosec G115 -- both range-checked above
 	if err != nil {
 		return nil, fmt.Errorf("list item slugs: %w", err)
 	}

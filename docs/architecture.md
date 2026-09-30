@@ -517,13 +517,19 @@ html/template escapes for HTML.
 - **`robots.txt` disallows machinery only** (`/_smoke`, `/v1/`, `/health`) and names the sitemap.
   `/assets` stays open — Google renders with our CSS. ⚠️ Cloudflare's managed robots.txt is on for
   the zone and **prepends its comment block** to ours; the origin's rules follow it.
-- **One indexed host.** Requests reach the origin as `Host: aoc-codex.app` (Railway routes custom
-  domains by Host, measured 2026-09-30); the service's own Railway domain is a crawlable copy.
-  `httpx.NoIndexOffCanonicalHost`, wrapped around the whole router in `cmd/api`, adds
-  `X-Robots-Tag: noindex` to every response whose host is not `PUBLIC_BASE_URL`'s. Not robots.txt:
-  disallowing the crawl would hide the noindex from Google. ⚠️ If `PUBLIC_BASE_URL` were ever unset
-  in production it would default to localhost and **every page would say noindex** — the release
-  check `curl -sI https://aoc-codex.app/ | grep -i x-robots` must print nothing.
+- **One indexed host, by redirect.** Requests reach the origin as `Host: aoc-codex.app` (Railway
+  routes custom domains by Host, measured 2026-09-30); the service's own Railway domain served a
+  crawlable copy. `httpx.WithCanonicalHost` — a router option, so the router tests cover it as
+  composed, 404 page and `/v1` included — **301s every other host to the same path on
+  `PUBLIC_BASE_URL`** (308 for writes), except `/health`. Chosen over `X-Robots-Tag: noindex`
+  (the first build): a noindex beside a canonical pointing elsewhere is a mixed signal Google may
+  carry to the target, and a redirect is also *loud* — a wrong host rule shows as a broken site at
+  the release check, not as a site quietly dropping out of the index. Not robots.txt: disallowing
+  the crawl would stop Google seeing any signal at all.
+  ⛔ **`PUBLIC_BASE_URL` is required in production and parsed strictly** (`httpx.ParsePublicBaseURL`:
+  an origin, nothing else) — unset or malformed, the boot fails, where Railway keeps the previous
+  deploy serving. The release checks that the live apex answers 200, not a redirect
+  (`workflows/5-release.md` § 4).
 
 ## Database
 

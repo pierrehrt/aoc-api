@@ -95,18 +95,28 @@ func run() error {
 	q := sqlcgen.New(pool)
 	itemsSvc := items.NewService(q)
 	itemsAPI := items.NewHandler(itemsSvc, items.NewTaxonomyService(q))
-	baseURL := envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080"))
+	// PUBLIC_BASE_URL is the origin of every canonical URL and of the host redirect (AOC-025).
+	// ⛔ Required in production and parsed strictly: unset, it would default to localhost and every
+	// canonical would point there; malformed, the redirect would send the whole site elsewhere. Both
+	// must stop the boot — where Railway keeps the previous deploy serving — never ship quietly.
+	baseURL := "http://localhost:" + envOr("PORT", "8080")
+	var routerOpts []httpx.RouterOption
+	if raw, set := os.LookupEnv("PUBLIC_BASE_URL"); set || build.Env == "production" {
+		base, err := httpx.ParsePublicBaseURL(raw)
+		if err != nil {
+			return fmt.Errorf("PUBLIC_BASE_URL: %w", err)
+		}
+		baseURL = base.String()
+		routerOpts = append(routerOpts, httpx.WithCanonicalHost(base))
+	}
 	site := pages.New(tpl, assetSet, baseURL, itemsSvc)
-	router := httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
-		v1.Mount("/items", itemsAPI.Routes())
-		v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
-	})
 
 	srv := &http.Server{
 		Addr: addr,
-		// Outermost, so every response under a host that is not the canonical one — the Railway
-		// domain's full copy of the site — says noindex, whatever route answered (AOC-025).
-		Handler: httpx.NoIndexOffCanonicalHost(baseURL)(router),
+		Handler: httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
+			v1.Mount("/items", itemsAPI.Routes())
+			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
+		}, routerOpts...),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that
 		// net/http leaves unset by default.

@@ -2,57 +2,57 @@ package db_test
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/pierrehrt/aoc-api/internal/assets"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
-	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
-	"github.com/pierrehrt/aoc-api/internal/pages"
-	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
 // AOC-025: the sitemap is built FROM THE DATABASE — an import that adds items adds their URLs with
-// no code change. Proved against a real migrated database, twice imported.
-func TestTheSitemapGrowsWithTheImport(t *testing.T) {
+// no code change. The page handler lists exactly what items.Service.Slugs and IDSpan return (pinned
+// by the pages tests); this proves those two follow the real tables through two imports. No HTTP
+// here: internal/db knows nothing about the surface (doc.go).
+func TestTheSitemapsSourceGrowsWithTheImport(t *testing.T) {
 	pool, _ := importTarget(t)
-	set, err := assets.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl, err := templates.New(set)
-	if err != nil {
-		t.Fatal(err)
-	}
-	site := pages.New(tpl, set, "https://aoc-codex.app", items.NewService(sqlcgen.New(pool)))
-	h := httpx.NewRouterWithSite(httpx.Build{Version: "t", Commit: "t", Env: "test"}, site.Routes, set.Handler())
-
-	count := func() int {
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/sitemaps/1.xml", nil))
-		if rr.Code != http.StatusOK {
-			t.Fatalf("/sitemaps/1.xml: %d", rr.Code)
+	svc := items.NewService(sqlcgen.New(pool))
+	ctx := context.Background()
+	count := func() (slugs int, total int64) {
+		s, err := svc.Slugs(ctx, 50000, 0)
+		if err != nil {
+			t.Fatal(err)
 		}
-		return strings.Count(rr.Body.String(), "<loc>https://aoc-codex.app/armory/")
+		span, err := svc.IDSpan(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(s), span.Total
 	}
-
-	if n := count(); n != 0 {
-		t.Fatalf("an empty database lists %d item URLs", n)
+	if n, total := count(); n != 0 || total != 0 {
+		t.Fatalf("an empty database gives %d slugs, total %d", n, total)
 	}
 	if r := runImport(t, pool, fixtureJSON); r.err != nil { // 3 items, 1 excluded by Pierre's rule
 		t.Fatal(r.err)
 	}
-	if n := count(); n != 2 {
-		t.Fatalf("after importing 2 live items the sitemap lists %d", n)
+	if n, total := count(); n != 2 || total != 2 {
+		t.Fatalf("after importing 2 live items: %d slugs, total %d", n, total)
 	}
 	if r := runImport(t, pool, threeLiveItemsJSON); r.err != nil {
 		t.Fatal(r.err)
 	}
-	if n := count(); n != 3 {
-		t.Errorf("after an import of 3 the sitemap lists %d item URLs, want 3", n)
+	if n, total := count(); n != 3 || total != 3 {
+		t.Errorf("after an import of 3: %d slugs, total %d, want 3 and 3", n, total)
+	}
+	// Paged in item-id order, so a chunk boundary never repeats or skips one.
+	first, err := svc.Slugs(ctx, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest, err := svc.Slugs(ctx, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := append(first, rest...); len(got) != 3 || got[0] != "test-map-alpha" || got[2] != "test-map-gamma" {
+		t.Errorf("paged slugs = %v, want the three in id order", got)
 	}
 }
 

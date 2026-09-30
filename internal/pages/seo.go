@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -22,13 +23,16 @@ import (
 // timestamp would be the last import's, on every item at once — and a lastmod that is not
 // "consistently and verifiably accurate" is one Google learns to ignore for the whole site.
 
-// sitemapMaxURLs is the protocol's limit per file (sitemaps.org). A chunk never exceeds it; the
-// index lists as many chunks as the URLs need. A variable only so a test can prove the boundary
-// without 50,000 rows.
-var sitemapMaxURLs = 50000
+// sitemapProtocolMax is the protocol's limit per file (sitemaps.org). A chunk never exceeds it; the
+// index lists as many chunks as the URLs need.
+const sitemapProtocolMax = 50000
 
 // robotsDisallow is every path a crawler is kept out of — the ONE list; robots.txt is built from it.
 // Machinery and the JSON contract, never content. /assets stays open: Google renders with our CSS.
+//
+// ⚠️ /_smoke is ALSO noindex, and disallowing a crawl hides a noindex from Google — the reason the
+// Railway host is redirected rather than disallowed. Accepted here: the smoke page is linked from
+// nowhere, so the "indexed without a snippet" case needs an outside link to a page due for deletion.
 var robotsDisallow = []string{"/_smoke", "/v1/", "/health"}
 
 func (h *Handler) robots(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +85,7 @@ func (h *Handler) sitemapTotal(r *http.Request) (int, error) {
 
 // chunks is how many files the index lists. total is never 0 — the home page is always in it —
 // so an empty armory still has one chunk, and a valid index pointing at it.
-func chunks(total int) int { return (total + sitemapMaxURLs - 1) / sitemapMaxURLs }
+func (h *Handler) chunks(total int) int { return (total + h.sitemapMax - 1) / h.sitemapMax }
 
 func (h *Handler) sitemap(w http.ResponseWriter, r *http.Request) {
 	total, err := h.sitemapTotal(r)
@@ -90,46 +94,51 @@ func (h *Handler) sitemap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	idx := sitemapIndex{Xmlns: sitemapNS}
-	for n := 1; n <= chunks(total); n++ {
+	for n := 1; n <= h.chunks(total); n++ {
 		idx.Sitemaps = append(idx.Sitemaps, sitemapLoc{Loc: h.canonical(fmt.Sprintf("/sitemaps/%d.xml", n))})
 	}
 	writeXML(w, r, h, idx)
 }
 
 func (h *Handler) sitemapChunk(w http.ResponseWriter, r *http.Request) {
-	n, err := strconv.Atoi(chi.URLParam(r, "n"))
-	total, terr := h.sitemapTotal(r)
-	if terr != nil {
-		h.fail(w, r, terr)
-		return
-	}
-	if err != nil || n < 1 || n > chunks(total) {
+	// The chunk number in its ONE spelling: Atoi also accepts "01", "001" and "+1", which would be
+	// three more URLs for chunk 1's content. Checked before any query, so a junk URL costs nothing.
+	raw := chi.URLParam(r, "n")
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || raw != strconv.Itoa(n) {
 		httpx.RejectHTML(w, r, http.StatusNotFound, "There is no such sitemap")
 		return
 	}
-	// This chunk's window over the one sequence "static pages, then items in id order".
-	start, end := (n-1)*sitemapMaxURLs, n*sitemapMaxURLs
+	total, err := h.sitemapTotal(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if n > h.chunks(total) {
+		httpx.RejectHTML(w, r, http.StatusNotFound, "There is no such sitemap")
+		return
+	}
+	// This chunk's window [start, end) over the one sequence "static pages, then items in id order".
+	start, end := (n-1)*h.sitemapMax, n*h.sitemapMax
 	static := sitemapStatic()
 	set := urlSet{Xmlns: sitemapNS}
 	for i := start; i < end && i < len(static); i++ {
 		set.URLs = append(set.URLs, sitemapLoc{Loc: h.canonical(static[i])})
 	}
 	if end > len(static) {
-		offset := start - len(static)
-		if offset < 0 {
-			offset = 0
-		}
-		limit := end - len(static) - offset
-		if room := sitemapMaxURLs - len(set.URLs); limit > room {
-			limit = room
-		}
-		slugs, err := h.items.Slugs(r.Context(), limit, offset)
+		first := max(start, len(static)) // the window's first item position in the sequence
+		slugs, err := h.items.Slugs(r.Context(), end-first, first-len(static))
 		if err != nil {
 			h.fail(w, r, err)
 			return
 		}
 		for _, s := range slugs {
-			set.URLs = append(set.URLs, sitemapLoc{Loc: h.canonical("/armory/" + s)})
+			// ⛔ An empty slug would list /armory/, a 404 — and a sitemap may list only 200s. None is
+			// empty today (0 of 4,646, measured 2026-09-30), but nothing in the schema forbids one.
+			if s == "" {
+				continue
+			}
+			set.URLs = append(set.URLs, sitemapLoc{Loc: h.canonical("/armory/" + url.PathEscape(s))})
 		}
 	}
 	writeXML(w, r, h, set)

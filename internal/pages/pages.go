@@ -28,10 +28,13 @@ type Handler struct {
 	baseURL string
 	// items is THE armory service — the same *items.Service the JSON handlers hold (CLAUDE.md 5b).
 	items *items.Service
+	// sitemapMax is how many URLs one sitemap file may hold: the protocol's 50,000. A field, not a
+	// package global, so a test can prove the boundary on its own handler without racing another.
+	sitemapMax int
 }
 
 func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string, svc *items.Service) *Handler {
-	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc}
+	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc, sitemapMax: sitemapProtocolMax}
 }
 
 func (h *Handler) canonical(path string) string { return h.baseURL + path }
