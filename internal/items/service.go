@@ -534,7 +534,6 @@ type CostRef struct {
 	Amount       string `json:"amount"`
 }
 
-// numeric renders a NUMERIC column without going through a float.
 // TrimNumber drops a NUMERIC's trailing zeros the way a tooltip prints a number: "40.00" -> "40",
 // "4.50" -> "4.5", "125.80" -> "125.8". Exported for the HTML surface's stat lines.
 func TrimNumber(s string) string {
@@ -587,6 +586,7 @@ func (s *Service) IDSpan(ctx context.Context) (IDSpan, error) {
 	return out, nil
 }
 
+// numeric renders a NUMERIC column without going through a float.
 func numeric(n pgtype.Numeric) string {
 	if !n.Valid {
 		return ""

@@ -1,6 +1,12 @@
 {{define "content"}}{{$d := .Data}}{{$it := .Data.Item}}
 <p class="text-sm"><a id="back" href="/armory" class="text-link">‹ Armory</a></p>
-<article class="mt-4">
+{{/* ⭐ NOTHING SITS BELOW THE TOOLTIP (AOC-048 verify round 1). Its size is not in the data, so the
+     browser cannot reserve its box; placed above text, its late arrival moved Set and Sources down
+     260-460 px (CLS 0.19 on a phone). So all the text is ONE block, and the image comes after it: in
+     its own fixed-width column from lg up — a taller image only makes the row taller, the text is
+     top-aligned and never moves — and last on narrower screens. */}}
+<article class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-x-10">
+  <div>
   <header>
     <h1 class="text-2xl font-semibold tracking-tight"{{with $it.Display.Rarity.ColourToken}} style="color: var(--color-{{.}})"{{end}}>{{$it.Name}}</h1>
     <p class="mt-2 flex flex-wrap gap-2 font-mono text-xs">
@@ -15,8 +21,7 @@
     {{with $it.Display.Binding}}<p class="mt-2 text-sm text-muted">{{.Name}}</p>{{end}}
   </header>
 
-  <div class="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_auto]">
-    <section aria-labelledby="stats-h">
+    <section class="mt-6" aria-labelledby="stats-h">
       <h2 id="stats-h" class="text-xs font-medium uppercase tracking-wide text-muted">Stats</h2>
       {{if or $it.Armor $it.Critigation $it.Display.DPS}}<ul class="mt-2 space-y-0.5 font-mono text-sm">
         {{with $it.Armor}}<li>{{.}} Armor</li>{{end}}
@@ -31,11 +36,6 @@
         {{range $it.SpellEffects}}<li>{{statText .}}</li>{{end}}
       </ul>{{end}}
     </section>
-    {{with $it.TooltipImage}}<figure class="md:w-72">
-      {{/* not lazy: on desktop it is the page's main above-the-fold image */}}
-      <img src="{{.}}" alt="The in-game tooltip of {{$it.Name}}" decoding="async" class="max-w-full rounded border border-line">
-    </figure>{{end}}
-  </div>
 
   {{if $it.Set}}<section class="mt-8" aria-labelledby="set-h">
     <h2 id="set-h" class="text-xs font-medium uppercase tracking-wide text-muted">Set</h2>
@@ -72,6 +72,13 @@
     </table>
     {{else}}<p class="mt-2 text-sm text-muted">No source recorded.</p>{{end}}
   </section>
+  </div>
+  {{with $it.TooltipImage}}<figure class="mt-8 lg:mt-0">
+    {{/* Not lazy: on desktop it is the page's main above-the-fold image. Natural size up to the
+         column; a wider one (744 of 4,645 are wider than it) scales down, so it links to itself at
+         full size — a double-panel mount tooltip is unreadable at column width. */}}
+    <a href="{{.}}" class="block"><img src="{{.}}" alt="The in-game tooltip of {{$it.Name}}" decoding="async" class="block h-auto max-w-full rounded border border-line"></a>
+  </figure>{{end}}
 </article>
 <script>
 // The back link returns to the list the reader came from (design 1c) — enhanced in the browser ON

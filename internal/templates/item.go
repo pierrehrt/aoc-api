@@ -178,8 +178,8 @@ func deref(s *string) string {
 }
 
 // itemProbe renders every branch of item.html at boot: stats and spell effects, the base lines, a
-// set with a declared count that differs from what is held, a typed and an untyped source group,
-// a cost. Obviously fake, never a real item (CLAUDE.md STEP ZERO).
+// set, a typed group with a raid and Unchained row, a group-less row with nothing in it, an untyped
+// vendor with a cost. Obviously fake, never a real item (CLAUDE.md STEP ZERO).
 func itemProbe() ItemData {
 	s := func(v string) *string { return &v }
 	lvl := int32(80)

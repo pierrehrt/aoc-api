@@ -180,3 +180,28 @@ func TestItemPageIsTheSameWhoeverAsks(t *testing.T) {
 		t.Error("the Referer's query reached the page")
 	}
 }
+
+// ⭐ NOTHING SITS BELOW THE TOOLTIP (verify round 1). The image's size is not in the data, so the
+// browser cannot reserve its box; with text under it, its late arrival moved Set and Sources down
+// 260–460 px (CLS 0.19 on a phone). The figure must be the article's LAST child — after the Set and
+// Sources sections — and link to itself at full size, since a wide one is scaled to the column.
+func TestNothingOnTheItemPageSitsBelowTheTooltip(t *testing.T) {
+	h := router(t)
+	body := get(t, h, http.MethodGet, "/armory/test-item-1", nil, "").Body.String()
+	fig := strings.Index(body, "<figure")
+	if fig < 0 {
+		t.Fatal("no tooltip figure")
+	}
+	for _, id := range []string{`id="stats-h"`, `id="set-h"`, `id="src-h"`} {
+		if i := strings.Index(body, id); i < 0 || i > fig {
+			t.Errorf("%s comes after the tooltip (or is missing) — its position then depends on the image's height", id)
+		}
+	}
+	end := strings.Index(body[fig:], "</figure>")
+	if rest := strings.TrimSpace(body[fig+end+len("</figure>") : strings.Index(body, "</article>")]); rest != "" {
+		t.Errorf("content follows the tooltip inside the article: %.120q", rest)
+	}
+	if !regexp.MustCompile(`<a href="https://img\.aoc-codex\.app/armory/test_item_1\.jpg" class="block"><img src="https://img\.aoc-codex\.app/armory/test_item_1\.jpg"`).MatchString(body) {
+		t.Error("the tooltip does not link to itself at full size")
+	}
+}
