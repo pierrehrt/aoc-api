@@ -55,6 +55,8 @@ func TestEveryOtherHostIsRedirectedToTheCanonicalOne(t *testing.T) {
 		{"POST", "aoc-armory-snapshot-production.up.railway.app", "/armory", 308, "https://aoc-codex.app/armory"},
 		{"GET", "aoc-armory-snapshot-production.up.railway.app", "/health", 200, ""}, // monitors, on any host
 		{"GET", "www.aoc-codex.app", "/", 301, "https://aoc-codex.app/"},
+		// not an open redirect: a path that looks like a host stays a path on the canonical host
+		{"GET", "aoc-armory-snapshot-production.up.railway.app", "//evil.example/x", 301, "https://aoc-codex.app//evil.example/x"},
 	} {
 		r := httptest.NewRequestWithContext(context.Background(), tc.method, tc.target, nil)
 		r.Host = tc.host

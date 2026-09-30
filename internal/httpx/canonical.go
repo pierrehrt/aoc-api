@@ -49,6 +49,9 @@ func canonicalHost(base *url.URL) func(http.Handler) http.Handler {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				code = http.StatusPermanentRedirect
 			}
+			// #nosec G710 -- not an open redirect: scheme and host are PUBLIC_BASE_URL's, only the path
+			// and query are the request's, so even "//evil.example/x" stays on the canonical host
+			// (pinned by TestEveryOtherHostIsRedirectedToTheCanonicalOne).
 			http.Redirect(w, r, base.Scheme+"://"+base.Host+r.URL.RequestURI(), code)
 		})
 	}
