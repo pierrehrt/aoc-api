@@ -162,6 +162,14 @@ source row made the item page contradict the list about where the same dungeon i
 right is a game question (**AOC-037**); until it is answered, both endpoints at least say the same
 thing. A source with no place still falls back to its own columns.
 
+**AOC-058: `slot_fit` is `either` on the 389 one-handed weapons**, which carried `both` until then.
+The field's meaning is unchanged — how to read the item's `equip_locations` — and so are its three
+values; the old value was a wrong fact, corrected (Pierre, 2026-09-30: a one-hander goes in either
+hand). `both` remains a valid value, and **no item carries it** now. ⚠️ **`slot_fit` does not say
+whether an item blocks the other hand:** a two-hander is `single` in `main-hand`, like a crossbow —
+which one takes both hands is `item_types.two_handed`, **not yet in `/v1`** (the gear builder,
+AOC-051, is its first reader and exposes it). Do not infer it from `slot_fit`.
+
 ### `GET /v1/taxonomies`
 
 Every filter vocabulary in one call: rarities, item types, equip locations, armour weights, classes,

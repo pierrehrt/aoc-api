@@ -36,12 +36,16 @@ RARITY_ORDER = ["Mundane", "Enchanted", "Superior", "Rare", "Epic", "Legendary"]
 ARMOUR_WEIGHT_ORDER = ["Cloth", "Light", "Medium", "Heavy", "Full Plate"]
 
 # ⭐ THE ATOMIC SLOTS, and the reason this list is shorter than the data's 15 distinct values.
-# Two values in items_clean.json are COMPOUND and mean different things:
-#   "Main Hand, Off Hand" (390 items) — occupies BOTH slots (two-handers)
-#   "Left/Right Finger"   (188 items) — fits EITHER slot
-# Flattened into lookup rows, "show me every Off Hand item" silently misses all 390 two-handers.
+# Two values in items_clean.json are COMPOUND:
+#   "Main Hand, Off Hand" (390 items) — fits EITHER hand: the one-handed weapons (AOC-058, Pierre
+#                                        2026-09-30; this comment said "BOTH, two-handers" until then)
+#   "Left/Right Finger"   (188 items) — fits EITHER finger
+# Flattened into lookup rows, "show me every Off Hand item" silently misses all 390 of the first.
 # So the atomic slots live here and the item->slot relation, with its both/either qualifier, is a
 # join table owned by AOC-010. (AOC-009, 2026-09-17.)
+# ⚠️ STILL 13 ON PURPOSE. This list generates the 2026-09-17 migration, which has run in
+# production. The 14th slot, Necklace, is in migrations/20260930120000_necklace_slot.sql (AOC-054):
+# no tooltip names it as a slot, so no generator run could have found it.
 ATOMIC_SLOTS = ["Head", "Shoulder", "Chest", "Wrist", "Hands", "Belt", "Legs", "Feet",
                 "Cloak", "Main Hand", "Off Hand", "Left Finger", "Right Finger"]
 

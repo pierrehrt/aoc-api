@@ -12,6 +12,11 @@ package items
 // (always a NULL plus an open question, never a guess), and **an entry that stops matching
 // anything fails the import**. Without that last property the list would rot into exactly the
 // "green check that stopped checking" this repo keeps finding (AOC-019, AOC-020, AOC-032).
+//
+// ⚠️ ONE DEFAULT EXISTS, AND IT IS DATA, NOT A GUESS (AOC-054). An item whose tooltip names no slot
+// goes in its TYPE's default slot — `item_types.default_equip_location_id`, set by a migration from
+// a named source (the necklace: AoC>TV's builder, Pierre 2026-09-29) and read into DefaultSlots.
+// Nothing here chooses a slot; it applies one the database was told.
 
 import (
 	"context"
@@ -20,6 +25,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 )
 
 // Lookups is every id the importer needs, read once before anything is written.
@@ -43,6 +50,9 @@ type Lookups struct {
 	PlaceGeo         map[int32]PlaceGeo
 	SlotFits         map[string]int32
 	Confidence       map[string]int32
+	// DefaultSlots is item type name -> the slot name its items go in when their tooltip names
+	// none (AOC-054). Read from item_types.default_equip_location_id — never a literal here.
+	DefaultSlots map[string]string
 }
 
 // PlaceKey is how a source row finds its place: the PAIR the armory used, never a name.
@@ -149,6 +159,18 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 		return nil, fmt.Errorf("loading quests: %w", err)
 	}
 	l.Quests = qm
+
+	// ⭐ A type's default slot, by NAME on both sides: slotFit hands back slot names, and
+	// insertChildren resolves them through EquipLocations like any the snapshot supplied.
+	// Through sqlc, not inline: the query reads AOC-054's column, and a rename must break the build.
+	ds, err := sqlcgen.New(q).ListItemTypeDefaultSlots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading item_types' default slots: %w", err)
+	}
+	l.DefaultSlots = make(map[string]string, len(ds))
+	for _, d := range ds {
+		l.DefaultSlots[d.ItemType] = d.Slot
+	}
 
 	// ⭐ places join on the PAIR, never a name — the armory's own (instance, dungeon).
 	l.Places = map[PlaceKey]int32{}

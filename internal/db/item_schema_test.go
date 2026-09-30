@@ -7,7 +7,7 @@ package db_test
 // below counts rows in a seed. What they pin is the SHAPE — specifically the three places where a
 // simpler schema would have given a confidently wrong answer:
 //
-//  1. a two-hander must appear when you ask for Off Hand items (the join, not a column);
+//  1. a one-hander (it fits either hand) must appear when you ask for Off Hand items (the join, not a column);
 //  2. a fractional stat must survive a round trip (numeric, not integer);
 //  3. a spell effect must not be reachable from the stats table (separate tables, not a flag).
 //
@@ -23,7 +23,7 @@ import (
 
 // seedFixtureItems inserts a small, deliberately fake corpus:
 //
-//	900 Test Blade Alpha    two-hander  -> main-hand + off-hand, fit 'both'
+//	900 Test Blade Alpha    one-hander  -> main-hand + off-hand, fit 'either' (AOC-058)
 //	901 Test Shield Beta    off-hand only                       fit 'single'
 //	902 Test Ring Gamma     either finger                       fit 'either'
 //	903 Test Helm Delta     head                                fit 'single'
@@ -46,7 +46,7 @@ SELECT $1, $2, $3,
 		name string
 		fit  interface{}
 	}{
-		{900, "test-blade-alpha", "Test Blade Alpha", "both"},
+		{900, "test-blade-alpha", "Test Blade Alpha", "either"},
 		{901, "test-shield-beta", "Test Shield Beta", "single"},
 		{902, "test-ring-gamma", "Test Ring Gamma", "either"},
 		{903, "test-helm-delta", "Test Helm Delta", "single"},
@@ -62,7 +62,7 @@ SELECT $1, $2, $3,
 INSERT INTO item_equip_locations (item_id, equip_location_id)
 VALUES ($1, (SELECT id FROM equip_locations WHERE slug = $2))`
 	links := [][2]interface{}{
-		{900, "main-hand"}, {900, "off-hand"}, // occupies BOTH
+		{900, "main-hand"}, {900, "off-hand"}, // EITHER hand (a one-hander, AOC-058)
 		{901, "off-hand"},
 		{902, "left-finger"}, {902, "right-finger"}, // EITHER
 		{903, "head"},
@@ -76,16 +76,16 @@ VALUES ($1, (SELECT id FROM equip_locations WHERE slug = $2))`
 }
 
 // The criterion this schema shape exists for. With equip_location as a single column on items,
-// the two-hander is filed under something like "Main Hand, Off Hand" and this query returns only
-// the shield — 390 real two-handers missing from the Off Hand list, silently.
-func TestAskingForOffHandItemsReturnsTwoHandersToo(t *testing.T) {
+// the one-hander is filed under something like "Main Hand, Off Hand" and this query returns only
+// the shield — 389 real one-handed weapons missing from the Off Hand list, silently.
+func TestAskingForOffHandItemsReturnsOneHandersToo(t *testing.T) {
 	d, _ := migratedDB(t)
 	seedFixtureItems(t, d)
 
 	names := itemNamesInSlot(t, d, "off-hand")
 	want := map[string]bool{"Test Blade Alpha": true, "Test Shield Beta": true}
 	if len(names) != len(want) {
-		t.Fatalf("off-hand items = %v, want exactly %d (the two-hander AND the shield)", names, len(want))
+		t.Fatalf("off-hand items = %v, want exactly %d (the one-hander AND the shield)", names, len(want))
 	}
 	for _, n := range names {
 		if !want[n] {
@@ -93,16 +93,17 @@ func TestAskingForOffHandItemsReturnsTwoHandersToo(t *testing.T) {
 		}
 	}
 
-	// And the two-hander is in main-hand as well — it occupies both at once, not either.
+	// And the one-hander is in main-hand as well — it fits either hand (Pierre, AOC-058).
 	if got := itemNamesInSlot(t, d, "main-hand"); len(got) != 1 || got[0] != "Test Blade Alpha" {
 		t.Errorf("main-hand items = %v, want [Test Blade Alpha]", got)
 	}
 }
 
-// A ring is in both finger slots in the join, but `either` says it occupies only one of them.
+// A ring is in both finger slots in the join, and a one-hander in both hand slots, but `either`
+// says each occupies only one of them.
 // The distinction is invisible in the rows and lives entirely in slot_fit — so it is worth a test
 // that says out loud which one each fixture is.
-func TestSlotFitDistinguishesBothFromEither(t *testing.T) {
+func TestSlotFitIsStatedPerItem(t *testing.T) {
 	d, _ := migratedDB(t)
 	seedFixtureItems(t, d)
 
@@ -111,7 +112,7 @@ func TestSlotFitDistinguishesBothFromEither(t *testing.T) {
 		fit  string
 		rows int
 	}{
-		{"Test Blade Alpha", "both", 2},
+		{"Test Blade Alpha", "either", 2}, // a one-hander: either hand (AOC-058)
 		{"Test Ring Gamma", "either", 2},
 		{"Test Helm Delta", "single", 1},
 	} {

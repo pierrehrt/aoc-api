@@ -26,12 +26,15 @@ func insertChildren(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 		for _, s := range it.SpellEffect {
 			spells = append(spells, statRow(it.ItemID, s))
 		}
-		_, names := slotFit(it, l)
+		_, names, fromType := slotFit(it, l)
+		if fromType {
+			rep.TypeDefaultSlots[*it.ItemType]++
+		}
 		for _, n := range names {
 			id, ok := l.EquipLocations[n]
 			if !ok {
-				return fmt.Errorf("item %d %q: equip location %q does not resolve — AOC-009 seeds "+
-					"only the 13 atomic slots and this is not one of them", it.ItemID, it.Name, n)
+				return fmt.Errorf("item %d %q: equip location %q does not resolve — it is not one "+
+					"of the seeded atomic slots", it.ItemID, it.Name, n)
 			}
 			slots = append(slots, []any{it.ItemID, id})
 		}

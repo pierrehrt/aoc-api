@@ -53,7 +53,7 @@ func NewTaxonomyService(q TaxonomyQuerier) *TaxonomyService { return &TaxonomySe
 // TaxonomyQuerier is the slice of the generated API the vocabularies need.
 type TaxonomyQuerier interface {
 	ListRarities(ctx context.Context) ([]sqlcgen.Rarity, error)
-	ListItemTypes(ctx context.Context) ([]sqlcgen.ItemType, error)
+	ListItemTypes(ctx context.Context) ([]sqlcgen.ListItemTypesRow, error)
 	ListEquipLocations(ctx context.Context) ([]sqlcgen.EquipLocation, error)
 	ListArmourWeights(ctx context.Context) ([]sqlcgen.ArmourWeight, error)
 	ListClasses(ctx context.Context) ([]sqlcgen.ListClassesRow, error)

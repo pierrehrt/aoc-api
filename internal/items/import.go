@@ -31,6 +31,9 @@ type Report struct {
 	AppliedNulls   map[string]int // "kind: value" -> rows nulled under a recorded decision
 	ItemsNoSources []int
 	Nulls          map[string]int // "table.column" -> null rows
+	// TypeDefaultSlots is item type -> items placed by that type's default slot because their
+	// tooltip names none (AOC-054). Printed, so the rule's reach is stated rather than assumed.
+	TypeDefaultSlots map[string]int
 }
 
 // tables in delete order: children first, then items, then the two things items point at.
@@ -97,9 +100,10 @@ func checkFloor(ctx context.Context, tx pgx.Tx, incoming int, allowShrink bool) 
 // database exactly as it was.
 func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options) (*Report, error) {
 	rep := &Report{
-		Counts:       map[string]int{},
-		AppliedNulls: map[string]int{},
-		Nulls:        map[string]int{},
+		Counts:           map[string]int{},
+		AppliedNulls:     map[string]int{},
+		Nulls:            map[string]int{},
+		TypeDefaultSlots: map[string]int{},
 	}
 
 	confUnconfirmed, ok := l.Confidence["unconfirmed"]
@@ -121,6 +125,9 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 	}
 
 	if err := checkFloor(ctx, tx, len(live), opt.AllowShrink); err != nil {
+		return nil, err
+	}
+	if err := checkCompounds(live); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +162,7 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 	if err := countNulls(ctx, tx, rep); err != nil {
 		return nil, err
 	}
-	if err := checkCounts(live, rep); err != nil {
+	if err := checkCounts(live, l, rep); err != nil {
 		return nil, err
 	}
 	return rep, nil
@@ -167,7 +174,7 @@ func Import(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups, opt Options)
 // a data-quality ticket regenerates the snapshot, and somebody would "fix" it by editing the
 // number — which is how a check stops checking. Derived from the input it cannot drift: it only
 // ever asks "did every row I read arrive?", which stays true whatever the snapshot says next.
-func checkCounts(live []Item, rep *Report) error {
+func checkCounts(live []Item, l *Lookups, rep *Report) error {
 	want := map[string]int{
 		"items": len(live), "sets": 0, "vendors": 0,
 		"item_stats": 0, "item_spell_effects": 0, "item_sources": 0,
@@ -181,13 +188,11 @@ func checkCounts(live []Item, rep *Report) error {
 		if it.Set != nil && *it.Set != "" {
 			sets[*it.Set] = true
 		}
-		switch v := it.EquipLocation; {
-		case v == nil || *v == "" || *v == "None":
-		case strings.Contains(*v, ","), strings.Contains(*v, "/"):
-			want["item_equip_locations"] += 2
-		default:
-			want["item_equip_locations"]++
-		}
+		// Slot rows are counted through slotFit — the one reading of equip_location that
+		// insertChildren writes from. A second copy of that rule here could only disagree with it
+		// (it did, briefly, on the default slot's test — AOC-054 review).
+		_, slots, _ := slotFit(it, l)
+		want["item_equip_locations"] += len(slots)
 		for _, s := range it.LiveSources() {
 			want["item_sources"]++
 			want["item_costs"] += len(s.AcquisitionCost)
@@ -301,7 +306,7 @@ func insertItems(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 		if rarityID == nil {
 			return fmt.Errorf("item %d %q has no resolvable rarity — items.rarity_id is NOT NULL", it.ItemID, it.Name)
 		}
-		fit, _ := slotFit(it, l)
+		fit, _, _ := slotFit(it, l)
 		rows = append(rows, []any{
 			it.ItemID, slugs[it.ItemID], it.Name, *rarityID,
 			lookupPtr(it.ItemType, l.ItemTypes), fit,
@@ -328,46 +333,77 @@ func insertItems(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 	return nil
 }
 
-// slotFit turns the snapshot's equip_location into (slot_fit_id, atomic slot names).
+// slotFit turns the snapshot's equip_location into (slot_fit_id, atomic slot names), and says
+// whether the slot came from the item's TYPE rather than its tooltip.
 //
-// ⭐ This is the compound-value handling AOC-010's whole schema shape exists for: "Main Hand, Off
-// Hand" is ONE item occupying BOTH slots, "Left/Right Finger" is one occupying EITHER.
-func slotFit(it Item, l *Lookups) (*int32, []string) {
+// ⭐ This is the compound-value handling AOC-010's whole schema shape exists for: one item, two slot
+// rows, and a fit that says how to read them. "Main Hand, Off Hand" and "Left/Right Finger" are both
+// an item that fits EITHER slot — the first sits on the one-handed weapons (1HB, 1HE, dagger,
+// talisman), which Pierre confirmed go in either hand (AOC-058, 2026-09-30). It was read as `both`
+// ("occupies both at once") from its shape alone until then. What takes both hands is a fact about
+// the TYPE, item_types.two_handed, not about the slot rows.
+//
+// ⭐ A tooltip that names no slot falls back to its type's default slot (AOC-054): a necklace's
+// tooltip says `Necklace` and nothing else, so without this all 146 had no slot. The default is
+// item_types data — the migration's backfill applies the same rule to the rows already there.
+func slotFit(it Item, l *Lookups) (fit *int32, slots []string, fromType bool) {
 	if it.EquipLocation == nil || *it.EquipLocation == "" || *it.EquipLocation == "None" {
-		return nil, nil
+		if it.ItemType != nil {
+			if s, ok := l.DefaultSlots[*it.ItemType]; ok {
+				id := l.SlotFits["single"]
+				return &id, []string{s}, true
+			}
+		}
+		return nil, nil, false
 	}
 	v := *it.EquipLocation
-	switch {
-	case strings.Contains(v, ","):
-		id := l.SlotFits["both"]
-		return &id, splitTrim(v, ",")
-	case strings.Contains(v, "/"):
-		// "Left/Right Finger" -> "Left Finger", "Right Finger"
-		i := strings.Index(v, "/")
-		head, rest := v[:i], v[i+1:]
-		sp := strings.LastIndex(rest, " ")
-		if sp < 0 {
-			id := l.SlotFits["either"]
-			return &id, []string{strings.TrimSpace(head), strings.TrimSpace(rest)}
-		}
-		noun := rest[sp+1:]
-		id := l.SlotFits["either"]
-		return &id, []string{strings.TrimSpace(head) + " " + noun, strings.TrimSpace(rest[:sp]) + " " + noun}
-	default:
-		id := l.SlotFits["single"]
-		return &id, []string{v}
+	if c, ok := compoundSlots[v]; ok {
+		id := l.SlotFits[c.fit]
+		return &id, c.slots, false
 	}
+	// checkCompounds refused any other compound before anything was written, so this is one slot.
+	id := l.SlotFits["single"]
+	return &id, []string{v}, false
 }
 
-func splitTrim(s, sep string) []string {
-	parts := strings.Split(s, sep)
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
+// compoundSlots is every equip_location that names more than one slot, and what each MEANS — a
+// recorded decision per value, never a reading of its punctuation. Reading the shape is exactly how
+// "Main Hand, Off Hand" came to mean "occupies both" for three weeks (AOC-058). Both are an item that
+// fits EITHER slot: the first sits on the one-handed weapons, which Pierre confirmed go in either
+// hand (2026-09-30); the second on rings. Measured 2026-09-30: the snapshot holds these two and no
+// other (390 and 188 items).
+var compoundSlots = map[string]struct {
+	fit   string
+	slots []string
+}{
+	"Main Hand, Off Hand": {"either", []string{"Main Hand", "Off Hand"}},
+	"Left/Right Finger":   {"either", []string{"Left Finger", "Right Finger"}},
+}
+
+// checkCompounds refuses a snapshot that carries a compound equip_location nobody has decided about
+// — a ',' or '/' in a value compoundSlots does not know — before the import deletes anything.
+func checkCompounds(its []Item) error {
+	unknown := map[string]int{}
+	for _, it := range its {
+		if it.EquipLocation == nil {
+			continue
+		}
+		v := *it.EquipLocation
+		if _, ok := compoundSlots[v]; !ok && strings.ContainsAny(v, ",/") {
+			unknown[v]++
 		}
 	}
-	return out
+	if len(unknown) == 0 {
+		return nil
+	}
+	vals := make([]string, 0, len(unknown))
+	for v, n := range unknown {
+		vals = append(vals, fmt.Sprintf("%q (%d items)", v, n))
+	}
+	sort.Strings(vals)
+	return fmt.Errorf("REFUSING TO GUESS: the snapshot has compound equip locations nobody has decided "+
+		"about: %s.\nNothing has been deleted. Say what each means in compoundSlots (internal/items/import.go)",
+		strings.Join(vals, ", "))
 }
 
 // assignSlugs gives every item a unique slug. Three naive slugs collide, two of them because the

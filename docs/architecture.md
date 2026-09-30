@@ -624,15 +624,29 @@ live in `internal/db/queries/items.sql` and the service layer that wraps them ar
 Four shapes that are not obvious, each of which a simpler schema would have got confidently wrong:
 
 1. **Equip location is a JOIN, not a column on `items`.** Two of the snapshot's 16
-   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items (a two-hander
-   occupying both slots at once) and `Left/Right Finger` on **188** (a ring occupying either) —
-   and AOC-009 seeds only the **13 atomic slots**. Flattened into one column, *"show me every Off
-   Hand item"* silently returns 141 instead of 531. `items.slot_fit_id`
-   (`single` · `both` · `either`) says how to read an item's rows, and it lives on the **item**
+   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items and
+   `Left/Right Finger` on **188** — and AOC-009 seeds only the **atomic slots** (**14** since
+   AOC-054 added the necklace, which no tooltip names as a slot). Both compounds are an item that
+   fits **either** slot: `Main Hand, Off Hand` sits on the one-handed weapons (1HB, 1HE, dagger,
+   talisman), which go in either hand — Pierre, 2026-09-30 (**AOC-058**). ⚠️ Until then it was read
+   as `both` ("a two-hander occupying both slots at once"), from the value's shape alone; the data
+   put it on the one-handers all along. The importer now reads compounds from **`compoundSlots`**,
+   one recorded meaning per value, and **refuses an import carrying any other** `,`/`/` value before
+   it deletes anything — the shape of a value is never read as its meaning again. Nine one-handers
+   are `Main Hand` or `Off Hand` alone, and their own tooltips say so ("Talisman - Off Hand"): the
+   game restricts those items; they are `single`. Flattened into one column, *"show me every Off Hand item"*
+   silently returns 141 instead of 530. `items.slot_fit_id` (`single` · `either`; `both` stays a
+   row, and no item carries it) says how to read an item's rows, and it lives on the **item**
    because it describes the whole set: two join rows could otherwise contradict each other.
-   `TestListItemsFindsTwoHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
-   is mutation-tested: break that query and it fails naming the lost two-hander.
-   `TestAskingForOffHandItemsReturnsTwoHandersToo` pins the same property at the schema level.
+   **What takes both hands is a fact about the TYPE**: `item_types.two_handed` — true for 2HB, 2HE,
+   staff, bow, polearm, thrown; false for 1HB, 1HE, dagger, talisman, crossbow (Pierre); NULL for
+   types with no main-hand item. The gear builder reads it; nothing lists weapon types in code.
+   `TestEveryWeaponFollowsPierresHands` (corpus) checks every weapon's fit against its own rows;
+   `TestTheWeaponMigrationAndTheImporterAgree` runs the migration's UPDATE, read from the file,
+   against what the importer writes.
+   `TestListItemsFindsOneHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
+   is mutation-tested: break that query and it fails naming the lost one-hander.
+   `TestAskingForOffHandItemsReturnsOneHandersToo` pins the same property at the schema level.
    ⚠️ The distinction matters — an earlier version of this paragraph cited only the schema-level
    test, which passes even when the shipped query is wrong.
 2. **Stat values are `numeric(8,2)`, not `integer`.** The 2026-09-13 decision said *"integers"*
@@ -745,6 +759,30 @@ never a guess:
 list above would rot into an exemption nobody rechecks — the shape this repo has now found four
 times (AOC-019, AOC-020, AOC-032, and the guard inside AOC-032's own fix).
 
+**A slot the tooltip does not name (AOC-054).** A necklace's tooltip line reads `Necklace` where
+armour's reads `Light Armor - Hands`, so the OCR had no slot to find and all 146 arrived slotless.
+The fix is data on `item_types`, read by the importer, never a literal:
+
+| column | means | set on |
+|---|---|---|
+| `default_equip_location_id` | the slot an item of this type goes in **when its own record names none** — a fallback, never an override | `necklace` only (AoC>TV's builder, Pierre 2026-09-29). ⛔ Not for other types: two items typed Crossbow and Polearm are really a consumable and a companion (AOC-059), and a default would put them in a hand |
+| `is_equipment` | whether an item of this type is worn at all — **nullable, no default**, so a type added later must be classified rather than filed as "not worn" by omission; a NULL fails `TestTheNecklaceSlotAndItsRuleAreSeeded` | `true` on the 23 types that carry a slot in the data plus `necklace`, `false` on the other six |
+
+`slotFit` applies the fallback and the report prints how many items it placed, per type. The rule
+runs in **two places that must agree**: the migration `20260930120000_necklace_slot.sql` backfills the
+rows already there — so production got the slot **without a 15-minute re-import** — and the
+importer applies it on every later run. Measured on a restored production dump: the backfill and a
+fresh import produce **byte-identical** `item_equip_locations` and `slot_fit_id` rows — and
+`TestTheBackfillAndTheImporterAgree` keeps checking it, replaying the pre-AOC-054 importer, running
+the backfill statement read out of the migration file, and comparing with the current importer.
+The default is read through sqlc (`ListItemTypeDefaultSlots`), so a column rename breaks the build.
+
+`is_equipment` is deliberately **independent of the slots**: derived from them, a type whose
+tooltips never name a slot is simply not equipment, and "every piece of equipment has a slot"
+passes on exactly the bug it exists to catch. `TestEveryPieceOfEquipmentHasASlot` (corpus) holds
+it, with seven recorded exceptions each read off its own tooltip — and, as with `knownUnresolved`,
+**an exception that stops matching fails the test**.
+
 **Join keys that are not names.** Places join on the armory's own pair
 `(armory_instance, armory_dungeon)` — `places_armory_key` is UNIQUE on it. Quests join on
 `quests.armory_label`, because `quests.name` is **NULL on all 51 rows**: the real quest names are
@@ -768,7 +806,8 @@ snapshot says next. Mutation-tested: dropping nine stat rows fails the import an
 
 As of 2026-09-20, against dev: **items 4,646 · item_stats 23,063 · item_spell_effects 19 ·
 item_sources 6,571 · item_costs 5,956 · item_classes 4,259 · item_equip_locations 4,882 ·
-sets 368 · vendors 23.**
+sets 368 · vendors 23.** Since AOC-054 (2026-09-30): **item_equip_locations 5,028** — the 146
+necklaces.
 
 ### The pool
 
@@ -1120,6 +1159,11 @@ cp ../armory_snapshot/items_clean.json "$CTX/armory_snapshot/"
 cd "$CTX" && git init -q && git add -A && git -c user.email=a@b -c user.name=c commit -qm ctx
 railway up -d -s import -e production
 ```
+
+⚠️ **The flip side: it runs the code it was last deployed with.** A release that changes the importer
+redeploys this service in the same release (`workflows/5-release.md` § 4) — AOC-054's migration
+backfilled 146 necklace slots, and an importer from before it would delete them on its next real
+run and exit 0, because its own count check expects no such rows.
 
 ⭐ **A safety consequence worth keeping deliberately: a push to `main` cannot rebuild or trigger this
 service.** `api` and `backup` both carry `source.repo = pierrehrt/aoc-api`, so a merge redeploys
