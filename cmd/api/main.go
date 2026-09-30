@@ -95,14 +95,29 @@ func run() error {
 	q := sqlcgen.New(pool)
 	itemsSvc := items.NewService(q)
 	itemsAPI := items.NewHandler(itemsSvc, items.NewTaxonomyService(q))
-	site := pages.New(tpl, assetSet, envOr("PUBLIC_BASE_URL", "http://localhost:"+envOr("PORT", "8080")), itemsSvc)
+	// PUBLIC_BASE_URL is the origin of every canonical URL and of the host redirect (AOC-025).
+	// ⛔ Required in production and parsed strictly: unset, it would default to localhost and every
+	// canonical would point there; malformed, the redirect would send the whole site elsewhere. Both
+	// must stop the boot — where Railway keeps the previous deploy serving — never ship quietly.
+	// The rule lives in httpx.ResolvePublicBase, where a table test holds it (verify round 1: here in
+	// main, dropping the production requirement failed no test).
+	raw, set := os.LookupEnv("PUBLIC_BASE_URL")
+	baseURL, canonical, err := httpx.ResolvePublicBase(build.Env, raw, set, "http://localhost:"+envOr("PORT", "8080"))
+	if err != nil {
+		return err // it names PUBLIC_BASE_URL and the value itself
+	}
+	var routerOpts []httpx.RouterOption
+	if canonical != nil {
+		routerOpts = append(routerOpts, httpx.WithCanonicalHost(canonical))
+	}
+	site := pages.New(tpl, assetSet, baseURL, itemsSvc)
 
 	srv := &http.Server{
 		Addr: addr,
 		Handler: httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
 			v1.Mount("/items", itemsAPI.Routes())
 			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
-		}),
+		}, routerOpts...),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that
 		// net/http leaves unset by default.

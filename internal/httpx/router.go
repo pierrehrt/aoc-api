@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -39,8 +40,20 @@ type SiteRoutes func(chi.Router)
 func NewRouter(b Build) *chi.Mux { return NewRouterWithSite(b, nil, nil) }
 
 // NewRouterWithAPI is NewRouterWithSite plus the /v1 domain routers.
-func NewRouterWithAPI(b Build, site SiteRoutes, assets http.Handler, v1 V1Routes) *chi.Mux {
-	return newRouter(b, site, assets, v1)
+func NewRouterWithAPI(b Build, site SiteRoutes, assets http.Handler, v1 V1Routes, opts ...RouterOption) *chi.Mux {
+	return newRouter(b, site, assets, v1, opts...)
+}
+
+// RouterOption adjusts the router newRouter builds.
+type RouterOption func(*routerOpts)
+
+type routerOpts struct{ canonical *url.URL }
+
+// WithCanonicalHost makes every request under another host a 301 to the same path on this origin
+// (AOC-025) — inside the router, so the 404 and 405 pages, /v1 and the assets are covered, and the
+// router tests exercise it as it is composed in production.
+func WithCanonicalHost(base *url.URL) RouterOption {
+	return func(o *routerOpts) { o.canonical = base }
 }
 
 // NewRouterWithSite additionally mounts the server-rendered site and its assets.
@@ -59,7 +72,11 @@ func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
 	return newRouter(b, site, assets, nil)
 }
 
-func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes) *chi.Mux {
+func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes, opts ...RouterOption) *chi.Mux {
+	var o routerOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
 	r := chi.NewRouter()
 
 	// Order matters, and it is the opposite of what it first looks like.
@@ -80,6 +97,10 @@ func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes) 
 	r.Use(RequestID)
 	r.Use(Log)
 	r.Use(Cache)
+	// The host redirect sits INSIDE Cache, so its 301 leaves with the path's policy like any page.
+	if o.canonical != nil {
+		r.Use(canonicalHost(o.canonical))
+	}
 	r.Use(Recover)
 
 	// ⭐ HEAD. chi's r.Get registers GET only, so every public page answered HEAD with 405

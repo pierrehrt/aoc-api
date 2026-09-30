@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
@@ -43,6 +42,7 @@ var pageTemplates = map[string]string{
 	"home":   "html/home.html",
 	"smoke":  "html/smoke.html",
 	"armory": "html/armory.html",
+	"item":   "html/item.html",
 }
 
 // fragmentsIn lists the HTMX partials: every html/*.html that is neither base.html nor a page.
@@ -75,6 +75,7 @@ func fragmentsIn(fsys fs.FS, pageMap map[string]string) ([]string, error) {
 // not enough. A page that reads fields nobody declared here fails at boot — the point.
 var pageProbes = map[string]any{
 	"armory": armoryProbe(),
+	"item":   itemProbe(),
 }
 
 // fragmentProbes likewise, by fragment name.
@@ -103,17 +104,11 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		// asset resolves at RENDER time but is validated at STARTUP by the probe below,
 		// so a template referring to an asset that does not exist cannot reach production.
 		"asset": func(name string) (string, error) { return assets.Path(name) },
+		// statText: a stat line as the tooltip prints it (AOC-048).
+		"statText": StatText,
 		// typeIsSlot: for armour the item type repeats the slot name; the row shows it once.
 		"typeIsSlot": func(it items.ListItem) bool {
-			if it.ItemType == nil {
-				return false
-			}
-			for _, s := range it.EquipLocations {
-				if strings.EqualFold(s.Slug, *it.ItemType) || strings.EqualFold(s.Name, *it.ItemType) {
-					return true
-				}
-			}
-			return false
+			return it.ItemType != nil && typeRepeatsSlot(*it.ItemType, "", it.EquipLocations)
 		},
 	}
 

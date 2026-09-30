@@ -22,7 +22,7 @@
   {{range .Result.Items}}
     <tr class="border-b border-line align-top">
       <td class="py-2 pr-3">
-        <span class="font-medium"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</span>
+        <a href="/armory/{{.Slug}}" class="font-medium hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
         <div class="mt-0.5 font-mono text-xs text-muted md:hidden">
           {{/* the separator sits only BETWEEN two present parts (verify rounds 1 and 2) */}}

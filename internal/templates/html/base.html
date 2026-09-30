@@ -12,8 +12,9 @@
 <meta property="og:description" content="{{.View.Description}}">
 <meta property="og:url" content="{{.View.Canonical}}">
 {{if .View.OGImage}}<meta property="og:image" content="{{.View.OGImage}}">
-<meta name="twitter:card" content="summary_large_image">{{end}}
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<meta name="twitter:card" content="{{if .View.Card}}{{.View.Card}}{{else}}summary_large_image{{end}}">{{end}}
+{{with .View.JSONLD}}<script type="application/ld+json">{{.}}</script>
+{{end}}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="{{asset "app.css"}}">

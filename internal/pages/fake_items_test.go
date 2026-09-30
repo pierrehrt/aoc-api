@@ -58,23 +58,72 @@ func (f *fakeItems) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]s
 func (f *fakeItems) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItemPlacesRow, error) {
 	return nil, nil
 }
-func (f *fakeItems) GetItemBySlug(context.Context, string) (int32, error) { return 0, pgx.ErrNoRows }
-func (f *fakeItems) GetItem(context.Context, int32) (sqlcgen.GetItemRow, error) {
+
+// Every list row has a page (AOC-025: every sitemap URL must answer 200). Items 1–3 carry the
+// detailed fixtures in fake_item_detail_test.go; the rest are their bare list rows.
+func (f *fakeItems) GetItemBySlug(_ context.Context, slug string) (int32, error) {
+	for id, d := range fakeDetails {
+		if d.row.Slug == slug {
+			return id, nil
+		}
+	}
+	for _, r := range f.rows {
+		if r.Slug == slug {
+			return r.ItemID, nil
+		}
+	}
+	return 0, pgx.ErrNoRows
+}
+func (f *fakeItems) GetItem(_ context.Context, id int32) (sqlcgen.GetItemRow, error) {
+	if d, ok := fakeDetails[id]; ok {
+		return d.row, nil
+	}
+	for _, r := range f.rows {
+		if r.ItemID == id {
+			return sqlcgen.GetItemRow{ItemID: r.ItemID, Slug: r.Slug, Name: r.Name, Rarity: r.Rarity, RarityName: "Test Rarity", Confidence: r.Confidence}, nil
+		}
+	}
 	return sqlcgen.GetItemRow{}, pgx.ErrNoRows
 }
-func (f *fakeItems) ListItemStats(context.Context, int32) ([]sqlcgen.ListItemStatsRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemStats(_ context.Context, id int32) ([]sqlcgen.ListItemStatsRow, error) {
+	return fakeDetails[id].stats, nil
 }
-func (f *fakeItems) ListItemSources(context.Context, int32) ([]sqlcgen.ListItemSourcesRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemSpellEffects(_ context.Context, id int32) ([]sqlcgen.ListItemSpellEffectsRow, error) {
+	return fakeDetails[id].effects, nil
 }
-func (f *fakeItems) ListItemCosts(context.Context, []int64) ([]sqlcgen.ListItemCostsRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemSources(_ context.Context, id int32) ([]sqlcgen.ListItemSourcesRow, error) {
+	return fakeDetails[id].sources, nil
 }
-func (f *fakeItems) ListItemEquipLocations(context.Context, int32) ([]sqlcgen.EquipLocation, error) {
-	return nil, nil
+func (f *fakeItems) ListItemCosts(_ context.Context, ids []int64) ([]sqlcgen.ListItemCostsRow, error) {
+	var out []sqlcgen.ListItemCostsRow
+	for _, d := range fakeDetails {
+		for _, c := range d.costs {
+			for _, id := range ids {
+				if c.ItemSourceID == id {
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	return out, nil
 }
-func (f *fakeItems) ListItemClasses(context.Context, int32) ([]sqlcgen.ListItemClassesRow, error) {
+func (f *fakeItems) ListItemEquipLocations(_ context.Context, id int32) ([]sqlcgen.EquipLocation, error) {
+	return fakeDetails[id].slots, nil
+}
+func (f *fakeItems) ListItemClasses(_ context.Context, id int32) ([]sqlcgen.ListItemClassesRow, error) {
+	return fakeDetails[id].classes, nil
+}
+func (f *fakeItems) ListItemSlugs(_ context.Context, a sqlcgen.ListItemSlugsParams) ([]string, error) {
+	var out []string
+	for i := int(a.PageOffset); i < len(f.rows) && len(out) < int(a.PageSize); i++ {
+		out = append(out, f.rows[i].Slug)
+	}
+	return out, nil
+}
+func (f *fakeItems) ListSetPieces(_ context.Context, setID *int32) ([]sqlcgen.ListSetPiecesRow, error) {
+	if setID != nil && *setID == setOmega {
+		return fakeSetPieces, nil
+	}
 	return nil, nil
 }
 func (f *fakeItems) ListItemPageEquipLocations(context.Context, []int32) ([]sqlcgen.ListItemPageEquipLocationsRow, error) {

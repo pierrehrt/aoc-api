@@ -444,11 +444,95 @@ never `Fail`, which is JSON-only, and never a template, which may be the thing t
 `items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
 service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
 `<title>`/description/canonical per state, and the honest empty state whose numbers come from
-`items.Service.IDSpan`. Rows link to nothing until the item page exists (AOC-048): a link to a 404 is
-a bug, the same rule as the nav.
+`items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
+linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
+
+**The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
+— rendered through `templates.NewItemData`, which groups the sources for display and does nothing
+else. Four things it added that later pages inherit:
+
+- **`Detail.Display`, a `json:"-"` block**: the names and colours the page shows where the contract
+  carries slugs (rarity name and colour token, type, weight, binding, slots, classes with short
+  names, DPS), filled from the **same rows** in `hydrate`. ⛔ **Not the set's size**:
+  `sets.declared_piece_count` is the last per-item `set_pieces` the importer saw, and inside one set
+  those vary (Waning Dusk: 1, 2, 3 across 16 items) — the page lists the items sharing the name and
+  states no size (AOC-060). So the page reads
+  exactly what `/v1` reads without `/v1` growing a field per page need; exposing any of it is an
+  additive decision of its own. `SourceRef` carries three the same way (type name, tier name, the
+  quest's `armory_label` — shown *as listed*, never as a quest name, which is unknown).
+- **Per-page `og:image` and JSON-LD.** `View.OGImage` is the tooltip image, so a pasted link
+  previews the item as the game shows it; `View.JSONLD` is a value `base.html` writes into
+  `<script type="application/ld+json">` — html/template marshals it as JSON there and escapes `<`,
+  so no field can close the script. `templates.ThingLD` is schema.org **`Thing`, not `Product`**:
+  Google reports a Product with no offer, review or rating as an error, and a game item has none.
+  `TestItemPageJSONLDParses` parses it back.
+- **Groups come from the rows, never from a literal.** Sources group by each row's own acquisition
+  type, in the order they first appear; one uniform row prints whatever is present (vendor, quest as
+  listed, place — boss, container, and the `raid` / `Unchained` flags — the latter only when the
+  place's name does not say it, which "Otherworldly Junction" does not); a group's **cost and tier
+  columns exist only when one of its rows has one** — so drops (0 of 3,436 carry a cost) and quests
+  (228 of 229 have no tier) get no column of dashes without the page asking which group is which.
+  A line identical to one already shown is shown once (42 items carry rows equal in every column but
+  the id); `/v1` keeps every row. A row with nothing in it says "No place recorded".
+- **One rule, two pages.** `items.Price` is the only spelling of a cost ("9 Simple Relic I + 2
+  Gold") — the list row and the item page both call it; `templates.typeRepeatsSlot` decides for both
+  when an item type is worth printing beside its slot.
+- **A few lines of inline script may ENHANCE a page, never complete it.** The back link is
+  `/armory` in the HTML; the browser upgrades it to the reader's own search when `document.referrer`
+  is a same-origin `/armory?…`. It is client-side **because** the page is edge-cached for an hour: a
+  server that read the Referer would store one reader's search and hand it to everyone.
+  `TestItemPageIsTheSameWhoeverAsks` pins that the bytes do not change with the Referer. There is no
+  Content-Security-Policy today; the day one is added, this script moves to a hashed asset.
+
+⛔ **Nothing sits below the tooltip image.** Its size is not in the data (90% of tooltips are 208–344
+px wide and 337–512 tall, measured on the local archive 2026-09-30), so the browser cannot reserve its
+box — and the first build, which put Set and Sources under it, moved them **260–460 px** when it
+arrived (CLS 0.08–0.19; AOC-048 verify round 1). So the page is **one block of text, then the
+image**: from `lg` up the image has its own fixed `22rem` column beside the text, which is
+top-aligned and never moves; below `lg` it comes last. Measured with the image served 2 s late:
+headings stay put, CLS ≤ 0.02 on a phone and ≈ 0 on desktop.
+`TestNothingOnTheItemPageSitsBelowTheTooltip` pins the order. A wider tooltip (744 of 4,645) scales
+to the column, so the image links to itself at full size. It is **not lazy** (on desktop it is the
+main above-the-fold image), and it is portrait, so the page sets `View.Card = "summary"` —
+`summary_large_image` crops to 2:1 and can cut the item's name off. Storing the dimensions would let
+the browser reserve the box anywhere, but needs the snapshot and a re-import.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.
+
+### Being found: robots.txt, the sitemap, one indexed host (AOC-025)
+
+`internal/pages/seo.go`. **The sitemap is built from the database and the nav, never from a list**:
+`/`, every `siteNav` section (which lists only routes that exist), then every item slug in item-id
+order (`items.Service.Slugs`, paged by the chunk) — so an import that adds items adds their URLs,
+and a new section is in the sitemap the day it enters the nav. `/sitemap.xml` is an index; chunks
+hold at most the protocol's **50,000** URLs (`sitemapMaxURLs`, boundary-tested; a full chunk of the
+longest possible slug is well under 50 MB). XML is written with **`encoding/xml`**, not a template —
+html/template escapes for HTML.
+
+- ⛔ **No `<lastmod>`.** No row carries a real modification time and the import is a full replace;
+  a stamp would be the last import's, on all 4,646 at once, and a lastmod that is not accurate is
+  one Google learns to ignore for the whole site. Revisit when community edits (EP-06) give rows a
+  real one.
+- **`robots.txt` disallows machinery only** (`/_smoke`, `/v1/`, `/health`) and names the sitemap.
+  `/assets` stays open — Google renders with our CSS. ⚠️ Cloudflare's managed robots.txt is on for
+  the zone and **prepends its comment block** to ours; the origin's rules follow it.
+- **One indexed host, by redirect.** Requests reach the origin as `Host: aoc-codex.app` (Railway
+  routes custom domains by Host, measured 2026-09-30); the service's own Railway domain served a
+  crawlable copy. `httpx.WithCanonicalHost` — a router option, so the router tests cover it as
+  composed, 404 page and `/v1` included — **301s every other host to the same path on
+  `PUBLIC_BASE_URL`** (308 for writes), except `/health`. Chosen over `X-Robots-Tag: noindex`
+  (the first build): a noindex beside a canonical pointing elsewhere is a mixed signal Google may
+  carry to the target, and a redirect is also *loud* — a wrong host rule shows as a broken site at
+  the release check, not as a site quietly dropping out of the index. Not robots.txt: disallowing
+  the crawl would stop Google seeing any signal at all.
+  ⛔ **`PUBLIC_BASE_URL` is required in production, parsed strictly and must be https**
+  (`httpx.ResolvePublicBase`, table-tested — the rule was first written in `main`, where dropping it
+  failed no test) — unset, malformed or http, the boot fails, where Railway keeps the previous deploy
+  serving. The Location is built by `canonicalLocation` from the request's path and query only, the
+  path always starting with `/`: the first build's `base + RequestURI()` let `GET x:@evil.example/`
+  become `https://aoc-codex.app@evil.example/` (verify round 1). The release checks that the live apex answers 200, not a redirect
+  (`workflows/5-release.md` § 4).
 
 ## Database
 
