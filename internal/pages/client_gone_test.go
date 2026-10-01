@@ -5,9 +5,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
@@ -58,5 +61,33 @@ func TestAnAbortedArmoryRequestIsNotAPageFailure(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `"level":"ERROR"`) {
 		t.Errorf("an aborted request logged an error: %s", buf.String())
+	}
+}
+
+// resetWriter is a connection the reader dropped while the page was being written.
+type resetWriter struct{ *httptest.ResponseRecorder }
+
+func (w resetWriter) Write([]byte) (int, error) {
+	return 0, &net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", syscall.ECONNRESET)}
+}
+
+// The page rendered, and the reader left while it was being written: not a render failure either
+// (delta verify 5: one such write in 600 aborted requests was logged as an ERROR).
+func TestAPageWhoseReaderLeftMidWriteIsNotAFailure(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(restore)
+	h := router(t)
+	for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} {
+		buf.Reset()
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/armory?rarity=epic", nil)
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		h.ServeHTTP(resetWriter{httptest.NewRecorder()}, r)
+		if strings.Contains(buf.String(), `"level":"ERROR"`) {
+			t.Errorf("HX %v: a reader who left mid-write logged an error: %s", hdr != nil, buf.String())
+		}
 	}
 }

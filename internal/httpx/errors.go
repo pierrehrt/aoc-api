@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"syscall"
 )
 
 // The sentinel errors a service may return. A service knows it could not find a thing;
@@ -31,11 +32,16 @@ var (
 // it; the status is for the log, where it must not read as a server failure.
 const StatusClientClosedRequest = 499
 
-// ClientGone reports whether err is the request's own client having gone: its context canceled,
-// and err that cancellation. The armory aborts a superseded live request (hx-sync replace, AOC-065),
-// and the query it was running fails with "context canceled"; logged as a 500 it filled the error
-// log with failures no reader saw. A deadline is not this: a timeout is the server being slow.
+// ClientGone reports whether err is the request's own client having gone: its context canceled and
+// err that cancellation, or the connection reset or closed by the peer while the answer was being
+// written. The armory aborts a superseded live request (hx-sync replace, AOC-065): the query it was
+// running fails with "context canceled", or, if it had finished, the write fails with "connection
+// reset by peer" (delta verify 5: 1 in 600). Logged as a 500 they filled the error log with failures
+// no reader saw. A deadline or a write timeout is not this: a timeout is the server being slow.
 func ClientGone(r *http.Request, err error) bool {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
 	return errors.Is(r.Context().Err(), context.Canceled) && errors.Is(err, context.Canceled)
 }
 
@@ -55,7 +61,7 @@ func Fail(w http.ResponseWriter, r *http.Request, err error) {
 	if ClientGone(r, err) {
 		slog.InfoContext(r.Context(), "client closed request", "status", StatusClientClosedRequest,
 			"request_id", rid, "method", r.Method, "path", r.URL.Path)
-		w.WriteHeader(StatusClientClosedRequest)
+		w.WriteHeader(StatusClientClosedRequest) // superfluous if the answer had begun; no one reads it
 		return
 	}
 	status := statusFor(err)

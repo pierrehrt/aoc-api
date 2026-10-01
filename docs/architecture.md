@@ -119,13 +119,15 @@ cannot fix. Readiness against Postgres is a separate endpoint if and when someth
 sentinels (`ErrNotFound`, `ErrInvalid`, `ErrUnauthorized`, `ErrForbidden`, `ErrConflict`), wrapped
 freely with `%w` for context; handlers call `httpx.Fail`.
 
-**A client that went away is not a failure** (`httpx.ClientGone`). If the request's own context
-was canceled and the error is that cancellation, the answer is 499 ("client closed request",
-nginx's) with an Info line, in `httpx.Fail` and in the pages' `fail`. The armory aborts every
-superseded live request (`hx-sync` replace), and the query each was running then failed with
-"context canceled". Logged as ERROR and 500, that put 52 failures nobody saw in one session's log,
-and it would have filled the +24h watch's error count (AOC-065 delta verify 4, N6). A deadline is
-still a 500: a timeout is the server being slow.
+**A client that went away is not a failure** (`httpx.ClientGone`). This covers two cases: the
+request's own context was canceled and the error is that cancellation, or the peer reset or closed
+the connection while the answer was being written (`ECONNRESET`, `EPIPE`). Either way the answer is
+499 ("client closed request", nginx's) with an Info line, in `httpx.Fail` and in the pages' `fail`.
+The armory aborts every superseded live request (`hx-sync` replace). The query each was running
+failed with "context canceled", or, if it had finished, the write failed. Logged as ERROR and 500,
+that put 52 failures nobody saw in one session's log, and it would have filled the +24h watch's
+error count (AOC-065 delta verifies 4 and 5). A deadline or a write timeout is still a 500: a
+timeout is the server being slow.
 
 **What is logged and what is sent are different on purpose.** The log gets the full wrapped error
 with the request id; the client gets the *sentinel's* text, or a flat `"internal error"` for anything
@@ -541,8 +543,9 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   carries `hx-get hx-trigger="change" hx-include="closest form" hx-target="#results"`; the answer is
   `armory_update` — the rows, plus the rail, the pills and both "active" counts (the phone
   button's and the collapsed strip's) **out of band**
-  (`hx-swap-oob="innerHTML:#…"`), so once an answer has landed the counts describe the rows beside
-  them, and the hidden inputs and the sort match its state. Inputs keep stable ids, so HTMX hands
+  (`hx-swap-oob="innerHTML:#…"`), so once an answer has landed (and no press on a slider holds
+  its pane back; see below) the counts describe the rows beside them, and the hidden inputs and the
+  sort match its state. Inputs keep stable ids, so HTMX hands
   focus back after the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
   fields.
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
@@ -580,17 +583,24 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     the pane (a pill's ×, "clear all", sort, a page, Cancel) names its state in its URL. On
     `htmx:beforeRequest` the page's script copies that URL into the form by parameter name: boxes
     ticked or not, hidden inputs and the search box set, and a hidden input for a parameter that has
-    no control. It knows no filter, only names. So a change made before the link's answer lands
+    no control (never `p`: a change starts again at page 1). It knows no filter, only names. So a change made before the link's answer lands
     builds on the link's state, not on the page being left. Before this, a pill removed and then a
     box ticked inside the round trip brought the pill back, and the search box, which no redraw
     touches, kept a removed query and sent it again (AOC-065 delta verify 4, P3).
+  - **Cancel returns to the form as it was when the sheet opened**, not to the address bar, which a
+    link's request in flight has not updated yet. After the form's reset, which alone would restore
+    the page as first drawn and bring back a removed search (delta verify 5, N8), the script copies
+    that state into the form. If anything changed in the sheet, a request returns the rows to it,
+    aborting a change in flight.
   - **A drag.** An answer landing mid-drag would replace the slider under the pointer and cut the
     drag short (F19). While a slider is pressed with the primary button, the pane that answer draws
     is held back (`shouldSwap = false`); the rows, pills and counts still update. When the press
-    ends, the held pane is drawn. If the press moved the slider, its `change` is not sent as it is:
-    that would send the pane from before the answer, and undo a link (N4). The moved bound is carried
-    into the held pane, and that pane is sent. A press that moved nothing just shows it: no request,
-    and no second history entry.
+    ends, the held pane is always drawn. If the press moved the slider, its `change`, which fires in
+    the same task as the `pointerup` (measured for mouse and touch), is not sent as it is: that would
+    send the pane from before the answer, and undo a link (N4). The moved bound is carried into the
+    held pane, and that pane is sent. Whatever is still held after that is drawn, with no request.
+    No pane outlives its press (delta verify 5, N7: when the slider's value changed without the
+    pointer, the press was taken for one that moved, and a stale pane was drawn much later).
   - **What the reader sees:** every quiet end state equals a direct load of its URL, and that URL is
     what they set. No value is reinterpreted. A bound beyond the new span applies as set; its legend
     and pill read "≥ 85", never "85–80". This was measured on the real corpus with 40–300 ms of added
@@ -609,6 +619,10 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     the last answer lands; nothing lands until the reader pauses). A link aborts a pending change,
     which is right: it goes to the state it names. An aborted request is a 499 in the log, not an
     error (§ 3).
+  - **One history entry per new state:** an answer for the URL the reader is already on (`HX-Current-URL`)
+    carries `HX-Replace-Url` instead of `HX-Push-Url`, so Back never lands on the same page twice.
+  - **Pills follow the vocabulary's order** (the pane's), whatever order the request named the values
+    in, so a live answer and a direct load of its URL show the same.
   - **A 400:** its reason replaces the rows. The pane keeps the reader's input to correct, with the
     last drawn counts.
   - **Relies on** the platform firing `change` when a slider's move ends. Mouse, touch, keys and

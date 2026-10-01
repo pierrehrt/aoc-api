@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,8 +134,16 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	if templates.IsHTMX(r) {
 		// The rows, plus the rail out of band: one request re-renders both, so the counts always
 		// describe the rows beside them. HX-Push-Url is this state's own URL, not the form's raw
-		// query string with its empty fields — one URL per state (AOC-049).
-		w.Header().Set("HX-Push-Url", armoryURL(f, page))
+		// query string with its empty fields — one URL per state (AOC-049). A new history entry only
+		// for a new state: an answer for the URL the reader is already on (a Cancel back to it, say)
+		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
+		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
+		canon := armoryURL(f, page)
+		if cur, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil && cur.RequestURI() == canon {
+			w.Header().Set("HX-Replace-Url", canon)
+		} else {
+			w.Header().Set("HX-Push-Url", canon)
+		}
 		// Fragment adds Vary: HX-Request itself.
 		if err := h.tpl.Fragment(w, "armory_update", d); err != nil {
 			h.fail(w, r, err)

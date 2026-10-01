@@ -144,9 +144,9 @@ document.addEventListener("htmx:beforeRequest", function (e) {
 // drawn when the press ends. If the press moved the slider, its change does not send the form as it
 // is — that is the pane from before the answer, and it would undo a link (delta verify 4, N4) —
 // but the held pane with the moved bound carried into it.
-var aocPress = null, aocPressFrom = null, aocHeld = null;
+var aocPress = null, aocHeld = null;
 aocPane.addEventListener("pointerdown", function (e) {
-  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; }
+  if (e.button === 0 && e.target.matches("input[type=range]")) aocPress = e.target;
 });
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
   if (e.detail.target !== aocPane || !aocPress) return;
@@ -162,11 +162,13 @@ aocPane.addEventListener("change", function (e) {
   }
 }, true);
 function aocPressEnd() {
-  var s = aocPress;
-  if (!s) return;
+  if (!aocPress) return;
   aocPress = null;
-  // A moved slider's change, coming, draws the held pane; a press that moved nothing draws it here.
-  if (s.value === aocPressFrom) setTimeout(function () { aocShowHeld(null); }, 0);
+  // A moved slider's change fires in the same task as the pointerup (measured, mouse and touch), and
+  // draws the held pane with its bound; whatever is still held after it is drawn here. Never left
+  // held: a pane kept past its press would later undo newer changes (delta verify 5, N7: the slider's
+  // value had changed without the pointer, so the press was taken for one that moved).
+  setTimeout(function () { aocShowHeld(null); }, 0);
 }
 document.addEventListener("pointerup", aocPressEnd);
 document.addEventListener("pointercancel", aocPressEnd);
@@ -188,17 +190,29 @@ function aocShowHeld(moved) {
 }
 // The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
 // controls; every change made in the sheet has already applied, so return to the state it was opened on.
-// A change still in flight counts: its answer would otherwise land after the Cancel (delta verify 4, N5).
-var aocOpenedAt = null, aocSheetChanged = false;
+// The state the sheet was opened on is the form as it was then — not the address bar, which a link's
+// request in flight has not updated yet (delta verify 5) — and the reset alone would restore the page
+// as first drawn, search box included (N8: a removed search came back). So after the reset, the form
+// takes that state; and if anything changed in the sheet, a request returns the rows to it, aborting
+// a change still in flight (N5).
+var aocOpenedAt = null, aocSheetChanged = false, aocForm = aocPane.closest("form");
 document.getElementById("filter-sheet").addEventListener("change", function (e) {
-  aocOpenedAt = e.target.checked ? location.pathname + location.search : null;
+  aocOpenedAt = null;
+  if (e.target.checked) {
+    var q = new URLSearchParams();
+    new FormData(aocForm).forEach(function (v, k) { if (v !== "") q.append(k, v); });
+    aocOpenedAt = aocForm.getAttribute("action") + "?" + q.toString();
+  }
   aocSheetChanged = false;
 });
 aocPane.addEventListener("change", function () { if (aocOpenedAt !== null) aocSheetChanged = true; });
 document.addEventListener("reset", function (e) {
-  var back = aocOpenedAt;
+  var back = aocOpenedAt, changed = aocSheetChanged;
   aocOpenedAt = null;
-  if (back !== null && (aocSheetChanged || back !== location.pathname + location.search)) {
+  aocSheetChanged = false;
+  if (back === null) return;
+  setTimeout(function () { aocFormFrom(back); }, 0); // the reset event fires before the reset itself
+  if (changed) {
     // from #results, so the request syncs on the form (hx-sync) but sends none of its fields
     htmx.ajax("GET", back, { source: "#results", target: "#results", swap: "innerHTML" });
   }

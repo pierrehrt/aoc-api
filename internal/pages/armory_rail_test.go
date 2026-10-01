@@ -588,3 +588,43 @@ func TestThePaneEndsWithItsApplyBar(t *testing.T) {
 		}
 	}
 }
+
+// A history entry per new state: an answer for the URL the reader is already on replaces the entry
+// instead of pushing a second one (AOC-065 delta verify 5: a Cancel back to the page being shown, or
+// a press held over an answer, pushed it twice, and the first Back went nowhere).
+func TestAnAnswerForTheCurrentURLReplacesTheHistoryEntry(t *testing.T) {
+	h := router(t)
+	for cur, want := range map[string][2]string{
+		"https://aoc-codex.app/armory?rarity=epic": {"", "/armory?rarity=epic"}, // the same state: replace
+		"https://aoc-codex.app/armory":             {"/armory?rarity=epic", ""}, // a new state: push
+		"":                                         {"/armory?rarity=epic", ""}, // no header: push
+		"https://aoc-codex.app/armory?rarity=epic&p=1": {"/armory?rarity=epic", ""}, // not canonical: push
+	} {
+		hdr := map[string]string{"HX-Request": "true"}
+		if cur != "" {
+			hdr["HX-Current-URL"] = cur
+		}
+		rr := get(t, h, http.MethodGet, "/armory?q=&rarity=epic&ilvl_min=&ilvl_max=", hdr, "")
+		if got := [2]string{rr.Header().Get("HX-Push-Url"), rr.Header().Get("HX-Replace-Url")}; got != want {
+			t.Errorf("HX-Current-URL %q: push, replace = %q, want %q", cur, got, want)
+		}
+	}
+}
+
+// Pills follow the vocabulary's order, the pane's, whatever order the request named the values in:
+// a live answer (the form's order) and a direct load of its canonical URL (sorted) show the same.
+func TestPillsFollowTheVocabularysOrder(t *testing.T) {
+	h := router(t)
+	pills := func(q string) string {
+		body := get(t, h, http.MethodGet, "/armory?"+q, nil, "").Body.String()
+		var out []string
+		for _, m := range regexp.MustCompile(`aria-label="Remove the filter (rarity: [^"]+)"`).FindAllStringSubmatch(body, -1) {
+			out = append(out, html.UnescapeString(m[1]))
+		}
+		return strings.Join(out, "; ")
+	}
+	a, b := pills("rarity=test-rarity-dull&rarity=epic&rarity=zzz-unknown"), pills("rarity=zzz-unknown&rarity=epic&rarity=test-rarity-dull")
+	if a != b || a != "rarity: Test Epic; rarity: Test Rarity Dull; rarity: zzz-unknown" {
+		t.Errorf("pills: %q and %q, want the vocabulary's order, then the unknown slug", a, b)
+	}
+}

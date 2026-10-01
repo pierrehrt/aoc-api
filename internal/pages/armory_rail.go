@@ -155,9 +155,24 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		chip("q: "+f.Query, func(g *items.Filters) { g.Query = "" })
 	}
 
-	// One chip per chosen value; its × removes that value only.
+	// One chip per chosen value, in the vocabulary's order (the pane's), whatever order the request
+	// named them in — a live answer and a direct load of its URL show the same pills (AOC-065 delta
+	// verify 5: "Legendary; Epic" live, "Epic; Legendary" loaded). A slug the vocabulary lacks comes
+	// last. Its × removes that value only.
 	valueChips := func(rf railFacet, g items.FacetGroup) {
-		for _, c := range rf.get(f) {
+		chosen := rf.get(f)
+		var ordered []string
+		for _, v := range g.Values {
+			if contains(chosen, v.Slug) {
+				ordered = append(ordered, v.Slug)
+			}
+		}
+		for _, c := range chosen {
+			if !contains(ordered, c) {
+				ordered = append(ordered, c)
+			}
+		}
+		for _, c := range ordered {
 			c := c
 			chip(rf.pill+": "+nameOf(g, c), func(h *items.Filters) { rf.set(h, without(rf.get(*h), c)) })
 		}
