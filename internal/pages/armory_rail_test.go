@@ -450,4 +450,3 @@ func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
 		t.Error("the item level slider is missing or does not start at the URL's bound")
 	}
 }
-
