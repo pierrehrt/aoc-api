@@ -470,3 +470,14 @@ func TestTheOtherFiltersStillApplyAsPills(t *testing.T) {
 		}
 	}
 }
+
+// AOC-064 verify F4: a list's values are any of them, in any order — so a state has one canonical URL,
+// whatever order its values arrived in.
+func TestOneStateHasOneCanonicalWhateverTheOrder(t *testing.T) {
+	canon := regexp.MustCompile(`<link rel="canonical" href="([^"]+)">`)
+	a := canon.FindStringSubmatch(get(t, router(t), http.MethodGet, "/armory?rarity=test-rarity-dull&rarity=epic&class=test-class-two,test-class", nil, "").Body.String())
+	b := canon.FindStringSubmatch(get(t, router(t), http.MethodGet, "/armory?class=test-class&class=test-class-two&rarity=epic,test-rarity-dull", nil, "").Body.String())
+	if a == nil || b == nil || a[1] != b[1] {
+		t.Errorf("one state, two canonicals: %v / %v", a, b)
+	}
+}

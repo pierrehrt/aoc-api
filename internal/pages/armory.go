@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -170,6 +171,11 @@ func itemCount(n int64) string {
 // p=1 or the page's default sort).
 func armoryURL(f items.Filters, page int) string {
 	v := f.Values()
+	// A list means any of its values, in any order, so one state has ONE URL: each list sorted
+	// (AOC-064 verify F4 — ?rarity=rare&rarity=epic and ?rarity=epic&rarity=rare were two canonicals).
+	for _, k := range []string{"rarity", "equip_location", "armour_weight", "class", "currency", "set", "place"} {
+		sort.Strings(v[k])
+	}
 	if v.Get("sort") == items.SortILvl {
 		v.Del("sort")
 	}

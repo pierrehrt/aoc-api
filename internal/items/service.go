@@ -263,11 +263,10 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	// It is reachable from the surface this layer exists for: the HTML armory page builds
 	// Filters{Places: selected} from a multi-select, and an empty multi-select is its default
 	// state — first paint would have shown zero items.
-	var placeSlugs []string
-	if !f.Aggregate() {
-		placeSlugs = f.Places
-	}
-	// The same trap for the six facet lists (AOC-064): each reaches SQL through listArg.
+	// listArg is nil exactly when Places is empty — exactly when Aggregate() is true — so the
+	// collapsing mode and the predicate are one condition. The six facet lists take the same road
+	// (AOC-064): one spelling for all seven.
+	placeSlugs := listArg(f.Places)
 
 	if err := f.validRanges(); err != nil {
 		return ListResult{}, err
