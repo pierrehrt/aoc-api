@@ -48,16 +48,20 @@ func TestAClientThatWentAwayIsNotAServerFailure(t *testing.T) {
 	if strings.Contains(buf.String(), `"level":"ERROR"`) || !strings.Contains(buf.String(), "client closed request") {
 		t.Errorf("the client went away: logged %s", buf.String())
 	}
-	// The peer reset or closed the connection while the answer was being written: gone too, the
-	// request's context alive or not (it is cancelled a moment later).
+	// The reader's connection reset or closed while the answer was being written: gone too. net/http
+	// cancels the request's context when a write to the reader fails, so the context is canceled here.
 	for _, errno := range []error{syscall.ECONNRESET, syscall.EPIPE} {
 		buf.Reset()
 		werr := &net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", errno)}
-		if got := run(false, fmt.Errorf("templates: %w", werr)); got != httpx.StatusClientClosedRequest {
+		if got := run(true, fmt.Errorf("templates: %w", werr)); got != httpx.StatusClientClosedRequest {
 			t.Errorf("%v while writing: status %d, want 499", errno, got)
 		}
 		if strings.Contains(buf.String(), `"level":"ERROR"`) {
 			t.Errorf("%v while writing: logged %s", errno, buf.String())
+		}
+		// The same reset with the request alive is another connection's — the database's: a 500.
+		if got := run(false, fmt.Errorf("list items: %w", werr)); got != http.StatusInternalServerError {
+			t.Errorf("%v with the request alive: status %d, want 500", errno, got)
 		}
 	}
 	// Not the client: a cancellation from elsewhere while the request is alive, a timeout (the

@@ -139,7 +139,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
 		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
 		canon := armoryURL(f, page)
-		if cur, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil && cur.RequestURI() == canon {
+		if canonicalOf(r, r.Header.Get("HX-Current-URL")) == canon {
 			w.Header().Set("HX-Replace-Url", canon)
 		} else {
 			w.Header().Set("HX-Push-Url", canon)
@@ -173,6 +173,35 @@ func itemCount(n int64) string {
 		return "1 item"
 	}
 	return strconv.FormatInt(n, 10) + " items"
+}
+
+// canonicalOf is the canonical URL of the armory state an address names, read by the same parser
+// and defaults as a request, or "" when it names none (another page, a query the parser rejects).
+// Two addresses of one state compare equal: after the search's Enter or the phone's Apply the address
+// bar holds the form's raw query (?q=&rarity=epic&ilvl_min=&ilvl_max=), and a string comparison
+// took an answer for that same state for a new one (AOC-065 delta verify 6).
+func canonicalOf(r *http.Request, address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Path != "/armory" {
+		return ""
+	}
+	cr := r.Clone(r.Context())
+	cr.URL = u
+	f, err := items.ParseFilters(cr)
+	if err != nil {
+		return ""
+	}
+	page := 1
+	if p := u.Query().Get("p"); p != "" {
+		if page, err = strconv.Atoi(p); err != nil || page < 1 {
+			return ""
+		}
+	}
+	if f.Sort == "" {
+		f.Sort = items.SortILvl
+	}
+	f.Limit, f.Offset, f.WithFacets = armoryPageSize, (page-1)*armoryPageSize, true
+	return armoryURL(f, page)
 }
 
 // armoryURL builds the list's own URLs from the whole state: only what differs from the default is

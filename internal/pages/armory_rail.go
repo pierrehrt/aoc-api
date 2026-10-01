@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"sort"
 	"strconv"
 
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -157,8 +158,8 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 
 	// One chip per chosen value, in the vocabulary's order (the pane's), whatever order the request
 	// named them in — a live answer and a direct load of its URL show the same pills (AOC-065 delta
-	// verify 5: "Legendary; Epic" live, "Epic; Legendary" loaded). A slug the vocabulary lacks comes
-	// last. Its × removes that value only.
+	// verify 5: "Legendary; Epic" live, "Epic; Legendary" loaded). Slugs the vocabulary lacks come
+	// last, sorted as the canonical URL sorts them. Its × removes that value only.
 	valueChips := func(rf railFacet, g items.FacetGroup) {
 		chosen := rf.get(f)
 		var ordered []string
@@ -167,11 +168,14 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 				ordered = append(ordered, v.Slug)
 			}
 		}
+		var unknown []string
 		for _, c := range chosen {
 			if !contains(ordered, c) {
-				ordered = append(ordered, c)
+				unknown = append(unknown, c)
 			}
 		}
+		sort.Strings(unknown)
+		ordered = append(ordered, unknown...)
 		for _, c := range ordered {
 			c := c
 			chip(rf.pill+": "+nameOf(g, c), func(h *items.Filters) { rf.set(h, without(rf.get(*h), c)) })
@@ -240,14 +244,13 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 			chip(o.param+": "+o.value, o.clear)
 		}
 	}
-	for i, p := range f.Places {
+	// Places in the canonical URL's order too, so a live answer and a direct load show the same.
+	places := append([]string{}, f.Places...)
+	sort.Strings(places)
+	for _, p := range places {
+		p := p
 		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "place", Value: p})
-		chip("place: "+p, func(g *items.Filters) {
-			g.Places = append(append([]string{}, f.Places[:i]...), f.Places[i+1:]...)
-			if len(g.Places) == 0 {
-				g.Places = nil
-			}
-		})
+		chip("place: "+p, func(g *items.Filters) { g.Places = without(f.Places, p) })
 	}
 	for _, o := range []struct {
 		param string

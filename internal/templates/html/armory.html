@@ -135,8 +135,12 @@ function aocRangeFromBounds(box) {
   lo.value = bmin || lo.min; hi.value = bmax || hi.max;
   box.querySelector("[data-range-label]").textContent = (bmin || lo.min) + " – " + (bmax || hi.max);
 }
+// The search the current state was asked with: what the last request carried — not the box's text,
+// which may be a draft not yet sent (Cancel restores the state, and leaves a draft a draft).
+var aocQ = document.getElementById("q"), aocStateQ = aocQ.defaultValue;
 document.addEventListener("htmx:beforeRequest", function (e) {
   if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);
+  aocStateQ = aocQ.value;
 });
 
 // One case is left: an answer landing while a slider is pressed would replace the slider under the
@@ -144,12 +148,14 @@ document.addEventListener("htmx:beforeRequest", function (e) {
 // drawn when the press ends. If the press moved the slider, its change does not send the form as it
 // is — that is the pane from before the answer, and it would undo a link (delta verify 4, N4) —
 // but the held pane with the moved bound carried into it.
-var aocPress = null, aocHeld = null;
+var aocPress = null, aocPressFrom = null, aocHeld = null;
 aocPane.addEventListener("pointerdown", function (e) {
-  if (e.button === 0 && e.target.matches("input[type=range]")) aocPress = e.target;
+  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; }
 });
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  if (e.detail.target !== aocPane || !aocPress) return;
+  if (e.detail.target !== aocPane) return;
+  // A pane drawn while nothing is pressed is the newest: nothing held may be drawn after it.
+  if (!aocPress) { aocHeld = null; return; }
   e.detail.shouldSwap = false;
   var d = document.createElement("div");
   d.appendChild(e.detail.fragment.cloneNode(true));
@@ -171,7 +177,12 @@ function aocPressEnd() {
   setTimeout(function () { aocShowHeld(null); }, 0);
 }
 document.addEventListener("pointerup", aocPressEnd);
-document.addEventListener("pointercancel", aocPressEnd);
+// A touch the browser takes over (a scroll) ends with no change even if it moved the slider: what
+// the slider shows is applied, so it never shows a bound that was not asked for (delta verify 6, A1c).
+document.addEventListener("pointercancel", function () {
+  if (aocPress && aocPress.value !== aocPressFrom) aocPress.dispatchEvent(new Event("change", { bubbles: true }));
+  aocPressEnd();
+});
 function aocShowHeld(moved) {
   if (aocHeld === null) return;
   var bound = moved && moved.dataset.bound;
@@ -195,13 +206,16 @@ function aocShowHeld(moved) {
 // as first drawn, search box included (N8: a removed search came back). So after the reset, the form
 // takes that state; and if anything changed in the sheet, a request returns the rows to it, aborting
 // a change still in flight (N5).
-var aocOpenedAt = null, aocSheetChanged = false, aocForm = aocPane.closest("form");
+var aocOpenedAt = null, aocOpenedBox = "", aocSheetChanged = false, aocForm = aocPane.closest("form");
 document.getElementById("filter-sheet").addEventListener("change", function (e) {
   aocOpenedAt = null;
   if (e.target.checked) {
+    // the form as it stands, with the search the state was asked with — a draft in the box is not
+    // the state (delta verify 6, B5b: Cancel applied a search never sent); the box keeps it as a draft
     var q = new URLSearchParams();
-    new FormData(aocForm).forEach(function (v, k) { if (v !== "") q.append(k, v); });
+    new FormData(aocForm).forEach(function (v, k) { if (k === "q") v = aocStateQ; if (v !== "") q.append(k, v); });
     aocOpenedAt = aocForm.getAttribute("action") + "?" + q.toString();
+    aocOpenedBox = aocQ.value;
   }
   aocSheetChanged = false;
 });
@@ -211,7 +225,8 @@ document.addEventListener("reset", function (e) {
   aocOpenedAt = null;
   aocSheetChanged = false;
   if (back === null) return;
-  setTimeout(function () { aocFormFrom(back); }, 0); // the reset event fires before the reset itself
+  var box = aocOpenedBox;
+  setTimeout(function () { aocFormFrom(back); aocQ.value = box; }, 0); // the reset event fires before the reset itself
   if (changed) {
     // from #results, so the request syncs on the form (hx-sync) but sends none of its fields
     htmx.ajax("GET", back, { source: "#results", target: "#results", swap: "innerHTML" });

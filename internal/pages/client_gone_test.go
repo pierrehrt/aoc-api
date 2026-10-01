@@ -64,10 +64,15 @@ func TestAnAbortedArmoryRequestIsNotAPageFailure(t *testing.T) {
 	}
 }
 
-// resetWriter is a connection the reader dropped while the page was being written.
-type resetWriter struct{ *httptest.ResponseRecorder }
+// resetWriter is a connection the reader dropped while the page was being written. As net/http's
+// does, the failed write cancels the request's context.
+type resetWriter struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+}
 
 func (w resetWriter) Write([]byte) (int, error) {
+	w.cancel()
 	return 0, &net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", syscall.ECONNRESET)}
 }
 
@@ -81,11 +86,13 @@ func TestAPageWhoseReaderLeftMidWriteIsNotAFailure(t *testing.T) {
 	h := router(t)
 	for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} {
 		buf.Reset()
-		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/armory?rarity=epic", nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/armory?rarity=epic", nil)
 		for k, v := range hdr {
 			r.Header.Set(k, v)
 		}
-		h.ServeHTTP(resetWriter{httptest.NewRecorder()}, r)
+		h.ServeHTTP(resetWriter{httptest.NewRecorder(), cancel}, r)
+		cancel()
 		if strings.Contains(buf.String(), `"level":"ERROR"`) {
 			t.Errorf("HX %v: a reader who left mid-write logged an error: %s", hdr != nil, buf.String())
 		}

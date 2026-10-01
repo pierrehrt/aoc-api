@@ -119,10 +119,14 @@ cannot fix. Readiness against Postgres is a separate endpoint if and when someth
 sentinels (`ErrNotFound`, `ErrInvalid`, `ErrUnauthorized`, `ErrForbidden`, `ErrConflict`), wrapped
 freely with `%w` for context; handlers call `httpx.Fail`.
 
-**A client that went away is not a failure** (`httpx.ClientGone`). This covers two cases: the
-request's own context was canceled and the error is that cancellation, or the peer reset or closed
-the connection while the answer was being written (`ECONNRESET`, `EPIPE`). Either way the answer is
-499 ("client closed request", nginx's) with an Info line, in `httpx.Fail` and in the pages' `fail`.
+**A client that went away is not a failure** (`httpx.ClientGone`). It requires that the request's
+own context was canceled. net/http cancels it when the reader's connection closes, and when a write
+to it fails. The error must then be that cancellation, or the reset or broken pipe (`ECONNRESET`,
+`EPIPE`) of the failed write. The answer is 499 ("client closed request", nginx's) with an Info line,
+in `httpx.Fail` and in the pages' `fail`; the access line may say 200 if the status had already
+gone out. ⚠️ **The context is what makes it the reader's connection.** A reset from the database's
+connection leaves the request alive and is a 500 with an ERROR line. Before the context check it was
+answered 499 with an empty body and logged as nothing (delta verify 6, N9).
 The armory aborts every superseded live request (`hx-sync` replace). The query each was running
 failed with "context canceled", or, if it had finished, the write failed. Logged as ERROR and 500,
 that put 52 failures nobody saw in one session's log, and it would have filled the +24h watch's
@@ -602,7 +606,7 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     No pane outlives its press (delta verify 5, N7: when the slider's value changed without the
     pointer, the press was taken for one that moved, and a stale pane was drawn much later).
   - **What the reader sees:** every quiet end state equals a direct load of its URL, and that URL is
-    what they set. No value is reinterpreted. A bound beyond the new span applies as set; its legend
+    what they set. (The search box can also hold an unsent draft: see below.) No value is reinterpreted. A bound beyond the new span applies as set; its legend
     and pill read "≥ 85", never "85–80". This was measured on the real corpus with 40–300 ms of added
     latency, real drags, key presses and touch:
     - two ticks;
@@ -619,10 +623,24 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     the last answer lands; nothing lands until the reader pauses). A link aborts a pending change,
     which is right: it goes to the state it names. An aborted request is a 499 in the log, not an
     error (§ 3).
-  - **One history entry per new state:** an answer for the URL the reader is already on (`HX-Current-URL`)
-    carries `HX-Replace-Url` instead of `HX-Push-Url`, so Back never lands on the same page twice.
+  - **One history entry per new state:** an answer for the state the reader is already on carries
+    `HX-Replace-Url` instead of `HX-Push-Url`, so Back never lands on the same page twice. The state
+    is `HX-Current-URL` read by the same parser and defaults (`canonicalOf`), so the form's raw query
+    after Enter or Apply counts as the state it names.
   - **Pills follow the vocabulary's order** (the pane's), whatever order the request named the values
-    in, so a live answer and a direct load of its URL show the same.
+    in. Slugs the vocabulary lacks, and places, come sorted as the canonical URL sorts them. A live
+    answer and a direct load of its URL show the same pills.
+  - **A draft in the search box is the reader's, not the state's.** Text typed and not yet sent stays
+    in the box. The next change sends it, as the form always has. Cancel restores the state the
+    sheet was opened on, with the search that state was asked with, and leaves the draft in the box
+    (delta verify 6, B5b: Cancel had applied a search never sent).
+  - **A touch the browser takes over** (a scroll) ends with no `change`, even if it moved the slider.
+    `pointercancel` applies what the slider shows, so it never shows a bound that was not asked for
+    (A1c).
+  - **A pane drawn while nothing is pressed** discards anything held, so no held pane is ever drawn
+    after a newer one (R).
+  - **Known limit:** a Tab pressed while the mouse holds a slider and an answer is held ends the drag
+    early. The end state is consistent (A3c); it takes two inputs at once.
   - **A 400:** its reason replaces the rows. The pane keeps the reader's input to correct, with the
     last drawn counts.
   - **Relies on** the platform firing `change` when a slider's move ends. Mouse, touch, keys and

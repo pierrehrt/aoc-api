@@ -596,9 +596,15 @@ func TestAnAnswerForTheCurrentURLReplacesTheHistoryEntry(t *testing.T) {
 	h := router(t)
 	for cur, want := range map[string][2]string{
 		"https://aoc-codex.app/armory?rarity=epic": {"", "/armory?rarity=epic"}, // the same state: replace
-		"https://aoc-codex.app/armory":             {"/armory?rarity=epic", ""}, // a new state: push
-		"":                                         {"/armory?rarity=epic", ""}, // no header: push
-		"https://aoc-codex.app/armory?rarity=epic&p=1": {"/armory?rarity=epic", ""}, // not canonical: push
+		// the same state at another address — the form's raw query after Enter or Apply, p=1, the
+		// default sort spelled out: replace (delta verify 6: a string comparison pushed these)
+		"https://aoc-codex.app/armory?q=&rarity=epic&ilvl_min=&ilvl_max=": {"", "/armory?rarity=epic"},
+		"https://aoc-codex.app/armory?rarity=epic&p=1&sort=ilvl":          {"", "/armory?rarity=epic"},
+		"https://aoc-codex.app/armory":                                    {"/armory?rarity=epic", ""}, // a new state: push
+		"https://aoc-codex.app/armory?rarity=epic&p=2":                    {"/armory?rarity=epic", ""}, // another page: push
+		"https://aoc-codex.app/aa?rarity=epic":                            {"/armory?rarity=epic", ""}, // another page entirely
+		"https://aoc-codex.app/armory?ilvl_min=x":                         {"/armory?rarity=epic", ""}, // no state
+		"": {"/armory?rarity=epic", ""}, // no header: push
 	} {
 		hdr := map[string]string{"HX-Request": "true"}
 		if cur != "" {
@@ -623,8 +629,20 @@ func TestPillsFollowTheVocabularysOrder(t *testing.T) {
 		}
 		return strings.Join(out, "; ")
 	}
-	a, b := pills("rarity=test-rarity-dull&rarity=epic&rarity=zzz-unknown"), pills("rarity=zzz-unknown&rarity=epic&rarity=test-rarity-dull")
-	if a != b || a != "rarity: Test Epic; rarity: Test Rarity Dull; rarity: zzz-unknown" {
-		t.Errorf("pills: %q and %q, want the vocabulary's order, then the unknown slug", a, b)
+	a, b := pills("rarity=test-rarity-dull&rarity=epic&rarity=zzz-unknown&rarity=yyy-unknown"), pills("rarity=zzz-unknown&rarity=yyy-unknown&rarity=epic&rarity=test-rarity-dull")
+	if a != b || a != "rarity: Test Epic; rarity: Test Rarity Dull; rarity: yyy-unknown; rarity: zzz-unknown" {
+		t.Errorf("pills: %q and %q, want the vocabulary's order, then the unknown slugs sorted", a, b)
+	}
+	// places, which have no vocabulary on the page, sorted as the canonical URL sorts them
+	place := func(q string) string {
+		body := get(t, h, http.MethodGet, "/armory?"+q, nil, "").Body.String()
+		var out []string
+		for _, m := range regexp.MustCompile(`aria-label="Remove the filter (place: [^"]+)"`).FindAllStringSubmatch(body, -1) {
+			out = append(out, m[1])
+		}
+		return strings.Join(out, "; ")
+	}
+	if a, b := place("place=test-lair&place=test-cave"), place("place=test-cave&place=test-lair"); a != b || a != "place: test-cave; place: test-lair" {
+		t.Errorf("place pills: %q and %q, want sorted", a, b)
 	}
 }

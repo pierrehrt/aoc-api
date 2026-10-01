@@ -32,17 +32,22 @@ var (
 // it; the status is for the log, where it must not read as a server failure.
 const StatusClientClosedRequest = 499
 
-// ClientGone reports whether err is the request's own client having gone: its context canceled and
-// err that cancellation, or the connection reset or closed by the peer while the answer was being
-// written. The armory aborts a superseded live request (hx-sync replace, AOC-065): the query it was
-// running fails with "context canceled", or, if it had finished, the write fails with "connection
-// reset by peer" (delta verify 5: 1 in 600). Logged as a 500 they filled the error log with failures
-// no reader saw. A deadline or a write timeout is not this: a timeout is the server being slow.
+// ClientGone reports whether err is the request's own client having gone. The request's context
+// must be canceled — net/http cancels it when the reader's connection closes, and when a write to it
+// fails — and err must be that: the cancellation, or the reset or broken pipe of the failed write.
+// The armory aborts a superseded live request (hx-sync replace, AOC-065): the query it was running
+// fails with "context canceled", or, if it had finished, the write fails with "connection reset by
+// peer" (delta verify 5: 1 in 600). Logged as a 500 they filled the error log with failures no
+// reader saw.
+// ⚠️ The context is what makes it the READER's connection: a reset from the database's connection
+// leaves the request alive, and is the server failing (delta verify 6, N9: without that check, a
+// Postgres reset was answered 499 with an empty body, and logged as nothing). A deadline or a write
+// timeout is not this either: a timeout is the server being slow.
 func ClientGone(r *http.Request, err error) bool {
-	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
-		return true
+	if !errors.Is(r.Context().Err(), context.Canceled) {
+		return false
 	}
-	return errors.Is(r.Context().Err(), context.Canceled) && errors.Is(err, context.Canceled)
+	return errors.Is(err, context.Canceled) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
 
 // ErrorBody is the single shape of every error response. Clients can rely on it.
