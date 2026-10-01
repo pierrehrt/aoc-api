@@ -51,6 +51,8 @@ type Querier interface {
 	ListItemPageClasses(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageClassesRow, error)
 	ListItemPageCosts(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPageCostsRow, error)
 	ItemIDSpan(ctx context.Context) (sqlcgen.ItemIDSpanRow, error)
+	CountItemFacets(ctx context.Context, arg sqlcgen.CountItemFacetsParams) ([]sqlcgen.CountItemFacetsRow, error)
+	ItemFacetTotals(ctx context.Context, arg sqlcgen.ItemFacetTotalsParams) (sqlcgen.ItemFacetTotalsRow, error)
 }
 
 // Service holds the read logic both surfaces call. The HTML armory page and the /v1 JSON handlers
@@ -78,6 +80,18 @@ type Filters struct {
 
 	PvP       *bool
 	Unchained *bool
+
+	// The rail's five filters (AOC-049). A level bound is a pointer because 0 is a value and absence
+	// is not; a bound excludes an item with no level. Price is three-valued like PvP: true is "a
+	// vendor sells it" on ANY of its sources, false is "no source has a price".
+	ILvlMin, ILvlMax     *int32
+	ReqLvlMin, ReqLvlMax *int32
+	Price                *bool
+	Currency             string
+	Set                  string
+
+	// WithFacets asks List for the rail's counts as well: the page always, /v1 on facets=1.
+	WithFacets bool
 
 	// Sort is one of the Sorts keys; "" means SortName. Validated by ParseFilters; a value the
 	// service does not know is an error here too, so no surface can order by a key nobody defined.
@@ -188,6 +202,10 @@ type ListResult struct {
 	Offset      int        `json:"offset"`
 	Collapsed   bool       `json:"collapsed"`
 	Attribution string     `json:"attribution"`
+
+	// Facets is the rail's counts (AOC-049), only when Filters.WithFacets — so a /v1 consumer that
+	// does not ask sees the 0.1.0 envelope, byte for byte.
+	Facets *Facets `json:"facets,omitempty"`
 }
 
 // termIfSet builds a Term from a nullable slug/name pair, nil when the row has none.
@@ -237,6 +255,10 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		placeSlugs = f.Places
 	}
 
+	if err := f.validRanges(); err != nil {
+		return ListResult{}, err
+	}
+
 	params := sqlcgen.ListItemsParams{
 		Rarity:        ptrIfSet(f.Rarity),
 		ItemType:      ptrIfSet(f.ItemType),
@@ -250,6 +272,13 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Tier:          ptrIfSet(f.Tier),
 		Unchained:     f.Unchained,
 		Pvp:           f.PvP,
+		IlvlMin:       f.ILvlMin,
+		IlvlMax:       f.ILvlMax,
+		ReqlvlMin:     f.ReqLvlMin,
+		ReqlvlMax:     f.ReqLvlMax,
+		Price:         f.Price,
+		Currency:      ptrIfSet(f.Currency),
+		Set:           ptrIfSet(f.Set),
 		SortBy:        f.Sort,
 		PageSize:      int32(limit),
 		PageOffset:    int32(offset),
@@ -266,6 +295,13 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Offset:      offset,
 		Collapsed:   f.Aggregate(),
 		Attribution: Attribution,
+	}
+	if f.WithFacets {
+		// From the list's OWN arguments, not from f a second time: the counts cannot be computed
+		// for a different filter set than the rows (facetParams).
+		if out.Facets, err = s.facets(ctx, facetParams(params)); err != nil {
+			return ListResult{}, err
+		}
 	}
 	if len(rows) > 0 {
 		out.Total = rows[0].TotalCount

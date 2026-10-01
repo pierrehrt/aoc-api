@@ -24,6 +24,24 @@ type fakeQ struct {
 	// keeping only the last one recorded the probe's parameters instead of the request's.
 	args  []sqlcgen.ListItemsParams
 	calls int
+
+	// The facet queries' answers and arguments (AOC-049).
+	facetRows   []sqlcgen.CountItemFacetsRow
+	totals      sqlcgen.ItemFacetTotalsRow
+	facetArgs   []sqlcgen.CountItemFacetsParams
+	totalsArgs  []sqlcgen.ItemFacetTotalsParams
+	facetCalled int
+}
+
+func (f *fakeQ) CountItemFacets(_ context.Context, a sqlcgen.CountItemFacetsParams) ([]sqlcgen.CountItemFacetsRow, error) {
+	f.facetArgs = append(f.facetArgs, a)
+	f.facetCalled++
+	return f.facetRows, nil
+}
+
+func (f *fakeQ) ItemFacetTotals(_ context.Context, a sqlcgen.ItemFacetTotalsParams) (sqlcgen.ItemFacetTotalsRow, error) {
+	f.totalsArgs = append(f.totalsArgs, a)
+	return f.totals, nil
 }
 
 func (f *fakeQ) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]sqlcgen.ListItemsRow, error) {

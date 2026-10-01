@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -98,6 +99,8 @@ func parseFilters(r *http.Request) (Filters, error) {
 		Class:         strings.TrimSpace(q.Get("class")),
 		Region:        strings.TrimSpace(q.Get("region")),
 		Tier:          strings.TrimSpace(q.Get("tier")),
+		Currency:      strings.TrimSpace(q.Get("currency")),
+		Set:           strings.TrimSpace(q.Get("set")),
 		Query:         strings.TrimSpace(q.Get("q")),
 		Sort:          strings.TrimSpace(q.Get("sort")),
 	}
@@ -122,6 +125,27 @@ func parseFilters(r *http.Request) (Filters, error) {
 	if f.Unchained, err = optionalBool(q, "unchained"); err != nil {
 		return Filters{}, err
 	}
+	if f.Price, err = optionalBool(q, "price"); err != nil {
+		return Filters{}, err
+	}
+	// The level ranges (AOC-049). Two ranges, because item level and required level differ on 234
+	// items. A bound that is not a whole number from 0 up is malformed; min above max is too.
+	for _, l := range []struct {
+		key string
+		dst **int32
+	}{{"ilvl_min", &f.ILvlMin}, {"ilvl_max", &f.ILvlMax}, {"reqlvl_min", &f.ReqLvlMin}, {"reqlvl_max", &f.ReqLvlMax}} {
+		if *l.dst, err = optionalLevel(q, l.key); err != nil {
+			return Filters{}, err
+		}
+	}
+	if err := f.validRanges(); err != nil {
+		return Filters{}, err
+	}
+	if wf, err := optionalBool(q, "facets"); err != nil {
+		return Filters{}, err
+	} else if wf != nil {
+		f.WithFacets = *wf
+	}
 	if f.Limit, err = optionalInt(q, "limit"); err != nil {
 		return Filters{}, err
 	}
@@ -139,6 +163,68 @@ func parseFilters(r *http.Request) (Filters, error) {
 		return Filters{}, fmt.Errorf("%w: offset must be between 0 and %d", httpx.ErrInvalid, math.MaxInt32)
 	}
 	return f, nil
+}
+
+// Values is ParseFilters' inverse: the query string that parses back to f. ⭐ The page builds every
+// link it prints from this — pager, sort, chips, the canonical — so a filter the parser accepts
+// cannot fall out of a link (AOC-049: `/armory?region=x&p=2` used to lose `region` in its pager,
+// because the page's URL builder only knew `q` and `sort`). TestFiltersRoundTripThroughValues sets
+// every field and fails on one this forgets. Limit, Offset and WithFacets are not state a link
+// carries; Sort is written as given (the page drops its own default).
+func (f Filters) Values() url.Values {
+	v := url.Values{}
+	str := func(k, s string) {
+		if s != "" {
+			v.Set(k, s)
+		}
+	}
+	boolean := func(k string, b *bool) {
+		if b != nil {
+			v.Set(k, strconv.FormatBool(*b))
+		}
+	}
+	level := func(k string, n *int32) {
+		if n != nil {
+			v.Set(k, strconv.Itoa(int(*n)))
+		}
+	}
+	str("q", f.Query)
+	str("rarity", f.Rarity)
+	str("item_type", f.ItemType)
+	str("equip_location", f.EquipLocation)
+	str("armour_weight", f.ArmourWeight)
+	str("class", f.Class)
+	str("region", f.Region)
+	str("tier", f.Tier)
+	str("currency", f.Currency)
+	str("set", f.Set)
+	str("sort", f.Sort)
+	for _, p := range f.Places {
+		v.Add("place", p)
+	}
+	boolean("pvp", f.PvP)
+	boolean("unchained", f.Unchained)
+	boolean("price", f.Price)
+	level("ilvl_min", f.ILvlMin)
+	level("ilvl_max", f.ILvlMax)
+	level("reqlvl_min", f.ReqLvlMin)
+	level("reqlvl_max", f.ReqLvlMax)
+	return v
+}
+
+// optionalLevel reads a level bound: absent or empty is no bound; anything but a whole number from
+// 0 to the column's ceiling is a 400 — a bound that cannot be represented is refused, not wrapped.
+func optionalLevel(q map[string][]string, key string) (*int32, error) {
+	vs, ok := q[key]
+	if !ok || len(vs) == 0 || strings.TrimSpace(vs[0]) == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(vs[0]), 10, 32) // bitSize 32: the column is an integer
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("%w: %s must be a whole number from 0 to %d, got %q", httpx.ErrInvalid, key, math.MaxInt32, vs[0])
+	}
+	l := int32(n)
+	return &l, nil
 }
 
 func optionalBool(q map[string][]string, key string) (*bool, error) {

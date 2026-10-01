@@ -68,6 +68,13 @@ func New(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	pc.MaxConnLifetime = cfg.MaxConnLifetime
 	pc.MaxConnIdleTime = cfg.MaxConnIdleTime
 	pc.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
+	// ⭐ No JIT (AOC-049). Postgres compiles a plan to machine code when its estimated cost passes
+	// jit_above_cost, and the armory's facet queries estimate ~200,000 (hashed subplans inflate the
+	// figure) while finishing in under 16 ms. Measured on the dev corpus with five filters set: the
+	// facet query took 66 ms with JIT and 10 ms without, of which 62 ms was compiling; the totals
+	// query 31 ms and 5 ms. Nothing this service runs is the long analytical query JIT pays off on.
+	// Set here, per session, so it holds on every Postgres the binary meets, whatever its default.
+	pc.ConnConfig.RuntimeParams["jit"] = "off"
 
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
 	if err != nil {

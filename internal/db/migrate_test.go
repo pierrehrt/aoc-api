@@ -257,6 +257,23 @@ func TestNewAppliesItsLimits(t *testing.T) {
 	}
 }
 
+// The pool turns JIT off on every connection it opens (AOC-049): compiling the facet queries cost
+// six times what running them did. Asked of the server, not read back from the config.
+func TestNewTurnsJITOff(t *testing.T) {
+	pool, err := db.New(context.Background(), db.DefaultConfig(freshDatabase(t)))
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	defer pool.Close()
+	var jit string
+	if err := pool.QueryRow(context.Background(), "SHOW jit").Scan(&jit); err != nil {
+		t.Fatalf("SHOW jit: %v", err)
+	}
+	if jit != "off" {
+		t.Errorf("jit = %q on a pooled connection, want off", jit)
+	}
+}
+
 // DefaultConfig must not hand back zero values: a zero MaxConns is "unlimited", which is
 // the opposite of what the comment on it promises.
 func TestDefaultConfigIsActuallyBounded(t *testing.T) {
