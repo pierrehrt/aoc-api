@@ -11,7 +11,7 @@
   </div>
   {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
        submitted and never in the URL. app.css § The filter sheet. */}}
-  <input type="checkbox" id="filter-sheet" class="peer sr-only">
+  <input type="checkbox" id="filter-sheet" class="peer sr-only lg:hidden">
   <label for="filter-sheet" class="mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1 rounded border border-line px-3 text-sm text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link lg:hidden">Filters<span id="filter-count">{{template "armory_filter_count" .Data}}</span></label>
   <div class="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-8">
     <div id="results" class="min-w-0">

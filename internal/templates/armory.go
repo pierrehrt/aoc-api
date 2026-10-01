@@ -61,7 +61,7 @@ type RailOption struct {
 	ID          string // the input's id; stable across renders, so HTMX gives focus back after a swap
 	Value       string // the slug; "" for Any
 	Label       string // the full name
-	Short       string // a class's short name, shown with Label for screen readers; "" otherwise
+	Short       string // a class's short name, shown in place of Label (which stays, for screen readers); "" otherwise
 	ColourToken string // a rarity's colour token; "" when it has none
 	Count       int64
 	Checked     bool
