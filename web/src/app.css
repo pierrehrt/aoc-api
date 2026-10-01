@@ -70,9 +70,10 @@
   --color-muted: #9b948a;        /* secondary text: cells, idle chips */
   --color-muted-2: #8c857b;      /* idle nav, counts */
   /* labels, notes, column headers. The design has #6f6a62 (3.6:1) and #57534c (2.5:1) here; text
-     passes AA on this site, so they are lifted to the nearest value that does (4.5:1 on every pane).
+     passes AA on this site, so they are lifted to the nearest value that does on every surface text
+     sits on — 4.54:1 on the strip's hover, the lightest; #827c73 was 4.48 there (AOC-065).
      The deviation is noted in the guideline, like the rarity colours below. */
-  --color-faint: #827c73;
+  --color-faint: #837d74;
   --color-link: #cd975b;         /* gold: the accent — titles, selected borders, prices, links */
   --color-link-hover: #e0b482;
 
@@ -96,7 +97,7 @@
     z-index: 40;
     display: flex;
     flex-direction: column;
-    background: var(--color-ink);
+    background: var(--color-ink-header); /* the canvas 1b sheet's #111010 */
   }
   body:has(#filter-sheet:checked) {
     overflow: hidden;

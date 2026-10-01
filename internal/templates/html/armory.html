@@ -61,6 +61,7 @@
      - A change's answer redraws the pane. A number typed, or a choice made, while that request was in
        flight would be wiped by the redraw (AOC-049 review), so the focused control keeps its value.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
+     - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
 // Each level bound has two inputs: the sliders' hidden one (data-js-enable, shipped disabled) and a
@@ -89,6 +90,19 @@ document.addEventListener("input", function (e) {
   h.value = s.value === end ? "" : s.value;
   var lo = box.querySelector("[data-end=min]").value, hi = box.querySelector("[data-end=max]").value;
   box.querySelector("[data-range-label]").textContent = lo + " – " + hi;
+});
+// The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
+// controls; every change made in the sheet has already applied, so return to the state it was opened on.
+var aocOpenedAt = null;
+document.getElementById("filter-sheet").addEventListener("change", function (e) {
+  aocOpenedAt = e.target.checked ? location.pathname + location.search : null;
+});
+document.addEventListener("reset", function (e) {
+  var back = aocOpenedAt;
+  aocOpenedAt = null;
+  if (back !== null && back !== location.pathname + location.search) {
+    htmx.ajax("GET", back, { target: "#results", swap: "innerHTML" });
+  }
 });
 document.addEventListener("keydown", function (e) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.getElementById("q").focus(); }

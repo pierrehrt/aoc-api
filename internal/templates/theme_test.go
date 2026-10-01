@@ -40,7 +40,7 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true}
 	// AOC-065: text sits on every pane of the full-window layout, not only on the page colour — each
 	// pair is measured. (On ink-selected, only paper is ever written; it is measured below.)
-	backgrounds := []string{"ink", "ink-header", "ink-pane", "ink-strip", "ink-hover"}
+	backgrounds := []string{"ink", "ink-header", "ink-pane", "ink-strip", "ink-hover", "ink-pane-hover"}
 	if len(tokens) <= len(surfaces) {
 		t.Fatalf("only %d colour tokens found; the theme is not where this test looks", len(tokens))
 	}

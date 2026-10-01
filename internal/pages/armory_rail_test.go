@@ -507,10 +507,18 @@ func TestThePaneEndsWithItsApplyBar(t *testing.T) {
 	if bar == nil {
 		t.Fatalf("the pane does not end with its Apply bar after the sections:\n%s", aside)
 	}
-	for _, want := range []string{`<a href="/armory" `, `>Reset</a>`, `<button type="submit"`, `>Show 120 items</button>`} {
+	for _, want := range []string{`<a href="/armory" `, `>Reset</a>`, `<button type="submit"`, `>Show 120 items</button>`,
+		// the phone's Cancel (canvas 1b) is a reset…
+		`<button type="reset" id="sheet-cancel"`, `>Cancel</button>`} {
 		if !strings.Contains(bar[1], want) {
 			t.Errorf("the Apply bar is missing %q:\n%s", want, bar[1])
 		}
+	}
+	// …and closes the sheet only because the sheet's checkbox, shipped unticked, is in the same form.
+	form := regexp.MustCompile(`(?s)<form method="get" action="/armory".*?</form>`).FindString(body)
+	toggle := regexp.MustCompile(`<input type="checkbox" id="filter-sheet"[^>]*>`).FindString(form)
+	if toggle == "" || strings.Contains(toggle, "checked") {
+		t.Errorf("the sheet's checkbox is %q — it must be in the form, unticked, for Cancel to close the sheet", toggle)
 	}
 	hx := get(t, router(t), http.MethodGet, "/armory?rarity=epic", map[string]string{"HX-Request": "true"}, "").Body.String()
 	for name, b := range map[string]string{"page": body, "HTMX answer": hx} {

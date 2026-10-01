@@ -79,12 +79,17 @@
   </fieldset>
 {{end}}
 </div>
-{{/* Apply: a plain submit, so the pane works without JavaScript; on a phone it closes the sheet and
-     carries the count (design 1b). On a wide screen with scripts every change already applies, and
-     it is hidden (app.css .apply-bar). */}}
-<div class="apply-bar sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ink-pane px-4 py-3 lg:-mx-[14px] lg:px-[14px]">
-  <a href="{{.ClearAll}}" class="inline-flex items-center text-[13px] text-link hover:text-link-hover max-lg:min-h-9">Reset</a>
-  <button type="submit" class="ml-auto rounded-[7px] bg-link px-4 py-2 text-[13px] font-medium text-ink hover:bg-link-hover max-lg:min-h-9">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
+{{/* Apply: a plain submit, so the pane works without JavaScript. On a phone it is the canvas 1b's
+     bar — Cancel and a full-width "Show N items", 46px — closing the sheet; on a wide screen with
+     scripts every change already applies, and it is hidden (app.css .apply-bar).
+     Cancel is a reset: it puts every control back as the page drew it, and the sheet's own unnamed
+     checkbox with them, so the sheet closes with nothing applied. With scripts each change has
+     already applied, so the page's script also returns to the state the sheet was opened on
+     (armory.html). */}}
+<div class="apply-bar sticky bottom-0 -mx-4 flex items-center gap-[10px] border-t border-line bg-ink-header px-4 pb-5 pt-3 lg:bg-ink-pane lg:-mx-[14px] lg:gap-3 lg:px-[14px] lg:py-3">
+  <button type="reset" id="sheet-cancel" class="flex h-[46px] flex-none items-center rounded-[8px] border border-line-soft px-4 text-[13.5px] font-medium text-muted lg:hidden">Cancel</button>
+  <a href="{{.ClearAll}}" class="hidden text-[13px] text-link hover:text-link-hover lg:inline">Reset</a>
+  <button type="submit" class="h-[46px] flex-1 rounded-[8px] bg-link text-[13.5px] font-semibold text-ink hover:bg-link-hover lg:ml-auto lg:h-auto lg:flex-none lg:rounded-[7px] lg:px-4 lg:py-2 lg:text-[13px] lg:font-medium">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
 </div>
 {{end}}
 {{/* An HTMX answer: the rows into #results, and the pane, the pills and the phone button's number out

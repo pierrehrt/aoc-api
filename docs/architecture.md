@@ -464,6 +464,11 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   are absolutely positioned, and without a positioned ancestor the ones far down a pane counted
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
 - **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
+- **The phone sheet's bar is the canvas 1b's** — Cancel and a full-width "Show N items", 46px. Cancel
+  is a `type="reset"`: it restores every control as the page drew it, the sheet's own unticked
+  checkbox included, so the sheet closes with nothing applied and no script. With scripts each change
+  has already applied live, so `armory.html` also returns, through htmx, to the URL the sheet was
+  opened on. On a wide screen without scripts the bar is Reset and the submit; with them it is hidden.
 - **The design's type is `line-height: normal`** (its `font` shorthand resets it), scoped to `.armory`
   and the header; prose pages keep 1.5. With it, and the first cell's own 13.5px (a cell that inherits
   16px sets a taller line box), every row is the design's 37px; it was 43px, then 39px. The table's
@@ -471,7 +476,7 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   row (a 30.5px header against the design's 31) and its sticky header's line scrolls away.
 - **Tokens:** `app.css` carries the guideline's palette; `TestThemeTextTokensPassAA` measures every
   text token against every pane background (the design's two faintest greys are lifted to `faint`,
-  `#827c73`, for AA — a noted deviation). Computed styles of 61 elements were checked against the
+  `#837d74`, for AA — a noted deviation). Computed styles of 61 elements were checked against the
   guideline in a browser (AOC-065 ticket Log).
 - **JavaScript-only controls** (⌘K, Copy link, the level sliders) carry `.js-only` and stay hidden until
   `base.html`'s first script marks `<html class="js">`; what only a script-less reader needs carries
