@@ -18,10 +18,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="{{asset "app.css"}}">
-{{/* htmx's own response handling, plus ONE line: a 400 is swapped (AOC-049 review). htmx discards
-     every 4xx by default, so a page's own rejection of a live request — the armory's invalid-range
-     message — vanished and the control looked dead. Other 4xx/5xx stay unswapped, as before. */}}
-<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
+{{/* Two settings on top of htmx's defaults.
+     - refreshOnHistoryMiss (AOC-063): Back to a state htmx kept no snapshot of (it keeps ten) made it
+       re-request the URL AS AN HTMX REQUEST and put the answer in <body> — every handler answers
+       that with its fragment, so the page became bare rows. A miss now reloads the page normally.
+     - responseHandling: htmx's own list, plus ONE line — a 400 is swapped (AOC-049 review). htmx
+       discards every 4xx by default, so a page's own rejection of a live request (the armory's
+       invalid-range message) vanished and the control looked dead. Other 4xx/5xx stay unswapped. */}}
+<meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
 <script src="{{asset "htmx.min.js"}}" defer></script>
 </head>
 <body class="flex min-h-screen flex-col bg-ink font-sans text-paper antialiased">
