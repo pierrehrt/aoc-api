@@ -124,6 +124,9 @@ function aocFormFrom(url) {
     aocPane.appendChild(h);
   });
   aocPane.querySelectorAll("[data-range]").forEach(aocRangeFromBounds);
+  // A slider pressed meanwhile is put back, if the browser takes the touch over, to this state, not
+  // to the one the press began on (delta verify 8, N12: a bound the link cleared came back).
+  if (aocPress) aocPressFrom = aocPress.value;
 }
 // A slider set from its bounds, and the legend with them ("≥ 85" for a bound its span cannot show
 // is the server's to write; this is only until the answer redraws the pane).
@@ -151,9 +154,9 @@ document.addEventListener("htmx:beforeRequest", function (e) {
 // drawn when the press ends. If the press moved the slider, its change does not send the form as it
 // is — that is the pane from before the answer, and it would undo a link (delta verify 4, N4) —
 // but the held pane with the moved bound carried into it.
-var aocPress = null, aocPressFrom = null, aocHeld = null;
+var aocPress = null, aocPressFrom = null, aocPressId = null, aocHeld = null;
 aocPane.addEventListener("pointerdown", function (e) {
-  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; }
+  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; aocPressId = e.pointerId; }
 });
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
   if (e.detail.target !== aocPane) return;
@@ -174,8 +177,9 @@ aocPane.addEventListener("change", function (e) {
     aocShowHeld(e.target);
   }
 }, true);
-function aocPressEnd() {
-  if (!aocPress) return;
+// A press ends on its own pointer only: another finger lifting, or cancelled, is not this press's end.
+function aocPressEnd(e) {
+  if (!aocPress || e.pointerId !== aocPressId) return;
   aocPress = null;
   // A moved slider's change fires in the same task as the pointerup (measured, mouse and touch), and
   // draws the held pane with its bound; whatever is still held after it is drawn here. Never left
@@ -191,10 +195,11 @@ document.addEventListener("pointerup", aocPressEnd);
 // unsent one shown). Chrome may still send a change when the finger lifts; for a slider put back,
 // it is not sent.
 var aocPutBack = null;
-document.addEventListener("pointercancel", function () {
+document.addEventListener("pointercancel", function (e) {
   var s = aocPress;
-  if (s && s.value !== aocPressFrom) { s.value = aocPressFrom; aocSyncRange(s); aocPutBack = s; }
-  aocPressEnd();
+  if (!s || e.pointerId !== aocPressId) return;
+  if (s.value !== aocPressFrom) { s.value = aocPressFrom; aocSyncRange(s); aocPutBack = s; }
+  aocPressEnd(e);
 });
 aocPane.addEventListener("pointerdown", function () { aocPutBack = null; }, true);
 function aocShowHeld(moved) {

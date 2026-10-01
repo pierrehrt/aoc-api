@@ -128,17 +128,18 @@ gone out. ⚠️ **The context is what makes it the reader's connection.** A res
 connection leaves the request alive and is a 500 with an ERROR line. Before the context check it was
 answered 499 with an empty body and logged as a reader gone, at Info (delta verify 6, N9).
 
+The armory aborts every superseded live request (`hx-sync` replace). The query each was running
+failed with "context canceled", or, if it had finished, the write failed. Logged as ERROR and 500,
+that put 52 failures nobody saw in one session's log, and it would have filled the +24h watch's
+error count (AOC-065 delta verifies 4 and 5). A deadline or a write timeout is still a 500: a
+timeout is the server being slow.
+
 **Every request has a deadline** (`httpx.RequestDeadline`, 10 s, set by the router). A database that
 hangs without resetting used to hold a request until the reader, or Cloudflare at 100 s, gave up.
 That cancellation is a genuine reader gone, so the hang reached the log only as 499s at Info, and
 `/health`, which touches no database, stayed 200 (delta verify 7, N11). At the deadline the query
 fails with `DeadlineExceeded`, which `ClientGone` does not take: a 500 and an ERROR line. 10 s is far
 beyond the slowest page's queries (tens of milliseconds) and well inside Cloudflare's limit.
-The armory aborts every superseded live request (`hx-sync` replace). The query each was running
-failed with "context canceled", or, if it had finished, the write failed. Logged as ERROR and 500,
-that put 52 failures nobody saw in one session's log, and it would have filled the +24h watch's
-error count (AOC-065 delta verifies 4 and 5). A deadline or a write timeout is still a 500: a
-timeout is the server being slow.
 
 **What is logged and what is sent are different on purpose.** The log gets the full wrapped error
 with the request id; the client gets the *sentinel's* text, or a flat `"internal error"` for anything
@@ -161,7 +162,11 @@ stale, not the behaviour.
 
 ## Middleware, in order
 
-`RequestID` → `Log` → `Cache` → `Recover` → `GetHead`.
+`RequestID` → `Log` → `Cache` → (`canonicalHost`, with `WithCanonicalHost`) → `Recover` → `deadline`
+→ `GetHead`.
+
+`deadline` (AOC-065, § 3) gives every request's context `RequestDeadline`; it sits inside `Recover`,
+so everything a handler starts is bounded.
 
 `Cache` (AOC-026, § Caching below) sits **inside `Log` and outside `Recover`**: the 500 that
 `Recover` writes for a panic passes through it and leaves as `no-store`, where the other way round
@@ -646,8 +651,10 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   - **A touch the browser takes over is not a move.** This covers a scroll that starts on a slider's
     track (Chrome jumps the thumb under the finger at `touchstart`, then sends `pointercancel`) and a
     touch the system cancels. The slider goes back to where the press found it, with its hidden
-    input and legend, and nothing is sent. A `change` Chrome sends when the finger lifts is not sent
-    for a slider put back. Before, a scroll of the phone sheet applied a level bound (delta verify 7,
+    input and legend, and nothing is sent. Chrome has sent no `change` after a put-back in any run;
+    should one come when the finger lifts, it is not sent. A link clicked during the press sets what
+    the press is put back to (delta verify 8, N12), and a press ends only on its own pointer, so a
+    second finger cannot put back the first one's drag. Before, a scroll of the phone sheet applied a level bound (delta verify 7,
     N10), and a cancelled touch left an unsent one shown (delta 6, A1c).
   - **Nothing held is drawn after something newer:** a pane drawn while nothing is pressed, or any
     request sent, discards a held pane. The newer answer draws the pane (R; delta verify 7, R2: a
