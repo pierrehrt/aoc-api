@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
@@ -175,8 +176,14 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, v 
 }
 
 // fail logs and sends a plain 500. It cannot render the error as HTML, because the
-// thing that just failed is the HTML renderer.
+// thing that just failed is the HTML renderer. A client that went away (a superseded live request,
+// aborted) is not a failure: 499, logged as such (httpx.ClientGone).
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	if httpx.ClientGone(r, err) {
+		slog.InfoContext(r.Context(), "client closed request", "path", r.URL.Path, "status", httpx.StatusClientClosedRequest)
+		w.WriteHeader(httpx.StatusClientClosedRequest)
+		return
+	}
 	slog.ErrorContext(r.Context(), "page render failed", "path", r.URL.Path, "error", err)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusInternalServerError)

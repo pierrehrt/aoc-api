@@ -119,6 +119,14 @@ cannot fix. Readiness against Postgres is a separate endpoint if and when someth
 sentinels (`ErrNotFound`, `ErrInvalid`, `ErrUnauthorized`, `ErrForbidden`, `ErrConflict`), wrapped
 freely with `%w` for context; handlers call `httpx.Fail`.
 
+**A client that went away is not a failure** (`httpx.ClientGone`). If the request's own context
+was canceled and the error is that cancellation, the answer is 499 ("client closed request",
+nginx's) with an Info line, in `httpx.Fail` and in the pages' `fail`. The armory aborts every
+superseded live request (`hx-sync` replace), and the query each was running then failed with
+"context canceled". Logged as ERROR and 500, that put 52 failures nobody saw in one session's log,
+and it would have filled the +24h watch's error count (AOC-065 delta verify 4, N6). A deadline is
+still a 500: a timeout is the server being slow.
+
 **What is logged and what is sent are different on purpose.** The log gets the full wrapped error
 with the request id; the client gets the *sentinel's* text, or a flat `"internal error"` for anything
 unmapped. A wrapped error routinely carries a table name, a column or a query fragment, and that is
@@ -568,12 +576,21 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   lost (live since AOC-049's rail), and slider moves lost or read again in a new span (AOC-065 delta
   verifies). With replace, a change is sent at once with the form as the reader has it, and nothing
   older can land after it.
-  - **One case is left: a drag.** An answer landing mid-drag would replace the slider under the
-    pointer and cut the drag short (F19). While a slider is pressed (`pointerdown` to
-    `pointerup`/`pointercancel`), `htmx:oobBeforeSwap` skips the pane's swap (`shouldSwap = false`);
-    the rows, pills and counts still update. The drag's own `change` sends the form and its answer
-    redraws the pane. A press that ends without a change sends the form once, if a redraw was
-    skipped during it, so no skipped pane outlives the press.
+  - **A link's request sets the form to its state as it goes.** A request that does not come from
+    the pane (a pill's ×, "clear all", sort, a page, Cancel) names its state in its URL. On
+    `htmx:beforeRequest` the page's script copies that URL into the form by parameter name: boxes
+    ticked or not, hidden inputs and the search box set, and a hidden input for a parameter that has
+    no control. It knows no filter, only names. So a change made before the link's answer lands
+    builds on the link's state, not on the page being left. Before this, a pill removed and then a
+    box ticked inside the round trip brought the pill back, and the search box, which no redraw
+    touches, kept a removed query and sent it again (AOC-065 delta verify 4, P3).
+  - **A drag.** An answer landing mid-drag would replace the slider under the pointer and cut the
+    drag short (F19). While a slider is pressed with the primary button, the pane that answer draws
+    is held back (`shouldSwap = false`); the rows, pills and counts still update. When the press
+    ends, the held pane is drawn. If the press moved the slider, its `change` is not sent as it is:
+    that would send the pane from before the answer, and undo a link (N4). The moved bound is carried
+    into the held pane, and that pane is sent. A press that moved nothing just shows it: no request,
+    and no second history entry.
   - **What the reader sees:** every quiet end state equals a direct load of its URL, and that URL is
     what they set. No value is reinterpreted. A bound beyond the new span applies as set; its legend
     and pill read "≥ 85", never "85–80". This was measured on the real corpus with 40–300 ms of added
@@ -584,12 +601,14 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     - an answer with no span;
     - five arrow presses;
     - a press, tap or swipe while an answer lands;
-    - a pill ×, "clear all" or sort, then a press;
-    - a link clicked mid-burst, which lands on the link's state;
+    - a pill ×, "clear all" or sort, then a press or a held press;
+    - a link, then a change inside its round trip, or a change, then a link;
+    - Cancel within the first round trip;
     - Back and Forward.
   - **Requests:** one per change; the older ones are aborted (five arrow presses send five, and only
-    the last answer lands). A link aborts a pending change, which is right: it goes to the state it
-    names.
+    the last answer lands; nothing lands until the reader pauses). A link aborts a pending change,
+    which is right: it goes to the state it names. An aborted request is a 499 in the log, not an
+    error (§ 3).
   - **A 400:** its reason replaces the rows. The pane keeps the reader's input to correct, with the
     last drawn counts.
   - **Relies on** the platform firing `change` when a slider's move ends. Mouse, touch, keys and

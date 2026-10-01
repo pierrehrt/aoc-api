@@ -62,7 +62,8 @@
 </form>
 {{/* Enhancements only: without them, and without JavaScript, the page works.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
-     - A change's answer redraws the pane, except over a slider being dragged (AOC-065).
+     - A link's or Cancel's request sets the form to its state as it goes; a pane an answer draws
+       during a press on a slider is held back until the press ends (AOC-065).
      - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
@@ -94,40 +95,110 @@ document.addEventListener("input", function (e) {
 // makes every new request abort the one in flight, so an answer that lands is the latest action's,
 // and a change the reader makes is sent at once with the form as it is (AOC-065 delta verifies: a
 // second tick, a slider's move, had been wiped by a stale redraw).
-// One case is left: an answer landing while a slider is being dragged would replace the slider under
-// the pointer and cut the drag short. So during a drag the pane's redraw is skipped; the drag's own
-// change sends the form and redraws it, and a drag that ends without a change sends it once.
-var aocDragging = false, aocSkipped = false, aocPane = document.getElementById("armory-facets");
-aocPane.addEventListener("pointerdown", function (e) {
-  if (e.target.matches("input[type=range]")) aocDragging = e.target;
-});
-function aocDragEnd() {
-  var s = aocDragging;
-  if (!s) return;
-  aocDragging = false;
-  setTimeout(function () {
-    if (aocSkipped && s.isConnected) s.dispatchEvent(new Event("change", { bubbles: true }));
-  }, 0);
+var aocPane = document.getElementById("armory-facets"), aocScroll = aocPane.parentElement;
+
+// A request that does not come from the pane — a link (a pill's ×, "clear all", sort, a page) or
+// Cancel — names its state in its URL. The form takes that state as the request goes, control by
+// name, so a change the reader makes before its answer lands builds on it rather than on the page
+// being left (AOC-065 delta verify 4, P3: a pill removed, then a box ticked within the round trip,
+// brought the pill back). The search box is in no redraw: it takes the state's search here (removing
+// the "q:" pill left the query in it, and the next change sent it again). A parameter the form has
+// no control for (the sort, say) rides along as a hidden input until the answer redraws the pane.
+function aocFormFrom(url) {
+  var left = [], form = aocPane.closest("form");
+  new URLSearchParams(url.split("?")[1] || "").forEach(function (v, k) { if (k !== "p") left.push([k, v]); });
+  var take = function (name, value) { // the first pair left with this name (and value), consumed
+    for (var j = 0; j < left.length; j++) {
+      if (left[j][0] === name && (value === undefined || left[j][1] === value)) return left.splice(j, 1)[0][1];
+    }
+    return null;
+  };
+  form.querySelectorAll("input[name]").forEach(function (i) {
+    if (i.type === "checkbox") { i.checked = take(i.name, i.value) !== null; return; }
+    var v = take(i.name);
+    i.value = v === null ? "" : v;
+  });
+  left.forEach(function (pair) {
+    var h = document.createElement("input");
+    h.type = "hidden"; h.name = pair[0]; h.value = pair[1];
+    aocPane.appendChild(h);
+  });
+  aocPane.querySelectorAll("[data-range]").forEach(aocRangeFromBounds);
 }
-document.addEventListener("pointerup", aocDragEnd);
-document.addEventListener("pointercancel", aocDragEnd);
-document.addEventListener("htmx:beforeRequest", function () { aocSkipped = false; });
-document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  if (e.detail.target === aocPane && aocDragging) {
-    e.detail.shouldSwap = false;
-    aocSkipped = true;
-  }
+// A slider set from its bounds, and the legend with them ("≥ 85" for a bound its span cannot show
+// is the server's to write; this is only until the answer redraws the pane).
+function aocRangeFromBounds(box) {
+  var lo = box.querySelector("[data-end=min]"), hi = box.querySelector("[data-end=max]");
+  if (!lo || !hi) return;
+  var bmin = box.querySelector('input[type=hidden][name="' + lo.dataset.bound + '"]').value;
+  var bmax = box.querySelector('input[type=hidden][name="' + hi.dataset.bound + '"]').value;
+  lo.value = bmin || lo.min; hi.value = bmax || hi.max;
+  box.querySelector("[data-range-label]").textContent = (bmin || lo.min) + " – " + (bmax || hi.max);
+}
+document.addEventListener("htmx:beforeRequest", function (e) {
+  if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);
 });
+
+// One case is left: an answer landing while a slider is pressed would replace the slider under the
+// pointer and cut the drag short (F19). So during a press the pane an answer draws is held back, and
+// drawn when the press ends. If the press moved the slider, its change does not send the form as it
+// is — that is the pane from before the answer, and it would undo a link (delta verify 4, N4) —
+// but the held pane with the moved bound carried into it.
+var aocPress = null, aocPressFrom = null, aocHeld = null;
+aocPane.addEventListener("pointerdown", function (e) {
+  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; }
+});
+document.addEventListener("htmx:oobBeforeSwap", function (e) {
+  if (e.detail.target !== aocPane || !aocPress) return;
+  e.detail.shouldSwap = false;
+  var d = document.createElement("div");
+  d.appendChild(e.detail.fragment.cloneNode(true));
+  aocHeld = d.innerHTML;
+});
+aocPane.addEventListener("change", function (e) {
+  if (aocHeld !== null && e.target.matches("input[type=range][data-bound]")) {
+    e.stopPropagation();
+    aocShowHeld(e.target);
+  }
+}, true);
+function aocPressEnd() {
+  var s = aocPress;
+  if (!s) return;
+  aocPress = null;
+  // A moved slider's change, coming, draws the held pane; a press that moved nothing draws it here.
+  if (s.value === aocPressFrom) setTimeout(function () { aocShowHeld(null); }, 0);
+}
+document.addEventListener("pointerup", aocPressEnd);
+document.addEventListener("pointercancel", aocPressEnd);
+function aocShowHeld(moved) {
+  if (aocHeld === null) return;
+  var bound = moved && moved.dataset.bound;
+  var value = moved && moved.closest("[data-range]").querySelector('input[type=hidden][name="' + bound + '"]').value;
+  var focused = document.activeElement && document.activeElement.id;
+  aocPane.innerHTML = aocHeld;
+  aocHeld = null;
+  aocEnable(aocPane);
+  var f = focused && document.getElementById(focused);
+  if (f) f.focus();
+  if (!moved) return;
+  var h = aocPane.querySelector('input[type=hidden][name="' + bound + '"]');
+  h.value = value;
+  aocRangeFromBounds(h.closest("[data-range]"));
+  h.dispatchEvent(new Event("change", { bubbles: true }));
+}
 // The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
 // controls; every change made in the sheet has already applied, so return to the state it was opened on.
-var aocOpenedAt = null;
+// A change still in flight counts: its answer would otherwise land after the Cancel (delta verify 4, N5).
+var aocOpenedAt = null, aocSheetChanged = false;
 document.getElementById("filter-sheet").addEventListener("change", function (e) {
   aocOpenedAt = e.target.checked ? location.pathname + location.search : null;
+  aocSheetChanged = false;
 });
+aocPane.addEventListener("change", function () { if (aocOpenedAt !== null) aocSheetChanged = true; });
 document.addEventListener("reset", function (e) {
   var back = aocOpenedAt;
   aocOpenedAt = null;
-  if (back !== null && back !== location.pathname + location.search) {
+  if (back !== null && (aocSheetChanged || back !== location.pathname + location.search)) {
     // from #results, so the request syncs on the form (hx-sync) but sends none of its fields
     htmx.ajax("GET", back, { source: "#results", target: "#results", swap: "innerHTML" });
   }

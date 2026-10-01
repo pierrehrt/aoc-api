@@ -398,7 +398,9 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 		t.Error("the form does not sync its requests with replace")
 	}
 	for _, want := range []string{`document.addEventListener("htmx:oobBeforeSwap"`, `e.detail.shouldSwap = false`,
-		`aocPane.addEventListener("pointerdown"`, `source: "#results"`} {
+		`aocPane.addEventListener("pointerdown"`, `source: "#results"`,
+		// a link's or Cancel's request sets the form to its state as it goes (AOC-065, P3)
+		`if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the pane's drag rule is missing %q", want)
 		}

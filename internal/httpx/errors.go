@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,18 @@ var (
 	ErrMethodNotAllowed = errors.New("method not allowed")
 )
 
+// StatusClientClosedRequest is nginx's 499: the client went away before the answer. Nothing reaches
+// it; the status is for the log, where it must not read as a server failure.
+const StatusClientClosedRequest = 499
+
+// ClientGone reports whether err is the request's own client having gone: its context canceled,
+// and err that cancellation. The armory aborts a superseded live request (hx-sync replace, AOC-065),
+// and the query it was running fails with "context canceled"; logged as a 500 it filled the error
+// log with failures no reader saw. A deadline is not this: a timeout is the server being slow.
+func ClientGone(r *http.Request, err error) bool {
+	return errors.Is(r.Context().Err(), context.Canceled) && errors.Is(err, context.Canceled)
+}
+
 // ErrorBody is the single shape of every error response. Clients can rely on it.
 type ErrorBody struct {
 	Error     string `json:"error"`
@@ -38,8 +51,14 @@ type ErrorBody struct {
 // often carries a table name, a column, a file path or a query fragment, and those
 // belong in the log, not in a public response body.
 func Fail(w http.ResponseWriter, r *http.Request, err error) {
-	status := statusFor(err)
 	rid := RequestIDFrom(r.Context())
+	if ClientGone(r, err) {
+		slog.InfoContext(r.Context(), "client closed request", "status", StatusClientClosedRequest,
+			"request_id", rid, "method", r.Method, "path", r.URL.Path)
+		w.WriteHeader(StatusClientClosedRequest)
+		return
+	}
+	status := statusFor(err)
 
 	if status >= 500 {
 		slog.ErrorContext(r.Context(), "request failed",
