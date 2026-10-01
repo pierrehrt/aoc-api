@@ -51,36 +51,10 @@ func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
 	}
 }
 
-// Criterion "v1 lists the 24 currencies flat": the picker is one flat <select> — no <optgroup>, no
-// grouping invented in the page — holding Any and then every currency the service returned, in the
-// service's order, each with its count.
-func TestTheCurrencyPickerIsFlatAndHoldsEveryValueInOrder(t *testing.T) {
-	body := get(t, router(t), http.MethodGet, "/armory", nil, "").Body.String()
-	sel := regexp.MustCompile(`(?s)<select id="f-currency" name="currency"[^>]*>(.*?)</select>`).FindStringSubmatch(body)
-	if sel == nil {
-		t.Fatal("no currency select")
-	}
-	if strings.Contains(sel[1], "<optgroup") {
-		t.Error("the currency picker groups its values — no grouping column exists (design open question 4)")
-	}
-	var got []string
-	for _, o := range regexp.MustCompile(`<option value="([^"]*)"[^>]*>[^<]*\(\d+\)</option>`).FindAllStringSubmatch(sel[1], -1) {
-		got = append(got, html.UnescapeString(o[1]))
-	}
-	var want []string
-	want = append(want, "") // Any
-	for _, r := range fakeFacetRows {
-		if r.Facet == "currency" {
-			want = append(want, r.Slug)
-		}
-	}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("currency options = %v, want %v (Any, then the service's values in its order)", got, want)
-	}
-}
+// Superseded (Pierre, 2026-10-01, AOC-065): the filter pane is exactly the validated design's five
+// sections, so the currency picker this test pinned (AOC-049 criterion 3) left the pane. Currency
+// still filters by link and /v1 — TestTheOtherFiltersStillApplyAsPills pins that.
 
-// Criterion "every state is a URL", JS off: a plain form submit sends every field, the untouched
-// ones empty (`?q=&equip_location=&…`). That URL must still be the same state — its canonical, its
 // pager and its chips are the clean URL of that state, never the raw query string.
 func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 	dirty := "/armory?q=&rarity=epic&equip_location=&armour_weight=&class=&price=&ilvl_min=&ilvl_max=&reqlvl_min=&reqlvl_max=&currency=&set="

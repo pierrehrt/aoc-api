@@ -38,15 +38,9 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 		// AOC-064: the facets are checkbox groups (several may be ticked; none ticked is any) —
 		// no "Any" choice, nothing ticked by default
 		`<input type="checkbox" id="f-rarity-epic" name="rarity" value="epic" data-count="120" class="peer sr-only">`,
-		// vendor price stays a radio group led by Any
-		`<input type="radio" id="f-price-any" name="price" value="" checked`,
 		`id="f-equip_location-test-slot-head"`, `id="f-armour_weight-test-weight-light"`, `id="f-class-test-class"`,
-		`id="f-price-true" name="price" value="true"`, `id="f-price-false" name="price" value="false"`,
-		// two level ranges, the span as placeholders
-		`name="ilvl_min"`, `name="ilvl_max"`, `name="reqlvl_min"`, `name="reqlvl_max"`, `placeholder="80"`,
-		// the long vocabularies as selects, counts in the option text, a 0 listed
-		`<select id="f-currency" name="currency"`, `<option value="test-coin">Test Coin (0)</option>`,
-		`<select id="f-set" name="set"`,
+		// the item level as two stacked sliders, with the design's note
+		`id="f-ilvl_min-range"`, `id="f-ilvl_max-range"`, "items with no recorded level drop out once narrowed",
 		// a class shows its short name and says its full name to a screen reader
 		`<span aria-hidden="true">TC</span><span class="sr-only">Test Class</span>`,
 		// the submit carries the result count (design 1b)
@@ -56,6 +50,19 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
+		}
+	}
+	// ⭐ Exactly the design's five sections, in its order — and nothing else (Pierre, 2026-10-01).
+	var legends []string
+	for _, m := range regexp.MustCompile(`<legend[^>]*>([A-Za-z ]+)`).FindAllStringSubmatch(body, -1) {
+		legends = append(legends, strings.TrimSpace(m[1]))
+	}
+	if strings.Join(legends, " | ") != "Rarity | Slot | Armour weight | Class restriction | Item level" {
+		t.Errorf("the pane's sections are %v, want exactly the design's five", legends)
+	}
+	for _, gone := range []string{`name="price"`, `name="reqlvl_min"`, `<select`, "Vendor price", "Required level"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the pane still carries %q — not in the design", gone)
 		}
 	}
 	// A 0 is muted, never hidden: listed, with its 0, in the faint colour.
@@ -114,7 +121,7 @@ func TestActiveFiltersAreChipsThatEachRemoveOneFilter(t *testing.T) {
 	}
 	// The state is in the form: the chosen radio checked, the non-rail filter and the sort hidden.
 	for _, want := range []string{
-		`id="f-rarity-epic" name="rarity" value="epic" checked`, `id="f-price-true" name="price" value="true" checked`,
+		`id="f-rarity-epic" name="rarity" value="epic" checked`, `<input type="hidden" name="price" value="true">`,
 		`name="ilvl_min" value="70"`, `<input type="hidden" name="region" value="test-region">`,
 		`<input type="hidden" name="sort" value="name">`,
 	} {
@@ -241,8 +248,8 @@ func TestABadRangeIs400OnThePage(t *testing.T) {
 	// An unknown slug is not malformed: a chip names it, it stays chosen, and the page answers.
 	rr := get(t, router(t), http.MethodGet, "/armory?currency=not-a-currency", nil, "")
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Currency: not-a-currency") ||
-		!strings.Contains(rr.Body.String(), `<option value="not-a-currency" selected>not-a-currency (0)</option>`) {
-		t.Errorf("an unknown currency: %d, chip or kept choice missing", rr.Code)
+		!strings.Contains(rr.Body.String(), `<input type="hidden" name="currency" value="not-a-currency">`) {
+		t.Errorf("an unknown currency: %d, chip or kept value missing", rr.Code)
 	}
 }
 
@@ -277,18 +284,13 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
 			t.Fatalf("%s: %v", state, err)
 		}
-		want := map[string]int64{} // "param=value" -> count, from the JSON
+		want := map[string]int64{} // "param=value" -> count, from the JSON — for the design's four groups
 		for param, g := range map[string]items.FacetGroup{"rarity": env.Facets.Rarity, "equip_location": env.Facets.EquipLocation,
-			"armour_weight": env.Facets.ArmourWeight, "class": env.Facets.Class, "currency": env.Facets.Currency, "set": env.Facets.Set} {
-			// A checkbox group has no "Any" choice on the page (AOC-064); the selects keep theirs.
-			if param == "currency" || param == "set" {
-				want[param+"="] = g.Any
-			}
+			"armour_weight": env.Facets.ArmourWeight, "class": env.Facets.Class} {
 			for _, v := range g.Values {
 				want[param+"="+v.Slug] = v.Count
 			}
 		}
-		want["price="], want["price=true"], want["price=false"] = env.Facets.Price.Any, env.Facets.Price.Count, env.Facets.Price.Any-env.Facets.Price.Count
 
 		got := map[string]int64{}
 		for _, m := range regexp.MustCompile(`<input type="(?:radio|checkbox)" id="[^"]+" name="([^"]+)" value="([^"]*)"[^>]*data-count="(\d+)"`).FindAllStringSubmatch(page, -1) {
@@ -432,7 +434,7 @@ func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
 // readers submits each bound twice.
 func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
 	body := get(t, router(t), http.MethodGet, "/armory?ilvl_min=10", nil, "").Body.String()
-	for _, name := range []string{"ilvl_min", "ilvl_max", "reqlvl_min", "reqlvl_max"} {
+	for _, name := range []string{"ilvl_min", "ilvl_max"} { // the design's pane has the item level only
 		hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="[^"]*"([^>]*)>`).FindStringSubmatch(body)
 		if hidden != nil && !strings.Contains(hidden[1], "disabled") {
 			t.Errorf("%s: the slider's hidden input is not disabled — a script-less submit sends it beside the number input", name)
@@ -448,5 +450,23 @@ func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
 	}
 	if !strings.Contains(body, `data-bound="ilvl_min" data-end="min"`) || !strings.Contains(body, `value="10" data-bound="ilvl_min"`) {
 		t.Error("the item level slider is missing or does not start at the URL's bound")
+	}
+}
+
+// Pierre, 2026-10-01: vendor price, required level, currency and set left the pane (the design has
+// them not). They still filter: an active one is carried by the form as a hidden input — so a change
+// in the pane keeps it — and shows as a pill whose × removes it.
+func TestTheOtherFiltersStillApplyAsPills(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?price=true&reqlvl_min=10&reqlvl_max=50&currency=test-token&set=test-set-omega", nil, "").Body.String()
+	for _, want := range []string{
+		`<input type="hidden" name="price" value="true">`, `<input type="hidden" name="reqlvl_min" value="10">`,
+		`<input type="hidden" name="reqlvl_max" value="50">`, `<input type="hidden" name="currency" value="test-token">`,
+		`<input type="hidden" name="set" value="test-set-omega">`,
+		`aria-label="Remove the filter Has a vendor price"`, `aria-label="Remove the filter Required level 10–50"`,
+		`aria-label="Remove the filter Currency: Test Token"`, `aria-label="Remove the filter Set: Test Set Omega"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
 	}
 }

@@ -471,6 +471,14 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   `.no-js-only` or sits in `<noscript>`. The sliders' hidden inputs ship `disabled` and the page's
   script enables them, so a script-less submit sends only the `<noscript>` number inputs — never a
   bound twice (`TestTheLevelSlidersNeverDoubleABound`).
+- **The filter pane is exactly the design's five sections** (Pierre, 2026-10-01: *"I want exactly like it
+  is in the design"*): Rarity (checkbox rows with counts), Slot, Armour weight and Class restriction
+  (toggle chips, no numbers), Item level (two stacked sliders and the note). Vendor price, required
+  level, currency and set left the pane. They still filter by link and by `/v1`, and an active one
+  rides along as a hidden input and shows as a pill (`TestTheOtherFiltersStillApplyAsPills`). Its
+  parts were measured against the prototype in the same browser: rows 16px on a 21px pitch,
+  checkbox 13px/3px, chips' font, padding, border and radius, and the sliders' 2px margin and 15px
+  pitch are identical.
 - **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051) and
   account (EP-06) are absent until they ship. **The exception is the header's tabs** (Pierre,
   2026-10-01): AA's, Feats, DJ/Raids and More are shown, and each leads to a "Coming Soon" page.

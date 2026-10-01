@@ -85,25 +85,6 @@ func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates
 	return out
 }
 
-// selectOptions is a <select>: Any, then every value; the FIRST chosen value is selected. A select
-// holds one value, so any further chosen values ride along as hidden inputs (see buildRail).
-func selectOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates.RailOption {
-	first := ""
-	if len(chosen) > 0 {
-		first = chosen[0]
-	}
-	out := []templates.RailOption{{Name: rf.param, ID: "f-" + rf.param + "-any", Label: rf.anyLabel, Count: g.Any, Checked: first == ""}}
-	found := first == ""
-	for _, v := range g.Values {
-		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-" + v.Slug, Value: v.Slug, Label: v.Name, Count: v.Count, Checked: v.Slug == first})
-		found = found || v.Slug == first
-	}
-	if !found {
-		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown", Value: first, Label: first, Checked: true})
-	}
-	return out
-}
-
 // nameOf is the display name of a facet's selected slug; the slug itself when the vocabulary lacks it.
 func nameOf(g items.FacetGroup, slug string) string {
 	for _, v := range g.Values {
@@ -160,25 +141,15 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		valueChips(rf, g)
 	}
 
-	// The price: three choices, counted (price=false is every item the other filters leave, minus
-	// the priced ones).
-	price := func(want *bool) bool {
-		if f.Price == nil || want == nil {
-			return f.Price == nil && want == nil
-		}
-		return *f.Price == *want
-	}
-	yes, no := true, false
-	rail.Groups = append(rail.Groups, templates.RailGroup{Legend: "Vendor price", Kind: "sans", Options: []templates.RailOption{
-		{Name: "price", ID: "f-price-any", Label: "Any", Count: fc.Price.Any, Checked: price(nil)},
-		{Name: "price", ID: "f-price-true", Value: "true", Label: "Has a price", Count: fc.Price.Count, Checked: price(&yes)},
-		{Name: "price", ID: "f-price-false", Value: "false", Label: "No price", Count: fc.Price.Any - fc.Price.Count, Checked: price(&no)},
-	}})
+	// Vendor price, required level, currency and set are not in the validated design's pane (Pierre,
+	// 2026-10-01: "exactly like it is in the design"). They still filter — by link and by /v1 — so an
+	// active one rides along as a hidden input and shows as a pill, removable like any other.
 	if f.Price != nil {
 		label := "No vendor price"
 		if *f.Price {
 			label = "Has a vendor price"
 		}
+		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "price", Value: strconv.FormatBool(*f.Price)})
 		chip(label, func(g *items.Filters) { g.Price = nil })
 	}
 
@@ -192,23 +163,29 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		{"Item level", "ilvl_min", "ilvl_max", f.ILvlMin, f.ILvlMax, fc.ItemLevel, func(g *items.Filters) { g.ILvlMin, g.ILvlMax = nil, nil }},
 		{"Required level", "reqlvl_min", "reqlvl_max", f.ReqLvlMin, f.ReqLvlMax, fc.RequiresLevel, func(g *items.Filters) { g.ReqLvlMin, g.ReqLvlMax = nil, nil }},
 	} {
-		r := templates.RailRange{Legend: lr.legend, MinName: lr.min, MaxName: lr.max, MinValue: levelText(lr.lo), MaxValue: levelText(lr.hi)}
-		if lr.span != nil {
-			r.Lo, r.Hi = strconv.Itoa(int(lr.span.Min)), strconv.Itoa(int(lr.span.Max))
+		if lr.min == "ilvl_min" { // the design's pane has the item level only
+			r := templates.RailRange{Legend: lr.legend, MinName: lr.min, MaxName: lr.max, MinValue: levelText(lr.lo), MaxValue: levelText(lr.hi)}
+			if lr.span != nil {
+				r.Lo, r.Hi = strconv.Itoa(int(lr.span.Min)), strconv.Itoa(int(lr.span.Max))
+			}
+			rail.Levels = append(rail.Levels, r)
+		} else {
+			if lr.lo != nil {
+				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: lr.min, Value: levelText(lr.lo)})
+			}
+			if lr.hi != nil {
+				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: lr.max, Value: levelText(lr.hi)})
+			}
 		}
-		rail.Levels = append(rail.Levels, r)
 		if lr.lo != nil || lr.hi != nil {
 			chip(rangeLabel(lr.legend, lr.lo, lr.hi), lr.clear)
 		}
 	}
 
 	for _, rf := range selectFacets {
-		g, chosen := rf.group(fc), rf.get(f)
-		rail.Selects = append(rail.Selects, templates.RailSelect{Name: rf.param, ID: "f-" + rf.param, Label: rf.legend, Options: selectOptions(rf, g, chosen)})
-		if len(chosen) > 1 {
-			for _, extra := range chosen[1:] {
-				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: rf.param, Value: extra})
-			}
+		g := rf.group(fc)
+		for _, c := range rf.get(f) {
+			rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: rf.param, Value: c})
 		}
 		valueChips(rf, g)
 	}
