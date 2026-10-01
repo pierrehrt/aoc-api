@@ -1,66 +1,108 @@
-{{/* The filter rail (AOC-049). What each control holds is built in internal/pages (buildRail) from
-     items.Facets — the database's vocabularies and the same SQL's counts. The template only prints.
-     A 0 is muted, never hidden: the reader learns why that choice is empty. */}}
+{{/* The filter pane (AOC-049; drawn as the validated design since AOC-065). What each control holds is
+     built in internal/pages (buildRail) from items.Facets — the database's vocabularies and the same
+     SQL's counts. The template only prints. A 0 is muted, never hidden. */}}
 {{define "armory_filter_count"}}{{with .Active}} · {{.}}{{end}}{{end}}
+{{/* The search block's last row (design): "filters", one pill per active filter with ×, "clear all",
+     and the state's own URL. Swapped out of band, so it always describes the rows below. */}}
+{{define "armory_chips"}}
+<span class="font-mono text-[11.5px] text-faint">filters</span>
+{{range .Chips}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" aria-label="Remove the filter {{.Label}}" class="flex items-center gap-1.5 rounded-[20px] border border-line-soft bg-ink-pill px-2 py-1 font-mono text-[11.5px] font-medium text-paper hover:border-link">{{.Label}} <span aria-hidden="true" class="text-muted-2">×</span></a>
+{{end}}{{if .ClearAll}}<a href="{{.ClearAll}}" hx-get="{{.ClearAll}}" hx-target="#results" hx-push-url="true" class="font-mono text-[11.5px] text-faint underline hover:text-paper">clear all</a>{{else}}<span class="font-mono text-[11.5px] text-faint underline">clear all</span>{{end}}
+<span class="flex-1"></span>
+<span class="hidden max-w-[52%] truncate font-mono text-[11.5px] text-faint sm:inline">{{.URL}}</span>
+{{end}}
+{{/* One choice. A checkbox or a radio, hidden; the label is what is drawn — a list row (rarity) or a
+     chip (the rest), the selected recipe of the design (gold border, ink-selected, paper). */}}
+{{define "armory_choice"}}
+<input type="{{if .Multi}}checkbox{{else}}radio{{end}}" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} data-count="{{.Count}}" class="peer sr-only">{{end}}
 {{define "armory_facets"}}
 {{range .Rail.Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
-{{end}}<div class="space-y-5 py-4 lg:pt-0">
-{{range .Rail.Groups}}
-  <fieldset>
-    <legend class="text-xs font-medium uppercase tracking-wide text-muted">{{.Legend}}</legend>
-    <div class="mt-2 flex flex-wrap gap-1.5">
+{{end}}<div class="hidden items-baseline gap-2 pt-[14px] lg:flex">
+  <span class="text-[12px] font-semibold uppercase tracking-[0.06em] text-link">Filters</span>
+  <span class="min-w-0 flex-1 font-mono text-[11px] text-faint">{{.Active}} active</span>
+  <label for="filters-collapsed" title="Collapse the filters" class="cursor-pointer px-[3px] font-mono text-[12px] font-medium text-faint hover:text-paper">›</label>
+</div>
+<div class="flex flex-col gap-[14px] pb-4 pt-4 lg:pt-[14px]">
+{{range .Rail.Groups}}{{$kind := .Kind}}
+  <fieldset class="flex flex-col gap-[7px]">
+    <legend class="mb-[7px] font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Legend}}</legend>
+    {{if eq $kind "list"}}
+    <div class="flex flex-col gap-[5px]">
     {{range .Options}}
-      <span>
-        <input type="{{if .Multi}}checkbox{{else}}radio{{end}}" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} class="peer sr-only">
-        <label for="{{.ID}}"{{if .Short}} title="{{.Label}}"{{end}} class="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-line px-3 text-sm peer-checked:border-link peer-checked:bg-ink-2 peer-focus-visible:ring-2 peer-focus-visible:ring-link{{if or .Count .Checked}} text-paper{{else}} text-muted{{end}}">
-          <span{{if and .ColourToken (or .Count .Checked)}} style="color: var(--color-{{.ColourToken}})"{{end}}>{{if .Short}}<span aria-hidden="true">{{.Short}}</span><span class="sr-only">{{.Label}}</span>{{else}}{{.Label}}{{end}}</span>
-          <span class="font-mono text-xs text-muted">{{.Count}}</span>
-        </label>
+      <label for="{{.ID}}" class="flex min-h-[22px] cursor-pointer items-center gap-2 text-[12.5px] max-lg:min-h-9">
+        {{template "armory_choice" .}}
+        <span aria-hidden="true" class="size-[13px] flex-none rounded-[3px] border border-line-box peer-checked:border-link peer-checked:bg-link peer-focus-visible:ring-2 peer-focus-visible:ring-link"></span>
+        <span{{if and .ColourToken (or .Count .Checked)}} style="color: var(--color-{{.ColourToken}})"{{end}} class="{{if or .Count .Checked}}text-muted{{else}}text-faint{{end}}">{{.Label}}</span>
+        <span class="flex-1"></span>
+        <span class="font-mono text-[11px] text-muted-2">{{num .Count}}</span>
+      </label>
+    {{end}}
+    </div>
+    {{else}}
+    <div class="flex flex-wrap gap-[5px]">
+    {{range .Options}}
+      <span class="inline-flex">
+        {{template "armory_choice" .}}
+        <label for="{{.ID}}" title="{{.Label}} · {{num .Count}} {{if eq .Count 1}}item{{else}}items{{end}}" class="cursor-pointer rounded-[5px] border border-line-chip max-lg:inline-flex max-lg:min-h-9 max-lg:items-center peer-checked:border-link peer-checked:bg-ink-selected peer-checked:text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link {{if eq $kind "mono"}}px-2 py-1 font-mono text-[12px]{{else if eq $kind "class"}}px-[7px] py-[3px] font-mono text-[11.5px] font-medium{{else}}px-2 py-1 text-[12px]{{end}} {{if or .Count .Checked}}text-muted{{else}}text-faint{{end}}">{{if .Short}}<span aria-hidden="true">{{.Short}}</span><span class="sr-only">{{.Label}}</span>{{else}}{{.Label}}{{end}}<span class="sr-only"> ({{num .Count}})</span></label>
       </span>
     {{end}}
     </div>
+    {{end}}
   </fieldset>
 {{end}}
 {{range .Rail.Levels}}
-  <fieldset>
-    <legend class="text-xs font-medium uppercase tracking-wide text-muted">{{.Legend}}</legend>
-    <div class="mt-2 flex items-center gap-2">
-      <label for="f-{{.MinName}}" class="sr-only">{{.Legend}} from</label>
-      <input type="number" id="f-{{.MinName}}" name="{{.MinName}}" value="{{.MinValue}}" min="0" step="1" inputmode="numeric"{{with .Lo}} placeholder="{{.}}"{{end}}
-             class="w-20 rounded border border-line bg-ink-2 px-2 py-1.5 font-mono text-sm text-paper placeholder:text-muted focus:border-link focus:outline-none">
-      <span class="text-muted" aria-hidden="true">–</span>
-      <label for="f-{{.MaxName}}" class="sr-only">{{.Legend}} to</label>
-      <input type="number" id="f-{{.MaxName}}" name="{{.MaxName}}" value="{{.MaxValue}}" min="0" step="1" inputmode="numeric"{{with .Hi}} placeholder="{{.}}"{{end}}
-             class="w-20 rounded border border-line bg-ink-2 px-2 py-1.5 font-mono text-sm text-paper placeholder:text-muted focus:border-link focus:outline-none">
+  {{/* Two stacked sliders, as the design draws them. A slider at its end is no bound: it writes its
+       hidden input only when moved inside the span. Without JavaScript, number inputs instead. */}}
+  <fieldset class="flex flex-col gap-2" data-range>
+    <legend class="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Legend}} <span data-range-label>{{if or .MinValue .MaxValue}}{{or .MinValue .Lo}} – {{or .MaxValue .Hi}}{{else if .Lo}}{{.Lo}} – {{.Hi}}{{end}}</span></legend>
+    {{if .Lo}}
+    <div class="js-only flex flex-col gap-2">
+      <input type="range" id="f-{{.MinName}}-range" min="{{.Lo}}" max="{{.Hi}}" value="{{or .MinValue .Lo}}" data-bound="{{.MinName}}" data-end="min" aria-label="{{.Legend}} from" class="h-[3px] w-full cursor-pointer accent-link">
+      <input type="range" id="f-{{.MaxName}}-range" min="{{.Lo}}" max="{{.Hi}}" value="{{or .MaxValue .Hi}}" data-bound="{{.MaxName}}" data-end="max" aria-label="{{.Legend}} to" class="h-[3px] w-full cursor-pointer accent-link">
+      {{/* disabled until the script enables them: without JavaScript only the number inputs submit. */}}
+      <input type="hidden" name="{{.MinName}}" value="{{.MinValue}}" data-js-enable disabled>
+      <input type="hidden" name="{{.MaxName}}" value="{{.MaxValue}}" data-js-enable disabled>
     </div>
+    {{end}}
+    <noscript><div class="flex items-center gap-2">
+      <label for="f-{{.MinName}}" class="sr-only">{{.Legend}} from</label>
+      <input type="number" id="f-{{.MinName}}" name="{{.MinName}}" value="{{.MinValue}}" min="0" step="1" inputmode="numeric"{{with .Lo}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
+      <span class="text-faint" aria-hidden="true">–</span>
+      <label for="f-{{.MaxName}}" class="sr-only">{{.Legend}} to</label>
+      <input type="number" id="f-{{.MaxName}}" name="{{.MaxName}}" value="{{.MaxValue}}" min="0" step="1" inputmode="numeric"{{with .Hi}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
+    </div></noscript>
+    {{if not .Lo}}{{if not (or .MinValue .MaxValue)}}<span class="font-mono text-[11px] text-faint">no item here has one</span>{{end}}{{end}}
+    <span class="font-mono text-[11px] text-faint">items with no recorded level drop out once narrowed</span>
   </fieldset>
 {{end}}
 {{range .Rail.Selects}}
-  <div>
-    <label for="{{.ID}}" class="text-xs font-medium uppercase tracking-wide text-muted">{{.Label}}</label>
-    <select id="{{.ID}}" name="{{.Name}}" class="mt-2 w-full rounded border border-line bg-ink-2 px-2 py-2 text-sm text-paper focus:border-link focus:outline-none">
-    {{range .Options}}<option value="{{.Value}}"{{if .Checked}} selected{{end}}>{{.Label}} ({{.Count}})</option>
+  <div class="flex flex-col gap-[7px]">
+    <label for="{{.ID}}" class="font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Label}}</label>
+    <select id="{{.ID}}" name="{{.Name}}" class="w-full rounded-[5px] border border-line-control bg-ink px-2 py-1.5 font-mono text-[12px] text-paper focus:border-link focus:outline-none">
+    {{range .Options}}<option value="{{.Value}}"{{if .Checked}} selected{{end}}>{{.Label}} ({{num .Count}})</option>
     {{end}}</select>
   </div>
 {{end}}
 </div>
-{{/* Apply: a plain submit, so it works without JavaScript, and on a phone it closes the sheet. It
-     carries the count, so the reader commits knowing the result (design 1b). */}}
-<div class="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ink px-4 py-3 lg:static lg:mx-0 lg:border-0 lg:px-0">
-  {{if .ClearAll}}<a href="{{.ClearAll}}" class="text-sm text-link">Reset</a>{{end}}
-  <button type="submit" class="ml-auto rounded bg-link px-4 py-2 text-sm font-medium text-ink">Show {{.Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
+{{/* Apply: a plain submit, so the pane works without JavaScript; on a phone it closes the sheet and
+     carries the count (design 1b). On a wide screen with scripts every change already applies, and
+     it is hidden (app.css .apply-bar). */}}
+<div class="apply-bar sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ink-pane px-4 py-3 lg:-mx-[14px] lg:px-[14px]">
+  {{if .ClearAll}}<a href="{{.ClearAll}}" class="text-[13px] text-link hover:text-link-hover">Reset</a>{{end}}
+  <button type="submit" class="ml-auto rounded-[7px] bg-link px-4 py-2 text-[13px] font-medium text-ink hover:bg-link-hover">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
 </div>
 {{end}}
-{{/* An HTMX answer: the rows into #results, and the rail and the phone button's number out of band —
-     one request, so the counts always describe the rows beside them. */}}
+{{/* An HTMX answer: the rows into #results, and the pane, the pills and the phone button's number out
+     of band — one request, so the counts always describe the rows beside them. */}}
 {{define "armory_update"}}{{template "armory_rows" .}}
 <div hx-swap-oob="innerHTML:#armory-facets">{{template "armory_facets" .}}</div>
+<div hx-swap-oob="innerHTML:#armory-chips">{{template "armory_chips" .}}</div>
 <span hx-swap-oob="innerHTML:#filter-count">{{template "armory_filter_count" .}}</span>
 {{end}}
 {{/* An HTMX change with a malformed filter (AOC-049 review): the reason, in place of the rows. */}}
-{{define "armory_invalid"}}<div role="alert" class="rounded border border-line bg-ink-2 p-4 text-sm">
-  <p class="font-medium text-paper">That search is not valid.</p>
-  <p class="mt-2 font-mono text-xs text-muted">{{.Reason}}</p>
-  <p class="mt-2 text-muted">Correct it in the filters and the list comes back.</p>
+{{define "armory_invalid"}}<div role="alert" class="m-4 rounded-[8px] border border-dashed border-line-soft p-4 text-[13.5px]">
+  <p class="font-semibold text-paper">That search is not valid.</p>
+  <p class="mt-2 font-mono text-[12px] text-faint">{{.Reason}}</p>
+  <p class="mt-2 text-paper-2">Correct it in the filters and the list comes back.</p>
 </div>
 {{end}}

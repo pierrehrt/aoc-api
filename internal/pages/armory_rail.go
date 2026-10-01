@@ -18,6 +18,7 @@ import (
 // how to read and write its list on a Filters (AOC-064: every facet is a list).
 type railFacet struct {
 	param, legend, anyLabel string
+	kind                    string // how the design draws the group: "list", "mono", "sans", "class"
 	group                   func(*items.Facets) items.FacetGroup
 	get                     func(items.Filters) []string
 	set                     func(*items.Filters, []string)
@@ -26,19 +27,19 @@ type railFacet struct {
 // The checkbox groups, then the selects, in the rail's order.
 var (
 	checkFacets = []railFacet{
-		{"rarity", "Rarity", "", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
+		{"rarity", "Rarity", "", "list", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
 			func(f items.Filters) []string { return f.Rarities }, func(f *items.Filters, v []string) { f.Rarities = v }},
-		{"equip_location", "Slot", "", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
+		{"equip_location", "Slot", "", "mono", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
 			func(f items.Filters) []string { return f.EquipLocations }, func(f *items.Filters, v []string) { f.EquipLocations = v }},
-		{"armour_weight", "Armour weight", "", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
+		{"armour_weight", "Armour weight", "", "sans", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
 			func(f items.Filters) []string { return f.ArmourWeights }, func(f *items.Filters, v []string) { f.ArmourWeights = v }},
-		{"class", "Class restriction", "", func(fc *items.Facets) items.FacetGroup { return fc.Class },
+		{"class", "Class restriction", "", "class", func(fc *items.Facets) items.FacetGroup { return fc.Class },
 			func(f items.Filters) []string { return f.Classes }, func(f *items.Filters, v []string) { f.Classes = v }},
 	}
 	selectFacets = []railFacet{
-		{"currency", "Currency", "Any currency", func(fc *items.Facets) items.FacetGroup { return fc.Currency },
+		{"currency", "Currency", "Any currency", "", func(fc *items.Facets) items.FacetGroup { return fc.Currency },
 			func(f items.Filters) []string { return f.Currencies }, func(f *items.Filters, v []string) { f.Currencies = v }},
-		{"set", "Set", "Any set", func(fc *items.Facets) items.FacetGroup { return fc.Set },
+		{"set", "Set", "Any set", "", func(fc *items.Facets) items.FacetGroup { return fc.Set },
 			func(f items.Filters) []string { return f.Sets }, func(f *items.Filters, v []string) { f.Sets = v }},
 	}
 )
@@ -155,7 +156,7 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 	}
 	for _, rf := range checkFacets {
 		g := rf.group(fc)
-		rail.Groups = append(rail.Groups, templates.RailGroup{Legend: rf.legend, Options: checkOptions(rf, g, rf.get(f))})
+		rail.Groups = append(rail.Groups, templates.RailGroup{Legend: rf.legend, Kind: rf.kind, Options: checkOptions(rf, g, rf.get(f))})
 		valueChips(rf, g)
 	}
 
@@ -168,7 +169,7 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		return *f.Price == *want
 	}
 	yes, no := true, false
-	rail.Groups = append(rail.Groups, templates.RailGroup{Legend: "Vendor price", Options: []templates.RailOption{
+	rail.Groups = append(rail.Groups, templates.RailGroup{Legend: "Vendor price", Kind: "sans", Options: []templates.RailOption{
 		{Name: "price", ID: "f-price-any", Label: "Any", Count: fc.Price.Any, Checked: price(nil)},
 		{Name: "price", ID: "f-price-true", Value: "true", Label: "Has a price", Count: fc.Price.Count, Checked: price(&yes)},
 		{Name: "price", ID: "f-price-false", Value: "false", Label: "No price", Count: fc.Price.Any - fc.Price.Count, Checked: price(&no)},

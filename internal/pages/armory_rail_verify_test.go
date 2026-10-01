@@ -8,7 +8,6 @@ import (
 	"html"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,28 +16,33 @@ import (
 // is muted exactly when its count is 0 and it is not the reader's own choice — a non-zero value is
 // never greyed, and a zero is never dropped.
 func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
+	// AOC-065: the choices are drawn as the design's rows and chips; each input carries its count
+	// (data-count), and what follows it up to the next input is how it is drawn. Muted (text-faint)
+	// exactly when the count is 0 and it is not chosen — never hidden.
+	in := regexp.MustCompile(`<input type="(?:radio|checkbox)" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)? data-count="(\d+)"[^>]*>`)
 	for _, path := range []string{"/armory", "/armory?rarity=test-rarity-dull", "/armory?class=test-class&price=false"} {
 		body := get(t, router(t), http.MethodGet, path, nil, "").Body.String()
-		re := regexp.MustCompile(`(?s)<input type="(?:radio|checkbox)" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)?[^>]*>\s*<label for="[^"]+"[^>]*class="([^"]*)">.*?<span class="font-mono text-xs text-muted">(\d+)</span>`)
-		ms := re.FindAllStringSubmatch(body, -1)
-		if len(ms) == 0 {
-			t.Fatalf("%s: no radio found", path)
+		locs := in.FindAllStringSubmatchIndex(body, -1)
+		if len(locs) == 0 {
+			t.Fatalf("%s: no choice found", path)
 		}
 		zeros := 0
-		for _, m := range ms {
-			n, _ := strconv.Atoi(m[4])
-			checked := m[2] != ""
-			muted := false
-			for _, c := range strings.Fields(m[3]) {
-				if c == "text-muted" {
-					muted = true
-				}
+		for i, l := range locs {
+			id, checked, count := body[l[2]:l[3]], l[4] >= 0, body[l[6]:l[7]]
+			end := len(body)
+			if i+1 < len(locs) {
+				end = locs[i+1][0]
 			}
-			if n == 0 {
+			seg := body[l[1]:end]
+			if j := strings.Index(seg, "</fieldset>"); j >= 0 {
+				seg = seg[:j]
+			}
+			muted := strings.Contains(seg, "text-faint")
+			if count == "0" && !checked {
 				zeros++
 			}
-			if want := n == 0 && !checked; muted != want {
-				t.Errorf("%s: %s (count %d, checked %v) muted=%v, want %v", path, m[1], n, checked, muted, want)
+			if want := count == "0" && !checked; muted != want {
+				t.Errorf("%s: %s (count %s, chosen %v) muted=%v, want %v", path, id, count, checked, muted, want)
 			}
 		}
 		if zeros == 0 {

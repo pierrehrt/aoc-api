@@ -53,7 +53,7 @@ func TestAWeightWithNoSlotAndARowWithNothingToSay(t *testing.T) {
 			if a, b := text(cells[0][1]), text(cells[1][1]); a != "—" || b != "—" {
 				t.Errorf("Slot %q, Type %q, want — and —", a, b)
 			}
-			if strings.Contains(r[1], "md:hidden") {
+			if strings.Contains(r[1], `data-line="phone"`) {
 				t.Errorf("a row with nothing to say renders a phone line element: %.300s", r[1])
 			}
 		}

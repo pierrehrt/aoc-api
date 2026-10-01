@@ -32,10 +32,10 @@ func columnsFake() *fakeItems {
 }
 
 var (
-	rowRE   = regexp.MustCompile(`(?s)<tr class="border-b border-line align-top">(.*?)</tr>`)
+	rowRE   = regexp.MustCompile(`(?s)<tr data-row[^>]*>(.*?)</tr>`)
 	nameRE  = regexp.MustCompile(`>(Test [A-Za-z]+ [A-Za-z]+)</a>`)
-	cellsRE = regexp.MustCompile(`(?s)<td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">(.*?)</td>`)
-	phoneRE = regexp.MustCompile(`(?s)<div class="mt-0\.5 font-mono text-xs text-muted md:hidden">\s*(.*?)\s*</div>`)
+	cellsRE = regexp.MustCompile(`(?s)<td data-col="(?:slot|type)"[^>]*>(.*?)</td>`)
+	phoneRE = regexp.MustCompile(`(?s)<div data-line="phone"[^>]*>\s*(.*?)\s*</div>`)
 	tagsRE  = regexp.MustCompile(`<[^>]+>`)
 )
 

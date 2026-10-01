@@ -37,7 +37,7 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 		`<form method="get" action="/armory"`,
 		// AOC-064: the facets are checkbox groups (several may be ticked; none ticked is any) —
 		// no "Any" choice, nothing ticked by default
-		`<input type="checkbox" id="f-rarity-epic" name="rarity" value="epic" class="peer sr-only">`,
+		`<input type="checkbox" id="f-rarity-epic" name="rarity" value="epic" data-count="120" class="peer sr-only">`,
 		// vendor price stays a radio group led by Any
 		`<input type="radio" id="f-price-any" name="price" value="" checked`,
 		`id="f-equip_location-test-slot-head"`, `id="f-armour_weight-test-weight-light"`, `id="f-class-test-class"`,
@@ -50,16 +50,16 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 		// a class shows its short name and says its full name to a screen reader
 		`<span aria-hidden="true">TC</span><span class="sr-only">Test Class</span>`,
 		// the submit carries the result count (design 1b)
-		`<button type="submit" class="ml-auto rounded bg-link px-4 py-2 text-sm font-medium text-ink">Show 120 items</button>`,
-		// fieldsets with legends: a radio group's semantic container
-		`<legend class="text-xs font-medium uppercase tracking-wide text-muted">Class restriction</legend>`,
+		`>Show 120 items</button>`,
+		// fieldsets with legends: a group's semantic container
+		`>Class restriction</legend>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	// A 0 is muted, never hidden.
-	if !regexp.MustCompile(`(?s)<label for="f-rarity-test-rarity-dull"[^>]*text-muted">.*?Test Rarity Dull.*?>0</span>`).MatchString(body) {
+	// A 0 is muted, never hidden: listed, with its 0, in the faint colour.
+	if !regexp.MustCompile(`(?s)id="f-rarity-test-rarity-dull"[^>]*data-count="0"[^>]*>.*?text-faint">Test Rarity Dull</span>`).MatchString(body) {
 		t.Error("the 0-count rarity is not listed muted with its 0")
 	}
 	// The phone sheet's switch has no name: never submitted, never in the URL (design 1b).
@@ -73,8 +73,9 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 	if strings.Contains(body, "<details") {
 		t.Error("a <details> is back: its open state would reset on every live swap (build decision 4)")
 	}
-	// No active filter: no chips, no clear-all, no count on the phone button.
-	if strings.Contains(body, "clear all") || strings.Contains(body, `<span id="filter-count"> · `) {
+	// No active filter: no pills, "clear all" is not a link, no count on the phone button.
+	if strings.Contains(body, `aria-label="Remove the filter`) || regexp.MustCompile(`<a [^>]*>clear all</a>`).MatchString(body) ||
+		strings.Contains(body, `<span id="filter-count"> · `) {
 		t.Error("an unfiltered page shows active-filter UI")
 	}
 }
@@ -105,8 +106,8 @@ func TestActiveFiltersAreChipsThatEachRemoveOneFilter(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(body, `<a href="/armory?sort=name" hx-get="/armory?sort=name" hx-target="#results" hx-push-url="true" class="text-xs text-link">clear all</a>`) {
-		t.Error("clear all must keep the sort and drop every filter")
+	if m := regexp.MustCompile(`<a href="([^"]+)"[^>]*>clear all</a>`).FindStringSubmatch(body); m == nil || html.UnescapeString(m[1]) != "/armory?sort=name" {
+		t.Errorf("clear all = %v, must keep the sort and drop every filter", m)
 	}
 	if !strings.Contains(body, `<span id="filter-count"> · 4</span>`) {
 		t.Error("the phone's Filters button does not carry the active count")
@@ -180,7 +181,9 @@ func TestTheFormCarriesEveryFilter(t *testing.T) {
 			got.Add(m[1], m[2])
 		}
 	}
-	for _, m := range regexp.MustCompile(`name="((?:ilvl|reqlvl)_(?:min|max))" value="(\d+)"`).FindAllStringSubmatch(form, -1) {
+	// A script-less submit (AOC-065): the level sliders' hidden inputs ship disabled and send nothing;
+	// the <noscript> number inputs carry the bounds.
+	for _, m := range regexp.MustCompile(`type="number" id="[^"]+" name="((?:ilvl|reqlvl)_(?:min|max))" value="(\d+)"`).FindAllStringSubmatch(form, -1) {
 		got.Add(m[1], m[2])
 	}
 	for _, m := range regexp.MustCompile(`(?s)<select id="[^"]+" name="([^"]+)".*?<option value="([^"]+)" selected`).FindAllStringSubmatch(form, -1) {
@@ -210,8 +213,8 @@ func TestTheHTMXAnswerCarriesTheRowsAndTheRail(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"page 1 of 3", // the rows
-		`<div hx-swap-oob="innerHTML:#armory-facets">`, `id="f-rarity-epic" name="rarity" value="epic" checked`,
+		"rows 1–50 of 120", // the rows
+		`<div hx-swap-oob="innerHTML:#armory-facets">`, `<div hx-swap-oob="innerHTML:#armory-chips">`, `id="f-rarity-epic" name="rarity" value="epic" checked`,
 		`<span hx-swap-oob="innerHTML:#filter-count"> · 1</span>`,
 		"Rarity: Test Epic", // the chip
 	} {
@@ -288,13 +291,13 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 		want["price="], want["price=true"], want["price=false"] = env.Facets.Price.Any, env.Facets.Price.Count, env.Facets.Price.Any-env.Facets.Price.Count
 
 		got := map[string]int64{}
-		for _, m := range regexp.MustCompile(`(?s)<input type="(?:radio|checkbox)" id="[^"]+" name="([^"]+)" value="([^"]*)".*?<span class="font-mono text-xs text-muted">(\d+)</span>`).FindAllStringSubmatch(page, -1) {
+		for _, m := range regexp.MustCompile(`<input type="(?:radio|checkbox)" id="[^"]+" name="([^"]+)" value="([^"]*)"[^>]*data-count="(\d+)"`).FindAllStringSubmatch(page, -1) {
 			n, _ := strconv.ParseInt(m[3], 10, 64)
 			got[m[1]+"="+m[2]] = n
 		}
 		for _, sel := range regexp.MustCompile(`(?s)<select id="[^"]+" name="([^"]+)"[^>]*>(.*?)</select>`).FindAllStringSubmatch(page, -1) {
-			for _, o := range regexp.MustCompile(`<option value="([^"]*)"[^>]*>[^<]*\((\d+)\)</option>`).FindAllStringSubmatch(sel[2], -1) {
-				n, _ := strconv.ParseInt(o[2], 10, 64)
+			for _, o := range regexp.MustCompile(`<option value="([^"]*)"[^>]*>[^<]*\(([\d,]+)\)</option>`).FindAllStringSubmatch(sel[2], -1) {
+				n, _ := strconv.ParseInt(strings.ReplaceAll(o[2], ",", ""), 10, 64)
 				got[sel[1]+"="+o[1]] = n
 			}
 		}
@@ -422,3 +425,29 @@ func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
 		t.Errorf("found %d rarity chips, want one per ticked value (2)", seen)
 	}
 }
+
+// AOC-065: each level range is two sliders writing two hidden inputs that ship DISABLED (a
+// script-less submit must send only the number inputs, or the first value — a stale one — wins),
+// and the number inputs sit inside <noscript>, inert where scripts run. Without both, one of the two
+// readers submits each bound twice.
+func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?ilvl_min=10", nil, "").Body.String()
+	for _, name := range []string{"ilvl_min", "ilvl_max", "reqlvl_min", "reqlvl_max"} {
+		hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="[^"]*"([^>]*)>`).FindStringSubmatch(body)
+		if hidden != nil && !strings.Contains(hidden[1], "disabled") {
+			t.Errorf("%s: the slider's hidden input is not disabled — a script-less submit sends it beside the number input", name)
+		}
+		i := strings.Index(body, `type="number" id="f-`+name+`"`)
+		if i < 0 {
+			t.Errorf("%s: no number input for a script-less reader", name)
+			continue
+		}
+		if open := strings.LastIndex(body[:i], "<noscript>"); open < 0 || strings.LastIndex(body[:i], "</noscript>") > open {
+			t.Errorf("%s: the number input is not inside <noscript> — with scripts on, it would submit beside the slider", name)
+		}
+	}
+	if !strings.Contains(body, `data-bound="ilvl_min" data-end="min"`) || !strings.Contains(body, `value="10" data-bound="ilvl_min"`) {
+		t.Error("the item level slider is missing or does not start at the URL's bound")
+	}
+}
+

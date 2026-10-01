@@ -83,6 +83,8 @@ var fragmentProbes = map[string]any{
 	"armory_facets":       armoryProbe(),
 	"armory_update":       armoryProbe(),
 	"armory_filter_count": armoryProbe(),
+	"armory_chips":        armoryProbe(),
+	"armory_choice":       RailOption{Name: "probe", ID: "f-probe", Multi: true},
 	"armory_invalid":      InvalidSearch{Reason: "probe"},
 	"armory_slot":         armoryProbe().Result.Items[0],
 	"armory_type":         armoryProbe().Result.Items[0],
@@ -115,6 +117,8 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		"slotNames": SlotNames,
 		"typeLabel": TypeLabel,
 		"phoneLine": PhoneLine,
+		// num prints a count the design's way: 4,646 (AOC-065).
+		"num": Num,
 	}
 
 	fragmentFiles, err := fragmentsIn(fsys, pageMap)

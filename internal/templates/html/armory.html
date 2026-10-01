@@ -1,48 +1,99 @@
-{{define "content"}}
+{{define "content"}}{{$d := .Data}}
 <h1 class="sr-only">Armory</h1>
-{{/* ONE form: the search and the filter rail submit together, so a search keeps the filters and a
-     filter keeps the search. Without JavaScript it is a plain GET form (AOC-049). */}}
-<form method="get" action="/armory" class="armory">
-  <div role="search" class="flex flex-wrap items-center gap-3">
-    <label for="q" class="sr-only">Search items by name or id</label>
-    <input id="q" name="q" type="search" value="{{.Data.Query}}" placeholder="Search {{.Data.Span.Total}} items by name or id"
-           class="min-w-0 flex-1 rounded border border-line bg-ink-2 px-3 py-2 text-paper placeholder:text-muted focus:border-link focus:outline-none">
-    <button type="submit" class="rounded bg-link px-4 py-2 font-medium text-ink">Search</button>
-  </div>
-  {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
-       submitted and never in the URL. app.css § The filter sheet. */}}
-  <input type="checkbox" id="filter-sheet" class="peer sr-only lg:hidden">
-  <label for="filter-sheet" class="mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1 rounded border border-line px-3 text-sm text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link lg:hidden">Filters<span id="filter-count">{{template "armory_filter_count" .Data}}</span></label>
-  <div class="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-8">
-    <div id="results" class="min-w-0">
-{{template "armory_rows" .Data}}
-    </div>
-    <aside aria-label="Filters" class="filter-sheet hidden lg:block">
-      <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
-        <p class="font-medium text-paper">Filters</p>
-        <label for="filter-sheet" class="cursor-pointer text-sm text-link">Close</label>
+{{/* The validated design (AOC-065; product_management/reference/ui-guidelines.md). From lg up the page
+     is the full-window app: this search block fixed under the header, then the table pane and the
+     filter pane side by side, each scrolling inside itself. Below lg it is the canvas's 1b — an
+     ordinary scrolling page, the filters in a sheet.
+     ONE form: the search and the filters submit together, so each keeps the other, and without
+     JavaScript it is a plain GET form (AOC-049). */}}
+<form method="get" action="/armory" class="armory flex flex-col lg:min-h-0 lg:flex-1">
+  <div class="flex flex-none flex-col gap-3 border-b border-line bg-ink-pane px-5 pb-[14px] pt-[18px]">
+    <div role="search" class="flex items-center gap-3">
+      <div class="flex h-[46px] min-w-0 flex-1 items-center gap-[11px] rounded-[7px] border-[1.5px] border-link bg-ink px-[14px] shadow-[0_0_0_3px_rgba(205,151,91,0.13)]">
+        <span aria-hidden="true" class="size-[14px] flex-none rounded-full border-[1.6px] border-muted-2"></span>
+        <label for="q" class="sr-only">Search items by name or id</label>
+        <input id="q" name="q" type="search" value="{{$d.Query}}" placeholder="Search {{num $d.Span.Total}} items by name or id"
+               class="min-w-0 flex-1 border-0 bg-transparent text-[15px] text-paper placeholder:text-faint focus:outline-none">
+        <kbd aria-hidden="true" class="js-only flex-none rounded-[4px] border border-line-control px-1.5 py-[3px] font-mono text-[11px] font-medium text-faint max-sm:hidden">⌘K</kbd>
       </div>
-      {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the
-           answer carries the rail out of band (armory_update). Never swapped itself, so the phone
-           sheet's scroll position survives a change. */}}
-      <div class="min-h-0 flex-1 overflow-y-auto px-4 lg:px-0" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true">
+      <button type="button" id="copy-link" class="js-only h-[46px] flex-none rounded-[7px] border border-line-control px-4 text-[13px] font-medium text-muted hover:border-link hover:text-paper max-sm:hidden">Copy link ↗</button>
+    </div>
+    {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
+         submitted and never in the URL. app.css § The filter sheet. */}}
+    <div class="flex items-center gap-3 lg:hidden">
+      <input type="checkbox" id="filter-sheet" class="peer sr-only">
+      <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Filters<span id="filter-count">{{template "armory_filter_count" $d}}</span></label>
+    </div>
+    <div id="armory-chips" class="flex flex-wrap items-center gap-2">
+{{template "armory_chips" $d}}
+    </div>
+  </div>
+
+  <div class="lg:flex lg:min-h-0 lg:flex-1">
+    <div id="results" class="flex min-w-0 flex-col lg:min-h-0 lg:min-w-[380px] lg:flex-1">
+{{template "armory_rows" $d}}
+    </div>
+
+    {{/* The filter pane (the design's right column, 232px). It collapses to a 34px strip through this
+         unnamed checkbox; on a phone it is the sheet. */}}
+    <input type="checkbox" id="filters-collapsed" class="sr-only max-lg:hidden" aria-label="Collapse the filters">
+    <label for="filters-collapsed" class="filters-strip w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-pane py-3 hover:bg-ink-strip" title="Show the filters">
+      <span class="font-mono text-[12px] font-medium text-link">‹</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Filters</span>
+    </label>
+    <aside aria-label="Filters" class="filter-sheet filters-pane relative hidden lg:flex lg:min-w-[186px] lg:flex-[0_1_232px] lg:flex-col lg:border-l lg:border-line lg:bg-ink-pane">
+      <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
+        <p class="text-[12px] font-semibold uppercase tracking-[0.06em] text-link">Filters</p>
+        <label for="filter-sheet" class="cursor-pointer text-[13px] text-link">Close</label>
+      </div>
+      {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the answer
+           carries the pane out of band (armory_update). This scroll box is never swapped itself, so the
+           scroll position survives a change. */}}
+      <div class="relative min-h-0 flex-1 overflow-y-auto px-4 lg:px-[14px]" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true">
         <div id="armory-facets">
-{{template "armory_facets" .Data}}
+{{template "armory_facets" $d}}
         </div>
       </div>
     </aside>
   </div>
 </form>
-{{/* A change's answer redraws the rail. A number typed, or a choice made, while that request was in
-     flight would be wiped by the redraw (AOC-049 review) — so the control that has focus keeps what
-     the reader put in it, and its own change sends it next. An enhancement only: without it, and
-     without JavaScript, the page works. */}}
+{{/* Enhancements only: without them, and without JavaScript, the page works.
+     - A change's answer redraws the pane. A number typed, or a choice made, while that request was in
+       flight would be wiped by the redraw (AOC-049 review), so the focused control keeps its value.
+     - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
+     - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
+// The sliders' hidden inputs ship disabled, so a script-less submit sends only the number inputs;
+// here, and for every pane htmx swaps in, they are switched on.
+function aocEnable(root) { root.querySelectorAll("[data-js-enable]").forEach(function (i) { i.disabled = false; }); }
+aocEnable(document);
+document.addEventListener("htmx:load", function (e) { aocEnable(e.detail.elt); });
+document.addEventListener("htmx:oobAfterSwap", function () { aocEnable(document); });
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
   var a = document.activeElement, f = e.detail.fragment;
-  if (!a || !a.id || !f || !(a.tagName === "SELECT" || a.type === "number")) return;
+  if (!a || !a.id || !f || !(a.tagName === "SELECT" || a.type === "number" || a.type === "range")) return;
   var n = f.querySelector("#" + CSS.escape(a.id));
   if (n) n.value = a.value;
+});
+document.addEventListener("input", function (e) {
+  var s = e.target;
+  if (!s.matches || !s.matches("input[type=range][data-bound]")) return;
+  var box = s.closest("[data-range]"), h = box.querySelector('input[type=hidden][name="' + s.dataset.bound + '"]');
+  var end = s.dataset.end === "min" ? s.min : s.max;
+  h.value = s.value === end ? "" : s.value;
+  var lo = box.querySelector("[data-end=min]").value, hi = box.querySelector("[data-end=max]").value;
+  box.querySelector("[data-range-label]").textContent = lo + " – " + hi;
+});
+document.addEventListener("keydown", function (e) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.getElementById("q").focus(); }
+});
+document.addEventListener("click", function (e) {
+  var b = e.target.closest && e.target.closest("#copy-link");
+  if (!b || !navigator.clipboard) return;
+  navigator.clipboard.writeText(location.href).then(function () {
+    b.textContent = "Copied ✓";
+    setTimeout(function () { b.textContent = "Copy link ↗"; }, 1500);
+  });
 });
 </script>
 {{end}}

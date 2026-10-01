@@ -54,7 +54,11 @@ func (h *Handler) view(title, description, path string) templates.View {
 	if p, err := h.assets.Path(ogImageAsset); err == nil {
 		v.OGImage = h.baseURL + p
 	}
-	v.Nav = siteNav
+	v.Nav = make([]templates.NavItem, len(siteNav))
+	for i, n := range siteNav {
+		n.Current = path == n.Path || strings.HasPrefix(path, n.Path+"/") || strings.HasPrefix(path, n.Path+"?")
+		v.Nav[i] = n
+	}
 	return v
 }
 

@@ -50,6 +50,11 @@ type View struct {
 	// package's view helper. The footer carries no credit and no notice (AOC-055, Pierre): where the
 	// data came from is said once, on the Info page (AOC-056).
 	Nav []NavItem // the header's section links — only routes that exist
+
+	// App lays the page out as the validated design's full-window app from lg up (AOC-065): the
+	// header and the page's own bars fixed, its panes scrolling inside, the document never scrolling.
+	// Below lg every page is an ordinary scrolling document.
+	App bool
 }
 
 // ThingLD is schema.org's Thing — what an item page describes. Not Product: Google reports a
@@ -70,8 +75,9 @@ func NewThingLD(name, description, url, image string) ThingLD {
 
 // NavItem is one header link.
 type NavItem struct {
-	Label string
-	Path  string
+	Label   string
+	Path    string
+	Current bool // the section this page belongs to: the design's filled pill (AOC-065)
 }
 
 var (

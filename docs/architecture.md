@@ -450,6 +450,30 @@ service) answers it, and the handler adds only what a page owns — `p`, the URL
 `items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
 linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
 
+**The full-window app** (AOC-065, Pierre's validated design; `product_management/reference/ui-guidelines.md`
+is the visual source of truth, distilled from `discovery/design/armory-2026-10-01/`). A page that sets
+`View.App` is laid out from `lg` up as the design's app, and `base.html` does the rest:
+- **The body is the window** (`lg:h-screen lg:overflow-hidden`, a flex column): the 52px header, then
+  the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`,
+  `overflow-auto`). **The document never scrolls** — measured at 1024, 1440 and 1920 px, with and
+  without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes and radios
+  are absolutely positioned, and without a positioned ancestor the ones far down a pane counted
+  toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
+- **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
+- **The design's type is `line-height: normal`** (its `font` shorthand resets it), scoped to `.armory`
+  and the header; prose pages keep 1.5. Without it every row was 43px, not the design's 37–39.
+- **Tokens:** `app.css` carries the guideline's palette; `TestThemeTextTokensPassAA` measures every
+  text token against every pane background (the design's two faintest greys are lifted to `faint`,
+  `#827c73`, for AA — a noted deviation). Computed styles of 61 elements were checked against the
+  guideline in a browser (AOC-065 ticket Log).
+- **JavaScript-only controls** (⌘K, Copy link, the level sliders) carry `.js-only` and stay hidden until
+  `base.html`'s first script marks `<html class="js">`; what only a script-less reader needs carries
+  `.no-js-only` or sits in `<noscript>`. The sliders' hidden inputs ship `disabled` and the page's
+  script enables them, so a script-less submit sends only the `<noscript>` number inputs — never a
+  bound twice (`TestTheLevelSlidersNeverDoubleABound`).
+- **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051), other
+  sections and account (EP-06) are absent until they ship; the nav lists only routes that exist.
+
 **The filter rail** (AOC-049) is the pattern for any page with filters:
 
 - **One `<form method="get">`** holds the search and the rail, so each keeps the other, and the
@@ -474,7 +498,9 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   fields.
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
-  `lg`. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
+  `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
+  (`#filters-collapsed`), as the design's ›. Since AOC-065 the pills row in the search block is a
+  third out-of-band target (`#armory-chips`), beside the pane and the phone button's count. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
   would need a second copy of the form.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an

@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -26,6 +27,13 @@ type ArmoryData struct {
 	Prev  string     // URL of the previous page, "" on the first
 	Next  string     // URL of the next page, "" on the last
 	Clear string     // URL of the list with the search cleared (the filters kept)
+
+	// AOC-065, the validated design: the state's own URL (shown in the search block), the sort button's
+	// label and where it leads next, and the pager's "rows a–b".
+	URL              string
+	SortLabel        string
+	NextSort         string
+	RowsFrom, RowsTo int64
 
 	// The filter rail (AOC-049). Built by the handler from items.Facets; the template only prints.
 	Rail     Rail
@@ -56,6 +64,7 @@ type Rail struct {
 // or a radio group led by "Any" (vendor price).
 type RailGroup struct {
 	Legend  string
+	Kind    string // how the design draws it: "list" (rarity rows), "mono", "sans" or "class" chips
 	Options []RailOption
 }
 
@@ -110,6 +119,34 @@ type PageLink struct {
 	N       int
 	URL     string
 	Current bool
+}
+
+// Num prints a whole number with thousands separators, as the design does: 1373 → "1,373". It takes
+// the integer types the templates hold.
+func Num(v any) string {
+	var n int64
+	switch x := v.(type) {
+	case int:
+		n = int64(x)
+	case int32:
+		n = int64(x)
+	case int64:
+		n = x
+	default:
+		return fmt.Sprint(v)
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if neg {
+		s = "-" + s
+	}
+	return s
 }
 
 // SlotNames is a row's slots as the list prints them: "Left Finger, Right Finger"; "" for none.
@@ -174,17 +211,18 @@ func armoryProbe() ArmoryData {
 	return ArmoryData{
 		Query: "probe", Sort: items.SortILvl,
 		Rail: Rail{
-			Groups: []RailGroup{{Legend: "Rarity", Options: []RailOption{
+			Groups: []RailGroup{{Legend: "Rarity", Kind: "list", Options: []RailOption{
 				{Name: "rarity", ID: "f-rarity-epic", Value: "epic", Label: "Test Epic", ColourToken: "rarity-epic", Count: 1, Checked: true, Multi: true},
 				{Name: "rarity", ID: "f-rarity-dull", Value: "dull", Label: "Test Dull", Count: 0, Multi: true}}},
-				{Legend: "Vendor price", Options: []RailOption{anyRarity}},
-				{Legend: "Class restriction", Options: []RailOption{
+				{Legend: "Vendor price", Kind: "sans", Options: []RailOption{anyRarity}},
+				{Legend: "Class restriction", Kind: "class", Options: []RailOption{
 					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1, Multi: true}}}},
 			Levels:  []RailRange{{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: "70", Lo: "1", Hi: "90"}},
 			Selects: []RailSelect{{Name: "currency", ID: "f-currency", Label: "Currency", Options: []RailOption{{Name: "currency", Label: "Any currency", Count: 3, Checked: true}, {Name: "currency", Value: "test-token", Label: "Test Token", Count: 0}}}},
 			Hidden:  []HiddenInput{{Name: "sort", Value: "name"}},
 		},
-		Chips:    []Chip{{Label: "Rarity: Test Epic", URL: "/armory"}},
+		Chips: []Chip{{Label: "Rarity: Test Epic", URL: "/armory"}},
+		URL:   "/armory?rarity=epic", SortLabel: "Item level ↓", NextSort: "/armory?sort=name", RowsFrom: 1, RowsTo: 3,
 		ClearAll: "/armory",
 		Sorts:    []SortOption{{Key: items.SortILvl, Label: "Item level", URL: "/armory?sort=ilvl", Current: true}, {Key: items.SortName, Label: "Name", URL: "/armory?sort=name"}},
 		Result: items.ListResult{

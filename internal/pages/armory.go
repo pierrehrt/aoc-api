@@ -21,8 +21,9 @@ import (
 
 const armoryPageSize = 50
 
-// sortLabels is presentation: the words on the sort control for the keys items.Sorts defines.
-var sortLabels = map[string]string{items.SortILvl: "Item level", items.SortName: "Name", items.SortID: "Id"}
+// sortLabels is presentation: the words on the sort control for the keys items.Sorts defines, with
+// the direction each one runs (the design's "Item level ↓").
+var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortName: "Name ↑", items.SortID: "Id ↑"}
 
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)
@@ -99,10 +100,24 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		Chips:    chips,
 		ClearAll: clearAll,
 	}
-	for _, k := range items.Sorts {
+	for i, k := range items.Sorts {
 		g := f
 		g.Sort = k
 		d.Sorts = append(d.Sorts, templates.SortOption{Key: k, Label: sortLabels[k], URL: here(g), Current: k == f.Sort})
+		if k == f.Sort {
+			// The design's one sort button: it shows this order and leads to the next one.
+			next := f
+			next.Sort = items.Sorts[(i+1)%len(items.Sorts)]
+			d.SortLabel, d.NextSort = sortLabels[k], here(next)
+		}
+	}
+	d.URL = armoryURL(f, page)
+	if n := int64(len(res.Items)); n > 0 {
+		d.RowsFrom = int64(f.Offset) + 1
+		d.RowsTo = int64(f.Offset) + int64(armoryPageSize)
+		if d.RowsTo > res.Total {
+			d.RowsTo = res.Total
+		}
 	}
 	if page > 1 {
 		d.Prev = armoryURL(f, page-1)
@@ -138,6 +153,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	}
 	// The canonical is this state without a redundant p=1, so the first page has one URL.
 	v := h.view(title, desc, armoryURL(f, page))
+	v.App = true // the validated design's full-window app, from lg up (AOC-065)
 	h.render(w, r, "armory", v, d)
 }
 
@@ -166,14 +182,23 @@ func armoryURL(f items.Filters, page int) string {
 	return "/armory?" + v.Encode()
 }
 
-// pagerWindow is the numbered links to show: the first, the last, and two either side of the
-// current page — 93 pages of 50 must not become 93 links.
+// pagerWindow is the numbered links to show: five consecutive pages around the current one, as the
+// design draws them (‹ Prev 1 2 3 4 5 Next ›) — 93 pages of 50 must not become 93 links.
 func pagerWindow(page, pages int) []int {
+	from := page - 2
+	if from > pages-4 {
+		from = pages - 4
+	}
+	if from < 1 {
+		from = 1
+	}
+	to := from + 4
+	if to > pages {
+		to = pages
+	}
 	var out []int
-	for n := 1; n <= pages; n++ {
-		if n == 1 || n == pages || (n >= page-2 && n <= page+2) {
-			out = append(out, n)
-		}
+	for n := from; n <= to; n++ {
+		out = append(out, n)
 	}
 	return out
 }
