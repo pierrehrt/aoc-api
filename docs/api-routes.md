@@ -74,8 +74,9 @@ since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `pric
 - **`price`** (AOC-049): `true` keeps items a vendor sells on **any** of their sources, `false`
   items no source has a price for. "Any", because the list shows items, not occurrences: an item
   free from a boss and sold by a vendor (689 in the corpus) has a price. `price=1` reads as `true`.
-- **`currency`** (a currency slug) keeps items bought with that currency from at least one source;
-  **`set`** (a set slug) keeps the items of that set.
+- **`currency`** (currency slugs) keeps items bought with one of those currencies from at least one
+  source; **`set`** (set slugs) keeps the items of those sets. Both are lists, like the other facets
+  (below).
 - **`facets=1`** (AOC-049) adds **`facets`** to the envelope: the counts the Armory's filter rail
   shows. Absent unless asked for, so a caller that does not ask sees the 0.1.0 envelope. Each count
   is **how many items choosing that value would leave under the other filters**: the filter set
@@ -178,13 +179,19 @@ maximum (`ilvl_min=80&ilvl_max=70`, which can match nothing by construction), an
 rarity, or `not-a-set` a set, is a database question, and the database answers it with an empty
 page. The same holds for `currency` and `set` (AOC-049).
 
-⚠️ **Only `place` may be repeated.** `?place=a&place=b` is one selection of two dungeons, and
-`?place=a,b` means the same. Every other filter takes a single value: `?rarity=epic&rarity=rare`
-uses the **first** and ignores the rest. That is worth knowing precisely because `place` repeats —
-the rest are single-valued because no page needs them otherwise, and making each one a list would
-be more surface to keep correct for a filter nobody asked to combine. The Armory's filter rail
-(AOC-049) keeps it that way on purpose: with one value per facet, the count beside a value is
-exactly the `total` that choosing it gives (`DECISIONS.md`).
+**Lists (AOC-064).** `rarity`, `equip_location`, `armour_weight`, `class`, `currency`, `set` and
+`place` each take **several values**, repeated (`?rarity=epic&rarity=rare`), comma-separated
+(`?rarity=epic,rare`) or both. Each value is counted once, and empty elements are dropped. An item
+matches **any** value of a filter and **every** filter. `item_type`, `region` and `tier` take one
+value (the first). ⚠️ **Changed in 0.5.0:** until then a repeated `rarity` (or slot, weight, class,
+currency, set) used the **first** value and ignored the rest. The response shape is unchanged, and
+the only answers that change are those to requests that named two values, which now get both
+(`DECISIONS.md`, 2026-10-01).
+
+With several values in a group, a facet's count is still "items with this value under the other
+filters". For a facet that holds one value per item (rarity, armour weight, set), the total for
+several ticked values is exactly the sum of their counts. For slot, class and currency it is
+their union.
 
 ### `GET /v1/items/{slug}`
 
@@ -272,7 +279,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
-| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049 — the rail offers rarity, slot, armour weight, class, both level ranges, vendor price, currency and set; the rest ride along as hidden inputs and chips). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the rail and the phone's filter count out of band — with `HX-Push-Url` set to the state's canonical URL; both answers send `Vary: HX-Request`. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049 — the rail offers rarity, slot, armour weight and class as checkboxes, several at once (AOC-064), both level ranges, vendor price, currency and set; the rest ride along as hidden inputs and chips, one chip per value). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the rail and the phone's filter count out of band — with `HX-Push-Url` set to the state's canonical URL; both answers send `Vary: HX-Request`. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
 | GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |
 | GET | `/sitemap.xml` | **AOC-025.** A sitemap **index** (sitemaps.org 0.9) listing every chunk, absolute URLs on `PUBLIC_BASE_URL` |

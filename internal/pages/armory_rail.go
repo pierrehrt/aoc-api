@@ -15,50 +15,90 @@ import (
 // beside a value is then exactly what choosing it gives.
 
 // railFacet is one vocabulary facet: its parameter, its words on the rail, where its counts are, and
-// how to read and clear it on a Filters.
+// how to read and write its list on a Filters (AOC-064: every facet is a list).
 type railFacet struct {
 	param, legend, anyLabel string
 	group                   func(*items.Facets) items.FacetGroup
-	get                     func(items.Filters) string
-	clear                   func(*items.Filters)
+	get                     func(items.Filters) []string
+	set                     func(*items.Filters, []string)
 }
 
-// The radio groups, then the selects, in the rail's order.
+// The checkbox groups, then the selects, in the rail's order.
 var (
-	radioFacets = []railFacet{
-		{"rarity", "Rarity", "Any", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
-			func(f items.Filters) string { return f.Rarity }, func(f *items.Filters) { f.Rarity = "" }},
-		{"equip_location", "Slot", "Any", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
-			func(f items.Filters) string { return f.EquipLocation }, func(f *items.Filters) { f.EquipLocation = "" }},
-		{"armour_weight", "Armour weight", "Any", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
-			func(f items.Filters) string { return f.ArmourWeight }, func(f *items.Filters) { f.ArmourWeight = "" }},
-		{"class", "Class restriction", "Any", func(fc *items.Facets) items.FacetGroup { return fc.Class },
-			func(f items.Filters) string { return f.Class }, func(f *items.Filters) { f.Class = "" }},
+	checkFacets = []railFacet{
+		{"rarity", "Rarity", "", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
+			func(f items.Filters) []string { return f.Rarities }, func(f *items.Filters, v []string) { f.Rarities = v }},
+		{"equip_location", "Slot", "", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
+			func(f items.Filters) []string { return f.EquipLocations }, func(f *items.Filters, v []string) { f.EquipLocations = v }},
+		{"armour_weight", "Armour weight", "", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
+			func(f items.Filters) []string { return f.ArmourWeights }, func(f *items.Filters, v []string) { f.ArmourWeights = v }},
+		{"class", "Class restriction", "", func(fc *items.Facets) items.FacetGroup { return fc.Class },
+			func(f items.Filters) []string { return f.Classes }, func(f *items.Filters, v []string) { f.Classes = v }},
 	}
 	selectFacets = []railFacet{
 		{"currency", "Currency", "Any currency", func(fc *items.Facets) items.FacetGroup { return fc.Currency },
-			func(f items.Filters) string { return f.Currency }, func(f *items.Filters) { f.Currency = "" }},
+			func(f items.Filters) []string { return f.Currencies }, func(f *items.Filters, v []string) { f.Currencies = v }},
 		{"set", "Set", "Any set", func(fc *items.Facets) items.FacetGroup { return fc.Set },
-			func(f items.Filters) string { return f.Set }, func(f *items.Filters) { f.Set = "" }},
+			func(f items.Filters) []string { return f.Sets }, func(f *items.Filters, v []string) { f.Sets = v }},
 	}
 )
 
-// options is a facet's choices: Any, then every value. A selected slug the vocabulary does not hold
-// (a mistyped link) is kept as a checked choice at 0, so the form does not silently drop it and the
-// empty state explains the page.
-func options(rf railFacet, g items.FacetGroup, selected string) []templates.RailOption {
-	out := []templates.RailOption{{Name: rf.param, ID: "f-" + rf.param + "-any", Label: rf.anyLabel, Count: g.Any, Checked: selected == ""}}
-	found := selected == ""
+func contains(xs []string, x string) bool {
+	for _, y := range xs {
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+// without is xs minus x, nil when nothing is left (an empty list is no filter, and must not be '{}').
+func without(xs []string, x string) []string {
+	var out []string
+	for _, y := range xs {
+		if y != x {
+			out = append(out, y)
+		}
+	}
+	return out
+}
+
+// checkOptions is a checkbox group: every value, ticked when chosen. A chosen slug the vocabulary does
+// not hold (a mistyped link) stays as a ticked choice at 0, so the form does not silently drop it.
+func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates.RailOption {
+	var out []templates.RailOption
+	known := map[string]bool{}
 	for _, v := range g.Values {
+		known[v.Slug] = true
 		out = append(out, templates.RailOption{
 			Name: rf.param, ID: "f-" + rf.param + "-" + v.Slug, Value: v.Slug,
 			Label: v.Name, Short: v.ShortName, ColourToken: v.ColourToken,
-			Count: v.Count, Checked: v.Slug == selected,
+			Count: v.Count, Checked: contains(chosen, v.Slug), Multi: true,
 		})
-		found = found || v.Slug == selected
+	}
+	for i, c := range chosen {
+		if !known[c] {
+			out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown-" + strconv.Itoa(i), Value: c, Label: c, Checked: true, Multi: true})
+		}
+	}
+	return out
+}
+
+// selectOptions is a <select>: Any, then every value; the FIRST chosen value is selected. A select
+// holds one value, so any further chosen values ride along as hidden inputs (see buildRail).
+func selectOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates.RailOption {
+	first := ""
+	if len(chosen) > 0 {
+		first = chosen[0]
+	}
+	out := []templates.RailOption{{Name: rf.param, ID: "f-" + rf.param + "-any", Label: rf.anyLabel, Count: g.Any, Checked: first == ""}}
+	found := first == ""
+	for _, v := range g.Values {
+		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-" + v.Slug, Value: v.Slug, Label: v.Name, Count: v.Count, Checked: v.Slug == first})
+		found = found || v.Slug == first
 	}
 	if !found {
-		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown", Value: selected, Label: selected, Checked: true})
+		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown", Value: first, Label: first, Checked: true})
 	}
 	return out
 }
@@ -106,12 +146,17 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		chips = append(chips, templates.Chip{Label: label, URL: here(g)})
 	}
 
-	for _, rf := range radioFacets {
-		g, sel := rf.group(fc), rf.get(f)
-		rail.Groups = append(rail.Groups, templates.RailGroup{Legend: rf.legend, Options: options(rf, g, sel)})
-		if sel != "" {
-			chip(rf.legend+": "+nameOf(g, sel), rf.clear)
+	// One chip per chosen value; its × removes that value only.
+	valueChips := func(rf railFacet, g items.FacetGroup) {
+		for _, c := range rf.get(f) {
+			c := c
+			chip(rf.legend+": "+nameOf(g, c), func(h *items.Filters) { rf.set(h, without(rf.get(*h), c)) })
 		}
+	}
+	for _, rf := range checkFacets {
+		g := rf.group(fc)
+		rail.Groups = append(rail.Groups, templates.RailGroup{Legend: rf.legend, Options: checkOptions(rf, g, rf.get(f))})
+		valueChips(rf, g)
 	}
 
 	// The price: three choices, counted (price=false is every item the other filters leave, minus
@@ -157,11 +202,14 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 	}
 
 	for _, rf := range selectFacets {
-		g, sel := rf.group(fc), rf.get(f)
-		rail.Selects = append(rail.Selects, templates.RailSelect{Name: rf.param, ID: "f-" + rf.param, Label: rf.legend, Options: options(rf, g, sel)})
-		if sel != "" {
-			chip(rf.legend+": "+nameOf(g, sel), rf.clear)
+		g, chosen := rf.group(fc), rf.get(f)
+		rail.Selects = append(rail.Selects, templates.RailSelect{Name: rf.param, ID: "f-" + rf.param, Label: rf.legend, Options: selectOptions(rf, g, chosen)})
+		if len(chosen) > 1 {
+			for _, extra := range chosen[1:] {
+				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: rf.param, Value: extra})
+			}
 		}
+		valueChips(rf, g)
 	}
 
 	// What the rail has no control for rides along as hidden inputs — and as chips, so it can be

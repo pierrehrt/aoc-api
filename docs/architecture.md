@@ -453,8 +453,11 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
 **The filter rail** (AOC-049) is the pattern for any page with filters:
 
 - **One `<form method="get">`** holds the search and the rail, so each keeps the other, and the
-  page works with JavaScript off (Apply is a submit). One value per group: radio groups led by
-  "Any", two number ranges, and `<select>`s for the long vocabularies (24 currencies, 368 sets).
+  page works with JavaScript off (Apply is a submit). Rarity, slot, armour weight and class are
+  checkbox groups, several ticked at once and none ticked meaning any (AOC-064). Vendor price is a
+  radio group led by "Any". There are two number ranges, and `<select>`s for the long vocabularies
+  (24 currencies, 368 sets). A select holds one value, so further chosen values ride along as hidden
+  inputs.
   Every value and count is `items.Facets`; the handler turns it into controls in
   `pages.buildRail`, and the template only prints. A 0 is muted, never hidden.
 - **Every link is built from the whole state** — `items.Filters.Values()`, the parser's inverse,
@@ -981,8 +984,12 @@ a group's "Any":  count(*) FILTER (WHERE every flag except its own)
   (190 mutants): the two fixture tests kill all 190. The first two runs did not, and what they found
   is now in the fixture — `OFFSET NULL` is `OFFSET 0` (a "weightless" item silently had the first
   weight), and combinations where a level span vanishes or moves.
-- **Single-valued filters, on purpose.** One value per facet makes the number beside a value exactly
-  the result of choosing it; OR-within-a-group would make it a different number (`DECISIONS.md`).
+- **Several values per facet** (AOC-064, Pierre's validated design). A facet's flag is
+  `= ANY(list)`, and a value's count is unchanged in meaning: the items with that value under the
+  other facets. For a facet holding one value per item (rarity, armour weight, set), that is exactly
+  what ticking it adds. An empty list reaches SQL as **NULL, never `'{}'`** (`items.listArg`, one
+  spelling for all seven lists; `x = ANY('{}')` is false for every row). This supersedes AOC-049's
+  single-value design (`DECISIONS.md`).
 
 Measured on the dev corpus, without JIT: list 2–4 ms, facets 9–16 ms, totals 4–6 ms.
 

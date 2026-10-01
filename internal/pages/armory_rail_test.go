@@ -35,9 +35,11 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 	body := get(t, router(t), http.MethodGet, "/armory", nil, "").Body.String()
 	for _, want := range []string{
 		`<form method="get" action="/armory"`,
-		// every group, each led by a checked Any that carries the count with the group unset
-		`<input type="radio" id="f-rarity-any" name="rarity" value="" checked`,
-		`<input type="radio" id="f-rarity-epic" name="rarity" value="epic"`,
+		// AOC-064: the facets are checkbox groups (several may be ticked; none ticked is any) —
+		// no "Any" choice, nothing ticked by default
+		`<input type="checkbox" id="f-rarity-epic" name="rarity" value="epic" class="peer sr-only">`,
+		// vendor price stays a radio group led by Any
+		`<input type="radio" id="f-price-any" name="price" value="" checked`,
 		`id="f-equip_location-test-slot-head"`, `id="f-armour_weight-test-weight-light"`, `id="f-class-test-class"`,
 		`id="f-price-true" name="price" value="true"`, `id="f-price-false" name="price" value="false"`,
 		// two level ranges, the span as placeholders
@@ -173,7 +175,7 @@ func TestTheFormCarriesEveryFilter(t *testing.T) {
 	for _, m := range regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)">`).FindAllStringSubmatch(form, -1) {
 		got.Add(m[1], m[2])
 	}
-	for _, m := range regexp.MustCompile(`<input type="radio" id="[^"]+" name="([^"]+)" value="([^"]*)" checked`).FindAllStringSubmatch(form, -1) {
+	for _, m := range regexp.MustCompile(`<input type="(?:radio|checkbox)" id="[^"]+" name="([^"]+)" value="([^"]*)" checked`).FindAllStringSubmatch(form, -1) {
 		if m[2] != "" {
 			got.Add(m[1], m[2])
 		}
@@ -275,7 +277,10 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 		want := map[string]int64{} // "param=value" -> count, from the JSON
 		for param, g := range map[string]items.FacetGroup{"rarity": env.Facets.Rarity, "equip_location": env.Facets.EquipLocation,
 			"armour_weight": env.Facets.ArmourWeight, "class": env.Facets.Class, "currency": env.Facets.Currency, "set": env.Facets.Set} {
-			want[param+"="] = g.Any
+			// A checkbox group has no "Any" choice on the page (AOC-064); the selects keep theirs.
+			if param == "currency" || param == "set" {
+				want[param+"="] = g.Any
+			}
 			for _, v := range g.Values {
 				want[param+"="+v.Slug] = v.Count
 			}
@@ -283,7 +288,7 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 		want["price="], want["price=true"], want["price=false"] = env.Facets.Price.Any, env.Facets.Price.Count, env.Facets.Price.Any-env.Facets.Price.Count
 
 		got := map[string]int64{}
-		for _, m := range regexp.MustCompile(`(?s)<input type="radio" id="[^"]+" name="([^"]+)" value="([^"]*)".*?<span class="font-mono text-xs text-muted">(\d+)</span>`).FindAllStringSubmatch(page, -1) {
+		for _, m := range regexp.MustCompile(`(?s)<input type="(?:radio|checkbox)" id="[^"]+" name="([^"]+)" value="([^"]*)".*?<span class="font-mono text-xs text-muted">(\d+)</span>`).FindAllStringSubmatch(page, -1) {
 			n, _ := strconv.ParseInt(m[3], 10, 64)
 			got[m[1]+"="+m[2]] = n
 		}
@@ -374,5 +379,46 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 	// The value a reader is typing survives a redraw that answers an earlier change.
 	if !strings.Contains(body, `document.addEventListener("htmx:oobBeforeSwap"`) {
 		t.Error("the focused control's value is not kept across the rail's redraw")
+	}
+}
+
+// AOC-064: several values in a group — both boxes ticked, one chip each, and each chip's × removes
+// only its own value (the others, and the other filters, stay).
+func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?rarity=epic&rarity=test-rarity-dull&class=test-class&sort=name", nil, "").Body.String()
+	for _, want := range []string{
+		`<input type="checkbox" id="f-rarity-epic" name="rarity" value="epic" checked`,
+		`<input type="checkbox" id="f-rarity-test-rarity-dull" name="rarity" value="test-rarity-dull" checked`,
+		`<input type="checkbox" id="f-class-test-class" name="class" value="test-class" checked`,
+		`<span id="filter-count"> · 3</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	chips := regexp.MustCompile(`<a href="([^"]+)" hx-get="[^"]+" hx-target="#results" hx-push-url="true" aria-label="Remove the filter ([^"]+)"`).FindAllStringSubmatch(body, -1)
+	keeps := map[string][]string{
+		"Rarity: Test Epic":        {"test-rarity-dull"},
+		"Rarity: Test Rarity Dull": {"epic"},
+	}
+	seen := 0
+	for _, c := range chips {
+		label := html.UnescapeString(c[2])
+		want, ok := keeps[label]
+		if !ok {
+			continue
+		}
+		seen++
+		u, _ := url.Parse(html.UnescapeString(c[1]))
+		q := u.Query()
+		if strings.Join(q["rarity"], ",") != strings.Join(want, ",") {
+			t.Errorf("chip %q leaves rarity=%v, want %v", label, q["rarity"], want)
+		}
+		if q.Get("class") != "test-class" || q.Get("sort") != "name" {
+			t.Errorf("chip %q drops another filter: %s", label, c[1])
+		}
+	}
+	if seen != 2 {
+		t.Errorf("found %d rarity chips, want one per ticked value (2)", seen)
 	}
 }

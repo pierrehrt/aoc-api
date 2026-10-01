@@ -19,7 +19,7 @@ import (
 func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
 	for _, path := range []string{"/armory", "/armory?rarity=test-rarity-dull", "/armory?class=test-class&price=false"} {
 		body := get(t, router(t), http.MethodGet, path, nil, "").Body.String()
-		re := regexp.MustCompile(`(?s)<input type="radio" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)?[^>]*>\s*<label for="[^"]+"[^>]*class="([^"]*)">.*?<span class="font-mono text-xs text-muted">(\d+)</span>`)
+		re := regexp.MustCompile(`(?s)<input type="(?:radio|checkbox)" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)?[^>]*>\s*<label for="[^"]+"[^>]*class="([^"]*)">.*?<span class="font-mono text-xs text-muted">(\d+)</span>`)
 		ms := re.FindAllStringSubmatch(body, -1)
 		if len(ms) == 0 {
 			t.Fatalf("%s: no radio found", path)
@@ -111,8 +111,9 @@ func TestAnUnknownRadioSlugStaysChosenAndNamed(t *testing.T) {
 		t.Fatalf("status %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `<input type="radio" id="f-rarity-unknown" name="rarity" value="not-a-rarity" checked`) {
-		t.Error("the unknown rarity is not kept as the chosen radio — a submit would silently drop it")
+	// AOC-064: rarity is a checkbox group; the unknown value stays a ticked box.
+	if !strings.Contains(body, `<input type="checkbox" id="f-rarity-unknown-0" name="rarity" value="not-a-rarity" checked`) {
+		t.Error("the unknown rarity is not kept as a ticked choice — a submit would silently drop it")
 	}
 	if strings.Contains(body, `id="f-rarity-any" name="rarity" value="" checked`) {
 		t.Error("Any is checked while the URL names a rarity")

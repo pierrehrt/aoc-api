@@ -65,14 +65,19 @@ func NewService(q Querier) *Service { return &Service{q: q} }
 // Filters is a validated list query. Every field is a taxonomy slug the taxonomy endpoint returned
 // or a free-text name search -- never a value a client invented for a taxonomy field.
 type Filters struct {
-	Rarity        string
-	ItemType      string
-	EquipLocation string
-	ArmourWeight  string
-	Class         string
-	Region        string
-	Tier          string
-	Query         string
+	// The rail's facets take several values each (AOC-064, the validated design: checkboxes and
+	// toggle chips): an item matches ANY value of a facet, and every facet. Empty is no filter.
+	Rarities       []string
+	EquipLocations []string
+	ArmourWeights  []string
+	Classes        []string
+	Currencies     []string
+	Sets           []string
+
+	ItemType string
+	Region   string
+	Tier     string
+	Query    string
 
 	// Places are the specific places the caller named. One or more of these is what makes the
 	// view a PLACE view rather than an aggregate one, and that is what decides collapsing.
@@ -81,14 +86,12 @@ type Filters struct {
 	PvP       *bool
 	Unchained *bool
 
-	// The rail's five filters (AOC-049). A level bound is a pointer because 0 is a value and absence
-	// is not; a bound excludes an item with no level. Price is three-valued like PvP: true is "a
-	// vendor sells it" on ANY of its sources, false is "no source has a price".
+	// The level ranges and the price (AOC-049). A level bound is a pointer because 0 is a value and
+	// absence is not; a bound excludes an item with no level. Price is three-valued like PvP: true is
+	// "a vendor sells it" on ANY of its sources, false is "no source has a price".
 	ILvlMin, ILvlMax     *int32
 	ReqLvlMin, ReqLvlMax *int32
 	Price                *bool
-	Currency             string
-	Set                  string
 
 	// WithFacets asks List for the rail's counts as well: the page always, /v1 on facets=1.
 	WithFacets bool
@@ -216,6 +219,16 @@ func termIfSet(slug, name *string) *Term {
 	return &Term{Slug: *slug, Name: deref(name)}
 }
 
+// listArg is how a facet list reaches SQL: nil when empty. An EMPTY slice reaches Postgres as '{}',
+// and `x = ANY('{}')` is false for every row -- an unticked facet would empty the list (the trap
+// `place` fell into, AOC-012 verify round 2). One spelling for every list (AOC-064).
+func listArg(xs []string) []string {
+	if len(xs) == 0 {
+		return nil
+	}
+	return xs
+}
+
 func ptrIfSet(s string) *string {
 	if s == "" {
 		return nil
@@ -254,34 +267,35 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	if !f.Aggregate() {
 		placeSlugs = f.Places
 	}
+	// The same trap for the six facet lists (AOC-064): each reaches SQL through listArg.
 
 	if err := f.validRanges(); err != nil {
 		return ListResult{}, err
 	}
 
 	params := sqlcgen.ListItemsParams{
-		Rarity:        ptrIfSet(f.Rarity),
-		ItemType:      ptrIfSet(f.ItemType),
-		NameQuery:     ptrIfSet(escapeLike(f.Query)),
-		IDQuery:       idQuery(f.Query),
-		EquipLocation: ptrIfSet(f.EquipLocation),
-		Class:         ptrIfSet(f.Class),
-		PlaceSlugs:    placeSlugs,
-		ArmourWeight:  ptrIfSet(f.ArmourWeight),
-		Region:        ptrIfSet(f.Region),
-		Tier:          ptrIfSet(f.Tier),
-		Unchained:     f.Unchained,
-		Pvp:           f.PvP,
-		IlvlMin:       f.ILvlMin,
-		IlvlMax:       f.ILvlMax,
-		ReqlvlMin:     f.ReqLvlMin,
-		ReqlvlMax:     f.ReqLvlMax,
-		Price:         f.Price,
-		Currency:      ptrIfSet(f.Currency),
-		Set:           ptrIfSet(f.Set),
-		SortBy:        f.Sort,
-		PageSize:      int32(limit),
-		PageOffset:    int32(offset),
+		Rarities:       listArg(f.Rarities),
+		ItemType:       ptrIfSet(f.ItemType),
+		NameQuery:      ptrIfSet(escapeLike(f.Query)),
+		IDQuery:        idQuery(f.Query),
+		EquipLocations: listArg(f.EquipLocations),
+		Classes:        listArg(f.Classes),
+		PlaceSlugs:     placeSlugs,
+		ArmourWeights:  listArg(f.ArmourWeights),
+		Region:         ptrIfSet(f.Region),
+		Tier:           ptrIfSet(f.Tier),
+		Unchained:      f.Unchained,
+		Pvp:            f.PvP,
+		IlvlMin:        f.ILvlMin,
+		IlvlMax:        f.ILvlMax,
+		ReqlvlMin:      f.ReqLvlMin,
+		ReqlvlMax:      f.ReqLvlMax,
+		Price:          f.Price,
+		Currencies:     listArg(f.Currencies),
+		Sets:           listArg(f.Sets),
+		SortBy:         f.Sort,
+		PageSize:       int32(limit),
+		PageOffset:     int32(offset),
 	}
 
 	rows, err := s.q.ListItems(ctx, params)

@@ -52,7 +52,8 @@ type Rail struct {
 	Hidden []HiddenInput
 }
 
-// RailGroup is a radio group: Options[0] is "Any", then every vocabulary value.
+// RailGroup is one group of choices: checkboxes (several may be ticked; none ticked is any — AOC-064),
+// or a radio group led by "Any" (vendor price).
 type RailGroup struct {
 	Legend  string
 	Options []RailOption
@@ -69,6 +70,7 @@ type RailOption struct {
 	ColourToken string // a rarity's colour token; "" when it has none
 	Count       int64
 	Checked     bool
+	Multi       bool // a checkbox (one of several that may be ticked) rather than a radio
 }
 
 // RailRange is a level range: two number inputs, with the span the other filters leave as
@@ -168,15 +170,16 @@ func armoryProbe() ArmoryData {
 	lvl := int32(80)
 	price := "3 Test Token"
 	typ, typName := "test-type", "Test Type"
-	anyRarity := RailOption{Name: "rarity", ID: "f-rarity-any", Label: "Any", Count: 3}
+	anyRarity := RailOption{Name: "price", ID: "f-price-any", Label: "Any", Count: 3, Checked: true}
 	return ArmoryData{
 		Query: "probe", Sort: items.SortILvl,
 		Rail: Rail{
-			Groups: []RailGroup{{Legend: "Rarity", Options: []RailOption{anyRarity,
-				{Name: "rarity", ID: "f-rarity-epic", Value: "epic", Label: "Test Epic", ColourToken: "rarity-epic", Count: 1, Checked: true},
-				{Name: "rarity", ID: "f-rarity-dull", Value: "dull", Label: "Test Dull", Count: 0}}},
-				{Legend: "Class restriction", Options: []RailOption{{Name: "class", ID: "f-class-any", Label: "Any", Count: 3, Checked: true},
-					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1}}}},
+			Groups: []RailGroup{{Legend: "Rarity", Options: []RailOption{
+				{Name: "rarity", ID: "f-rarity-epic", Value: "epic", Label: "Test Epic", ColourToken: "rarity-epic", Count: 1, Checked: true, Multi: true},
+				{Name: "rarity", ID: "f-rarity-dull", Value: "dull", Label: "Test Dull", Count: 0, Multi: true}}},
+				{Legend: "Vendor price", Options: []RailOption{anyRarity}},
+				{Legend: "Class restriction", Options: []RailOption{
+					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1, Multi: true}}}},
 			Levels:  []RailRange{{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: "70", Lo: "1", Hi: "90"}},
 			Selects: []RailSelect{{Name: "currency", ID: "f-currency", Label: "Currency", Options: []RailOption{{Name: "currency", Label: "Any currency", Count: 3, Checked: true}, {Name: "currency", Value: "test-token", Label: "Test Token", Count: 0}}}},
 			Hidden:  []HiddenInput{{Name: "sort", Value: "name"}},
