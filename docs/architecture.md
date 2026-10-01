@@ -458,8 +458,8 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
 is the visual source of truth, distilled from `discovery/design/armory-2026-10-01/`). A page that sets
 `View.App` is laid out from `lg` up as the design's app, and `base.html` does the rest:
 - **The body is the window** (`lg:h-screen lg:overflow-hidden`, a flex column): the 52px header, then
-  the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`,
-  `overflow-auto`). **The document never scrolls** — measured at 1024, 1440 and 1920 px, with and
+  the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`, and
+  `overflow-auto` for the table, `overflow-y-auto` for the filter pane). **The document never scrolls** — measured at 1024, 1440 and 1920 px, with and
   without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes are
   absolutely positioned, and without a positioned ancestor the ones far down a pane counted
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
@@ -486,13 +486,17 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   guideline in a browser (AOC-065 ticket Log).
 - **JavaScript-only controls** (⌘K, Copy link, the level sliders) carry `.js-only` and stay hidden until
   `base.html`'s first script marks `<html class="js">`; what only a script-less reader needs carries
-  `.no-js-only`. Each level bound has **two inputs and exactly one submits**: the sliders' hidden one
-  ships `disabled` (`data-js-enable`), the number input ships enabled (`data-js-disable`), and the
-  page's script flips both at load **and for every pane htmx swaps in** (`htmx:load`). ⚠️ Not
+  `.no-js-only`. Each level bound has **two inputs and exactly one submits, in every state**: the
+  hidden one ships `disabled` (`data-js-enable`), the number input ships enabled (`data-js-disable`),
+  and the page's script flips both at load **and for every pane htmx swaps in** (`htmx:load`). The
+  hidden inputs are drawn even when the other filters leave no item with a level and there are no
+  sliders; until AOC-065's delta verify (F16) they came with the sliders, and with scripts on such a
+  state dropped the bound. ⚠️ Not
   `<noscript>`: htmx parses a swapped fragment with scripting off, so `<noscript>` content became live
   fields after the first update and every bound was sent twice (AOC-065 verify round 1).
-  `TestTheLevelSlidersNeverDoubleABound` pins the markup on the page and on a live update; the
-  browser half (one value per bound in the submitted URL after a swap) was measured.
+  `TestTheLevelSlidersNeverDoubleABound` pins the markup on the page and on a live update, with a
+  span and without; the browser half (one value per bound in the submitted URL after a swap) was
+  measured.
 - **The filter pane is exactly the design's five sections** (Pierre, 2026-10-01: *"I want exactly like it
   is in the design"*): Rarity (checkbox rows with counts), Slot, Armour weight and Class restriction
   (toggle chips, no numbers), Item level (two stacked sliders and the note). Vendor price, required
@@ -547,13 +551,19 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   JavaScript the same reason is on the `RejectHTML` page.
 - **Back always gets the whole page** (AOC-063). htmx keeps snapshots of the last ten pages; on a
   miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and a
-  handler that serves fragments (today the armory's) answers that with one, so Back left bare rows (live since 0.2.0 through the pager,
-  and reachable from every filter change once the rail pushed URLs). The same `htmx-config` tag sets
+  handler that serves fragments (today the armory's) answers that with one, so Back left bare rows
+  (live since 0.2.0 through the pager, and reachable from every filter change once the rail pushed
+  URLs). The same `htmx-config` tag sets
   `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
   than a full-page branch for `HX-History-Restore-Request` in every handler.
-- **The focused control keeps what the reader typed.** A redraw that answers an earlier change used
-  to wipe a number typed while that request was in flight. A six-line inline script on
-  `htmx:oobBeforeSwap` copies the focused number input's or slider's value into the incoming rail.
+- **A slider moved during a live update keeps its value, and the value applies.** The pane an answer
+  redraws is drawn from the state that request carried, so a slider moved while it was in flight
+  snapped back. On `htmx:oobBeforeSwap` the page's script gives the incoming slider the reader's value,
+  with its hidden input and legend. As the answer did not include that value, one more `change`
+  applies it once the swap has settled (`htmx:afterSettle`): two requests, ending on the state a
+  direct load gives (AOC-065 delta verify, F17: the thumb used to be kept, but not its hidden input,
+  so the move never applied). The number inputs need nothing: whenever the script runs they are
+  disabled.
   It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
   CSP arrives.
 

@@ -440,19 +440,43 @@ func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
 // The browser half is measured in the ticket's Log; here, the markup and the script that carry it.
 func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
 	h := router(t)
-	for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} { // the page, and a live update
-		body := get(t, h, http.MethodGet, "/armory?ilvl_min=10", hdr, "").Body.String()
-		if strings.Contains(body, "<noscript>") {
-			t.Error("a <noscript> is back: htmx parses it into live fields on a swap")
-		}
-		for _, name := range []string{"ilvl_min", "ilvl_max"} {
-			hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="[^"]*"([^>]*)>`).FindStringSubmatch(body)
-			if hidden == nil || !strings.Contains(hidden[1], "data-js-enable") || !strings.Contains(hidden[1], "disabled") {
-				t.Errorf("%s: the slider's hidden input must ship disabled and data-js-enable: %v", name, hidden)
+	// Each bound has exactly two inputs: the hidden one the script switches on, and the number input it
+	// switches off — so one submits in each mode. In every state: also when the other filters leave no
+	// item with a level and there are no sliders (AOC-065 delta verify, F16: the hidden inputs were
+	// drawn only with the sliders, so with scripts on the bound was dropped). One fake item leaves no
+	// item-level span.
+	for _, c := range []struct {
+		name string
+		h    http.Handler
+		span bool
+	}{{"with a span", h, true}, {"with no span", routerWith(t, newFakeItems(1), 0), false}} {
+		for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} { // the page, and a live update
+			body := get(t, c.h, http.MethodGet, "/armory?ilvl_min=10", hdr, "").Body.String()
+			if strings.Contains(body, "<noscript>") {
+				t.Error("a <noscript> is back: htmx parses it into live fields on a swap")
 			}
-			number := regexp.MustCompile(`<input type="number" id="f-` + name + `" name="` + name + `"[^>]*>`).FindString(body)
-			if number == "" || !strings.Contains(number, "data-js-disable") || strings.Contains(number, "disabled") {
-				t.Errorf("%s: the number input must ship enabled and data-js-disable: %q", name, number)
+			for _, name := range []string{"ilvl_min", "ilvl_max"} {
+				all := regexp.MustCompile(`<input [^>]*name="`+name+`"[^>]*>`).FindAllString(body, -1)
+				hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="([^"]*)"([^>]*)>`).FindStringSubmatch(body)
+				if len(all) != 2 || hidden == nil || !strings.Contains(hidden[2], "data-js-enable") || !strings.Contains(hidden[2], "disabled") {
+					t.Errorf("%s, HX %v, %s: want the hidden input (disabled, data-js-enable) and the number input, got %q", c.name, hdr != nil, name, all)
+					continue
+				}
+				if want := map[string]string{"ilvl_min": "10", "ilvl_max": ""}[name]; hidden[1] != want {
+					t.Errorf("%s, HX %v: the hidden %s carries %q, want %q", c.name, hdr != nil, name, hidden[1], want)
+				}
+				number := regexp.MustCompile(`<input type="number" id="f-` + name + `" name="` + name + `"[^>]*>`).FindString(body)
+				if number == "" || !strings.Contains(number, "data-js-disable") || strings.Contains(number, "disabled") {
+					t.Errorf("%s, HX %v: the %s number input must ship enabled and data-js-disable: %q", c.name, hdr != nil, name, number)
+				}
+			}
+			// The legend says the range: closed by the span, or open where there is none.
+			wantLabel := map[bool]string{true: "10 – 80", false: "≥ 10"}[c.span]
+			if !strings.Contains(body, `<span data-range-label>`+wantLabel+`</span>`) {
+				t.Errorf("%s, HX %v: the legend does not read %q", c.name, hdr != nil, wantLabel)
+			}
+			if got := strings.Contains(body, `data-bound="ilvl_min"`); got != c.span {
+				t.Errorf("%s, HX %v: a slider is drawn = %v", c.name, hdr != nil, got)
 			}
 		}
 	}

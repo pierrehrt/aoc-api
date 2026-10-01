@@ -107,9 +107,9 @@ func levelText(n *int32) string {
 	return strconv.Itoa(int(*n))
 }
 
-// rangePill is a level range as the design's pill reads it, both ends: "ilvl 60–90". An open end is
-// the span the other filters leave; with no span, "ilvl ≥ 60" / "ilvl ≤ 80".
-func rangePill(prefix string, lo, hi *int32, span *items.LevelSpan) string {
+// rangeText is a level range with both ends, "60<sep>90": an open end is the span the other filters
+// leave. With no span to close it, "≥ 60" / "≤ 80"; with neither, "".
+func rangeText(lo, hi *int32, span *items.LevelSpan, sep string) string {
 	l, h := levelText(lo), levelText(hi)
 	if span != nil {
 		if l == "" {
@@ -121,12 +121,18 @@ func rangePill(prefix string, lo, hi *int32, span *items.LevelSpan) string {
 	}
 	switch {
 	case l != "" && h != "":
-		return prefix + " " + l + "–" + h
+		return l + sep + h
 	case l != "":
-		return prefix + " ≥ " + l
-	default:
-		return prefix + " ≤ " + h
+		return "≥ " + l
+	case h != "":
+		return "≤ " + h
 	}
+	return ""
+}
+
+// rangePill is a level range as the design's pill reads it: "ilvl 60–90", "ilvl ≥ 60".
+func rangePill(prefix string, lo, hi *int32, span *items.LevelSpan) string {
+	return prefix + " " + rangeText(lo, hi, span, "–")
 }
 
 // buildRail is the rail, the active filters as chips, and the "clear all" URL for state f. here
@@ -162,7 +168,8 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 	}
 
 	// The item level: the design's two stacked sliders.
-	il := templates.RailRange{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: levelText(f.ILvlMin), MaxValue: levelText(f.ILvlMax)}
+	il := templates.RailRange{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: levelText(f.ILvlMin), MaxValue: levelText(f.ILvlMax),
+		Label: rangeText(f.ILvlMin, f.ILvlMax, fc.ItemLevel, " – ")}
 	if fc.ItemLevel != nil {
 		il.Lo, il.Hi = strconv.Itoa(int(fc.ItemLevel.Min)), strconv.Itoa(int(fc.ItemLevel.Max))
 	}

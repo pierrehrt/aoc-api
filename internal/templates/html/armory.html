@@ -58,9 +58,9 @@
   </div>
 </form>
 {{/* Enhancements only: without them, and without JavaScript, the page works.
-     - A change's answer redraws the pane. A number typed, or a slider moved, while that request was in
-       flight would be wiped by the redraw (AOC-049 review), so the focused control keeps its value.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
+     - A change's answer redraws the pane. A slider moved while that request was in flight would snap
+       back and its value be lost, so it keeps its value, and that value is applied (AOC-065).
      - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
@@ -76,20 +76,37 @@ function aocEnable(root) {
 aocEnable(document);
 document.addEventListener("htmx:load", function (e) { aocEnable(e.detail.elt); });
 document.addEventListener("htmx:oobAfterSwap", function () { aocEnable(document); });
-document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  var a = document.activeElement, f = e.detail.fragment;
-  if (!a || !a.id || !f || !(a.type === "number" || a.type === "range")) return;
-  var n = f.querySelector("#" + CSS.escape(a.id));
-  if (n) n.value = a.value;
-});
-document.addEventListener("input", function (e) {
-  var s = e.target;
-  if (!s.matches || !s.matches("input[type=range][data-bound]")) return;
+// A slider writes its bound's hidden input — empty at the slider's end, which is no bound — and the
+// legend's range.
+function aocSyncRange(s) {
   var box = s.closest("[data-range]"), h = box.querySelector('input[type=hidden][name="' + s.dataset.bound + '"]');
   var end = s.dataset.end === "min" ? s.min : s.max;
   h.value = s.value === end ? "" : s.value;
   var lo = box.querySelector("[data-end=min]").value, hi = box.querySelector("[data-end=max]").value;
   box.querySelector("[data-range-label]").textContent = lo + " – " + hi;
+}
+document.addEventListener("input", function (e) {
+  if (e.target.matches && e.target.matches("input[type=range][data-bound]")) aocSyncRange(e.target);
+});
+// A change's answer redraws the pane, drawn from the state that request carried. A slider moved
+// while it was in flight would snap back and its value be lost (AOC-065 delta verify, F17: the
+// thumb was kept, but not its hidden input, so the move never applied). The incoming slider takes
+// the reader's value with its hidden input and label, and, as the answer did not include it, one
+// more change applies it once the swap has settled.
+var aocReapply = null;
+document.addEventListener("htmx:oobBeforeSwap", function (e) {
+  var a = document.activeElement, f = e.detail.fragment;
+  if (!a || !a.id || !f || !a.matches("input[type=range][data-bound]")) return;
+  var n = f.querySelector("#" + CSS.escape(a.id));
+  if (!n || n.value === a.value) return;
+  n.value = a.value;
+  aocSyncRange(n);
+  aocReapply = a.id;
+});
+document.addEventListener("htmx:afterSettle", function () {
+  var s = aocReapply && document.getElementById(aocReapply);
+  aocReapply = null;
+  if (s) s.dispatchEvent(new Event("change", { bubbles: true }));
 });
 // The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
 // controls; every change made in the sheet has already applied, so return to the state it was opened on.

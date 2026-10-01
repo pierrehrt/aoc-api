@@ -55,16 +55,18 @@
 {{range .Rail.Levels}}
   {{/* Two stacked sliders, as the design draws them. A slider at its end is no bound: it writes its
        hidden input only when moved inside the span. Without JavaScript, number inputs instead — the
-       page's script disables those and enables the sliders' inputs (armory.html, aocEnable). */}}
+       page's script disables those and enables the hidden ones (armory.html, aocEnable).
+       The hidden inputs are drawn whether or not there is a span: when the other filters leave no
+       item with a level there are no sliders, and the bound must still ride along (AOC-065 delta
+       verify, F16 — it was dropped). So each bound has exactly one input in each mode, always. */}}
   <fieldset class="flex flex-col gap-2" data-range>
-    <legend class="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Legend}} <span data-range-label>{{if or .MinValue .MaxValue}}{{or .MinValue .Lo}} – {{or .MaxValue .Hi}}{{else if .Lo}}{{.Lo}} – {{.Hi}}{{end}}</span></legend>
+    <legend class="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Legend}} <span data-range-label>{{.Label}}</span></legend>
+    <input type="hidden" name="{{.MinName}}" value="{{.MinValue}}" data-js-enable disabled>
+    <input type="hidden" name="{{.MaxName}}" value="{{.MaxValue}}" data-js-enable disabled>
     {{if .Lo}}
     <div class="js-only flex flex-col gap-2">
       <input type="range" id="f-{{.MinName}}-range" min="{{.Lo}}" max="{{.Hi}}" value="{{or .MinValue .Lo}}" data-bound="{{.MinName}}" data-end="min" aria-label="{{.Legend}} from" class="m-[2px] h-[3px] w-full cursor-pointer accent-link">
       <input type="range" id="f-{{.MaxName}}-range" min="{{.Lo}}" max="{{.Hi}}" value="{{or .MaxValue .Hi}}" data-bound="{{.MaxName}}" data-end="max" aria-label="{{.Legend}} to" class="m-[2px] h-[3px] w-full cursor-pointer accent-link">
-      {{/* disabled until the script enables them: without JavaScript only the number inputs submit. */}}
-      <input type="hidden" name="{{.MinName}}" value="{{.MinValue}}" data-js-enable disabled>
-      <input type="hidden" name="{{.MaxName}}" value="{{.MaxValue}}" data-js-enable disabled>
     </div>
     {{end}}
     <div class="no-js-only flex items-center gap-2">
@@ -92,8 +94,9 @@
   <button type="submit" class="h-[46px] flex-1 rounded-[8px] bg-link text-[13.5px] font-semibold text-ink hover:bg-link-hover lg:ml-auto lg:h-auto lg:flex-none lg:rounded-[7px] lg:px-4 lg:py-2 lg:text-[13px] lg:font-medium">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
 </div>
 {{end}}
-{{/* An HTMX answer: the rows into #results, and the pane, the pills and the phone button's number out
-     of band — one request, so the counts always describe the rows beside them. */}}
+{{/* An HTMX answer: the rows into #results, and out of band the pane, the pills and both "active"
+     counts (the phone button's and the collapsed strip's) — one request, so the counts always
+     describe the rows beside them. */}}
 {{define "armory_update"}}{{template "armory_rows" .}}
 <div hx-swap-oob="innerHTML:#armory-facets">{{template "armory_facets" .}}</div>
 <div hx-swap-oob="innerHTML:#armory-chips">{{template "armory_chips" .}}</div>

@@ -85,7 +85,8 @@ type RailRange struct {
 	Legend             string
 	MinName, MaxName   string
 	MinValue, MaxValue string // what the URL holds, echoed
-	Lo, Hi             string
+	Lo, Hi             string // the span the other filters leave; "" when no item under them has a level
+	Label              string // the legend's range: "60 – 90", or "≥ 60" when there is no span to close it
 }
 
 // HiddenInput is a parameter carried through the form unchanged.
