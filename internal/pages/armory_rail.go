@@ -108,14 +108,15 @@ func levelText(n *int32) string {
 }
 
 // rangeText is a level range with both ends, "60<sep>90": an open end is the span the other filters
-// leave. With no span to close it, "≥ 60" / "≤ 80"; with neither, "".
+// leave, unless the bound lies beyond it ("85–80" says nothing). With no span to close it, "≥ 60" /
+// "≤ 80"; with neither, "".
 func rangeText(lo, hi *int32, span *items.LevelSpan, sep string) string {
 	l, h := levelText(lo), levelText(hi)
 	if span != nil {
-		if l == "" {
+		if l == "" && (hi == nil || span.Min <= *hi) {
 			l = strconv.Itoa(int(span.Min))
 		}
-		if h == "" {
+		if h == "" && (lo == nil || span.Max >= *lo) {
 			h = strconv.Itoa(int(span.Max))
 		}
 	}

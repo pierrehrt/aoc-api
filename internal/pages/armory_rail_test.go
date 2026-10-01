@@ -385,9 +385,13 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 			t.Errorf("a %s is swapped=%v, want %v", status, swaps(status), want)
 		}
 	}
-	// The value a reader is typing survives a redraw that answers an earlier change.
-	if !strings.Contains(body, `document.addEventListener("htmx:oobBeforeSwap"`) {
-		t.Error("the focused control's value is not kept across the rail's redraw")
+	// A change the reader makes while a request is in flight is not wiped by that request's redraw:
+	// the pane is not swapped while such a change is pending (AOC-065; behaviour measured in a browser).
+	for _, want := range []string{`document.addEventListener("htmx:oobBeforeSwap"`, `e.detail.shouldSwap = false`,
+		`document.addEventListener("htmx:beforeRequest"`, `aocPane.addEventListener("pointerdown"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the pane's pending-change rule is missing %q", want)
+		}
 	}
 }
 
@@ -488,6 +492,27 @@ func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
 	}
 	if !strings.Contains(page, `data-bound="ilvl_min" data-end="min"`) {
 		t.Error("the item level slider is missing")
+	}
+}
+
+// A bound beyond the span the other filters leave (the fake corpus's is 80–80) reads open, never as a
+// backwards range: "≥ 85", not "85 – 80". It is what a reader who moved a slider while the span
+// narrowed has set, and it applies as set.
+func TestABoundBeyondTheSpanReadsOpen(t *testing.T) {
+	h := router(t)
+	for q, want := range map[string][2]string{
+		"ilvl_min=85":             {"≥ 85", "ilvl ≥ 85"},
+		"ilvl_max=70":             {"≤ 70", "ilvl ≤ 70"},
+		"ilvl_min=60":             {"60 – 80", "ilvl 60–80"},
+		"ilvl_min=60&ilvl_max=95": {"60 – 95", "ilvl 60–95"},
+	} {
+		body := get(t, h, http.MethodGet, "/armory?"+q, nil, "").Body.String()
+		if !strings.Contains(body, `<span data-range-label>`+want[0]+`</span>`) {
+			t.Errorf("%s: the legend does not read %q", q, want[0])
+		}
+		if !strings.Contains(body, `aria-label="Remove the filter `+want[1]+`"`) {
+			t.Errorf("%s: no pill %q", q, want[1])
+		}
 	}
 }
 

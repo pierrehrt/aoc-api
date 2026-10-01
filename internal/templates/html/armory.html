@@ -59,8 +59,8 @@
 </form>
 {{/* Enhancements only: without them, and without JavaScript, the page works.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
-     - A change's answer redraws the pane. A slider moved while that request was in flight would snap
-       back and its value be lost, so it keeps its value, and that value is applied (AOC-065).
+     - A change's answer redraws the pane, except while the reader has a change no request has
+       carried yet: that change's own request redraws it (AOC-065).
      - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
@@ -88,25 +88,37 @@ function aocSyncRange(s) {
 document.addEventListener("input", function (e) {
   if (e.target.matches && e.target.matches("input[type=range][data-bound]")) aocSyncRange(e.target);
 });
-// A change's answer redraws the pane, drawn from the state that request carried. A slider moved
-// while it was in flight would snap back and its value be lost (AOC-065 delta verify, F17: the
-// thumb was kept, but not its hidden input, so the move never applied). The incoming slider takes
-// the reader's value with its hidden input and label, and, as the answer did not include it, one
-// more change applies it once the swap has settled.
-var aocReapply = null;
-document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  var a = document.activeElement, f = e.detail.fragment;
-  if (!a || !a.id || !f || !a.matches("input[type=range][data-bound]")) return;
-  var n = f.querySelector("#" + CSS.escape(a.id));
-  if (!n || n.value === a.value) return;
-  n.value = a.value;
-  aocSyncRange(n);
-  aocReapply = a.id;
+// A change's answer redraws the pane, drawn from the state its request carried. A change the reader
+// makes while that request is in flight is not in it, and the redraw would wipe it: a second box
+// ticked, a slider moved — or the slider under the pointer, mid-drag, replaced — and htmx's queued
+// request for that change, sent after the redraw, would read the wiped form (AOC-065 delta verifies:
+// a second tick lost, a slider's move lost, cut short, or read again in a new span).
+// So while the reader has a change no request has carried yet, the pane stays as the reader has
+// it: the request that change queues — htmx queues the last change while one is in flight — redraws
+// it. A press on a slider that ends without a change queues nothing, so a redraw skipped meanwhile
+// is fetched again.
+var aocPending = false, aocDragging = false, aocSkipped = false, aocPane = document.getElementById("armory-facets");
+aocPane.addEventListener("input", function () { aocPending = true; });
+aocPane.addEventListener("change", function () { aocPending = true; });
+aocPane.addEventListener("pointerdown", function (e) {
+  if (e.target.matches("input[type=range]")) aocPending = aocDragging = true;
 });
-document.addEventListener("htmx:afterSettle", function () {
-  var s = aocReapply && document.getElementById(aocReapply);
-  aocReapply = null;
-  if (s) s.dispatchEvent(new Event("change", { bubbles: true }));
+function aocDragEnd() {
+  if (!aocDragging) return;
+  aocDragging = false;
+  setTimeout(function () {
+    if (aocSkipped) htmx.ajax("GET", location.pathname + location.search, { target: "#results", swap: "innerHTML" });
+  }, 0);
+}
+document.addEventListener("pointerup", aocDragEnd);
+document.addEventListener("pointercancel", aocDragEnd);
+// A request carries the form as it is now (or, from a link, a state the reader chose): nothing is pending.
+document.addEventListener("htmx:beforeRequest", function () { aocPending = aocSkipped = false; });
+document.addEventListener("htmx:oobBeforeSwap", function (e) {
+  if (e.detail.target === aocPane && (aocPending || aocDragging)) {
+    e.detail.shouldSwap = false;
+    aocSkipped = true;
+  }
 });
 // The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
 // controls; every change made in the sheet has already applied, so return to the state it was opened on.

@@ -459,8 +459,8 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
 `View.App` is laid out from `lg` up as the design's app, and `base.html` does the rest:
 - **The body is the window** (`lg:h-screen lg:overflow-hidden`, a flex column): the 52px header, then
   the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`, and
-  `overflow-auto` for the table, `overflow-y-auto` for the filter pane). **The document never scrolls** — measured at 1024, 1440 and 1920 px, with and
-  without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes are
+  `overflow-auto` for the table, `overflow-y-auto` for the filter pane). **The document never
+  scrolls** — measured at 1024, 1440 and 1920 px, with and without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes are
   absolutely positioned, and without a positioned ancestor the ones far down a pane counted
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
 - **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
@@ -540,8 +540,8 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
   `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
-  (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
-  would need a second copy of the form.
+  (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content
+  at every width, so the desktop rail would need a second copy of the form.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
   `htmx-config` meta tag that adds one rule, "a 400 is swapped" (other 4xx/5xx stay unswapped), and
@@ -556,16 +556,29 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   URLs). The same `htmx-config` tag sets
   `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
   than a full-page branch for `HX-History-Restore-Request` in every handler.
-- **A slider moved during a live update keeps its value, and the value applies.** The pane an answer
-  redraws is drawn from the state that request carried, so a slider moved while it was in flight
-  snapped back. On `htmx:oobBeforeSwap` the page's script gives the incoming slider the reader's value,
-  with its hidden input and legend. As the answer did not include that value, one more `change`
-  applies it once the swap has settled (`htmx:afterSettle`): two requests, ending on the state a
-  direct load gives (AOC-065 delta verify, F17: the thumb used to be kept, but not its hidden input,
-  so the move never applied). The number inputs need nothing: whenever the script runs they are
-  disabled.
-  It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
-  CSP arrives.
+- **The pane is never redrawn over a change the reader has not sent yet.** An answer's pane is drawn
+  from the state its request carried. A change made while that request is in flight is not in it:
+  a second box ticked, a slider moved, or a slider being dragged. Redrawing would wipe it, and htmx's
+  queued request for that change (htmx queues the last trigger while one is in flight, and reads the
+  form when it sends it) would then send the wiped form. Measured before the fix: a second tick lost,
+  a slider's move lost, a drag cut short under the pointer, a thumb read again in a new span (AOC-049's
+  live rail; AOC-065 delta verifies, F17–F19). So the page's script keeps a *pending* flag: set by
+  any `input` or `change` in the pane and by a press on a slider, and cleared when any request is
+  sent, since it carries the form as it is then, or a state the reader chose by link. While the flag
+  is set, `htmx:oobBeforeSwap` skips the pane's swap (`shouldSwap = false`). The rows, pills and
+  counts still update, and the request the change queued redraws the pane.
+  - **One request per change the reader makes**, ending on what a direct load of what they set gives.
+    No value is reinterpreted, and a bound beyond the new span applies as set (its legend and pill
+    read "≥ 85", never "85–80"). Measured with 40–300 ms of added latency, with real drags and key
+    presses: two ticks, a slider moved or dragged during a request, a slider taken to its end (no
+    bound) while the span widens, an answer with no span, five arrow presses. A normal move is one
+    request.
+  - A press on a slider that ends without a change queues nothing. If a redraw was skipped
+    meanwhile, the current URL is fetched again.
+  - It relies on the platform firing `change` when a slider's move ends (mouse, touch, keys,
+    assistive technology all do); a script that sets a value and fires only `input` is not a move.
+  - It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
+    CSP arrives.
 
 **The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
 — rendered through `templates.NewItemData`, which groups the sources for display and does nothing
