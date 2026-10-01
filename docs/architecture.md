@@ -971,8 +971,10 @@ a group's "Any":  count(*) FILTER (WHERE every flag except its own)
   "Any", the price split and both level spans against `items.Service.List`'s total for the state
   the number promises, under one combination per filter (so a count that ignores any other filter
   differs from its list) — **and on the real corpus** in the gate (`item_facets_corpus_test.go`).
-  A sweep that dropped each flag from each condition in turn (176 mutants) was run against it; see
-  the AOC-049 ticket for the count.
+  A mutant sweep dropped each `f.in_*` flag from each condition in the three queries, one at a time
+  (190 mutants): the two fixture tests kill all 190. The first two runs did not, and what they found
+  is now in the fixture — `OFFSET NULL` is `OFFSET 0` (a "weightless" item silently had the first
+  weight), and combinations where a level span vanishes or moves.
 - **Single-valued filters, on purpose.** One value per facet makes the number beside a value exactly
   the result of choosing it; OR-within-a-group would make it a different number (`DECISIONS.md`).
 
