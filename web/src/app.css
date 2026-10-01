@@ -113,6 +113,8 @@
   ::-webkit-scrollbar { width: 9px; height: 9px; }
   ::-webkit-scrollbar-thumb { background: var(--color-line-control); border-radius: 5px; }
   ::-webkit-scrollbar-track { background: var(--color-ink-pane); }
+  /* Where two bars meet. The prototype leaves it the browser's white, an accident of its export. */
+  ::-webkit-scrollbar-corner { background: var(--color-ink-pane); }
   @supports not selector(::-webkit-scrollbar) {
     * { scrollbar-width: thin; scrollbar-color: var(--color-line-control) var(--color-ink-pane); }
   }

@@ -460,14 +460,15 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
 - **The body is the window** (`lg:h-screen lg:overflow-hidden`, a flex column): the 52px header, then
   the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`,
   `overflow-auto`). **The document never scrolls** — measured at 1024, 1440 and 1920 px, with and
-  without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes and radios
-  are absolutely positioned, and without a positioned ancestor the ones far down a pane counted
+  without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes are
+  absolutely positioned, and without a positioned ancestor the ones far down a pane counted
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
 - **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
 - **Scrollbars are the design's** (9px, `line-control` thumb, `ink-pane` track), drawn with
   `::-webkit-scrollbar` in `app.css`'s base layer. ⚠️ Chrome ignores those rules on any element whose
   standard `scrollbar-width`/`scrollbar-color` is set, so the standard pair applies only where
-  `::-webkit-scrollbar` is unsupported (`@supports not selector(…)`, Firefox). A global
+  `::-webkit-scrollbar` is unsupported (`@supports not selector(…)`, Firefox). The corner between
+  two bars is `ink-pane` too — the prototype leaves it the browser's white (a noted deviation). A global
   `scrollbar-width: thin` hid every bar until AOC-065 verify round 2.
 - **The phone sheet's bar is the canvas 1b's** — Cancel and a full-width "Show N items", 46px. Cancel
   is a `type="reset"`: it restores every control as the page drew it, the sheet's own unticked
@@ -510,11 +511,13 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
 **The filter rail** (AOC-049) is the pattern for any page with filters:
 
 - **One `<form method="get">`** holds the search and the rail, so each keeps the other, and the
-  page works with JavaScript off (Apply is a submit). Rarity, slot, armour weight and class are
-  checkbox groups, several ticked at once and none ticked meaning any (AOC-064). Vendor price is a
-  radio group led by "Any". There are two number ranges, and `<select>`s for the long vocabularies
-  (24 currencies, 368 sets). A select holds one value, so further chosen values ride along as hidden
-  inputs.
+  page works with JavaScript off (Apply is a submit). The controls are the validated design's and
+  nothing else (AOC-065): rarity, slot, armour weight and class as checkbox groups — several ticked
+  at once, none ticked meaning any (AOC-064) — and one level range, the item level, as two sliders
+  over number inputs for a script-less reader. **No radio group, no `<select>`:** every other filter
+  the parser accepts (vendor price, required level, currency, set, region, tier, place…) has no
+  control; an active one rides along as a hidden input and shows as a pill. A page built from this
+  pattern starts from its own design, not from a list of every filter the API takes.
   Every value and count is `items.Facets`; the handler turns it into controls in
   `pages.buildRail`, and the template only prints. A 0 is muted, never hidden.
 - **Every link is built from the whole state** — `items.Filters.Values()`, the parser's inverse,
@@ -524,7 +527,8 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   show as chips.
 - **With HTMX, a change re-renders the rows and the rail in one request.** The rail's scroll box
   carries `hx-get hx-trigger="change" hx-include="closest form" hx-target="#results"`; the answer is
-  `armory_update` — the rows, plus the rail and the phone button's count **out of band**
+  `armory_update` — the rows, plus the rail, the pills and both "active" counts (the phone
+  button's and the collapsed strip's) **out of band**
   (`hx-swap-oob="innerHTML:#…"`), so the counts always describe the rows beside them, and the hidden
   inputs and the sort can never go stale. Inputs keep stable ids, so HTMX hands focus back after
   the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
@@ -532,8 +536,7 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
   `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
-  (`#filters-collapsed`), as the design's ›. Since AOC-065 the pills row in the search block is a
-  third out-of-band target (`#armory-chips`), beside the pane and the phone button's count. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
+  (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
   would need a second copy of the form.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
@@ -550,7 +553,7 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   than a full-page branch for `HX-History-Restore-Request` in every handler.
 - **The focused control keeps what the reader typed.** A redraw that answers an earlier change used
   to wipe a number typed while that request was in flight. A six-line inline script on
-  `htmx:oobBeforeSwap` copies the focused number input's or select's value into the incoming rail.
+  `htmx:oobBeforeSwap` copies the focused number input's or slider's value into the incoming rail.
   It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
   CSP arrives.
 
