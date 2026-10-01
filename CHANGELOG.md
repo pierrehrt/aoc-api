@@ -8,6 +8,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
+The Armory list gets its filter rail, and beside every choice is the number of items it would
+leave, so a reader never clicks into an empty list.
+
+### Added
+
+- The Armory's filter rail: rarity, slot, armour weight, class restriction, vendor price, item level,
+  required level, currency and set. Each choice shows how many items it would leave under the other
+  filters, and a choice with none is shown greyed, never hidden. Active filters show as chips that
+  each remove one filter, with "clear all". One form works without JavaScript; with JavaScript a
+  change re-renders the rows and the counts in one request. On a phone the rail opens as a
+  full-screen sheet (AOC-049)
+- `/v1/items` takes `ilvl_min`, `ilvl_max`, `reqlvl_min`, `reqlvl_max`, `price`, `currency` and `set`.
+  On `facets=1` it adds a `facets` object with the counts the page shows; without it the response
+  is unchanged (AOC-049)
+
+### Changed
+
+- Every link on the Armory list (pager, sort, chips, canonical) carries the whole filter state. A
+  filtered list's pager used to drop every filter but the search (AOC-049)
+- The service's database connections run with JIT off: compiling the facet queries cost more than
+  six times running them (AOC-049)
+
+### Fixed
+
+- The Armory's description for a one-item search reads "1 item", not "1 items" (AOC-049)
+
 ## [0.3.0] - 2026-09-30
 
 Every item gets its own page, the list gains separate Slot and Type columns, and the site becomes
