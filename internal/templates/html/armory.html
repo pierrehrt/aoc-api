@@ -141,6 +141,9 @@ var aocQ = document.getElementById("q"), aocStateQ = aocQ.defaultValue;
 document.addEventListener("htmx:beforeRequest", function (e) {
   if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);
   aocStateQ = aocQ.value;
+  // A newer request supersedes a pane held during a press: its answer will draw the pane, and the
+  // held one must not be drawn over the state this request names (delta verify 7, R2).
+  aocHeld = null;
 });
 
 // One case is left: an answer landing while a slider is pressed would replace the slider under the
@@ -162,6 +165,10 @@ document.addEventListener("htmx:oobBeforeSwap", function (e) {
   aocHeld = d.innerHTML;
 });
 aocPane.addEventListener("change", function (e) {
+  if (e.target === aocPutBack) { // a slider a cancelled touch put back (below): its change is not sent
+    aocPutBack = null;
+    if (e.target.value === aocPressFrom) { e.stopPropagation(); return; }
+  }
   if (aocHeld !== null && e.target.matches("input[type=range][data-bound]")) {
     e.stopPropagation();
     aocShowHeld(e.target);
@@ -177,12 +184,19 @@ function aocPressEnd() {
   setTimeout(function () { aocShowHeld(null); }, 0);
 }
 document.addEventListener("pointerup", aocPressEnd);
-// A touch the browser takes over (a scroll) ends with no change even if it moved the slider: what
-// the slider shows is applied, so it never shows a bound that was not asked for (delta verify 6, A1c).
+// A touch the browser takes over is not a move: a scroll that starts on a slider's track, where
+// Chrome jumps the thumb under the finger, or a touch the system cancels. The slider goes back to
+// where the press found it, with its hidden input and legend, and nothing is sent (delta verify 7,
+// N10: a scroll of the phone sheet applied a level bound; delta 6, A1c: a cancelled touch left an
+// unsent one shown). Chrome may still send a change when the finger lifts; for a slider put back,
+// it is not sent.
+var aocPutBack = null;
 document.addEventListener("pointercancel", function () {
-  if (aocPress && aocPress.value !== aocPressFrom) aocPress.dispatchEvent(new Event("change", { bubbles: true }));
+  var s = aocPress;
+  if (s && s.value !== aocPressFrom) { s.value = aocPressFrom; aocSyncRange(s); aocPutBack = s; }
   aocPressEnd();
 });
+aocPane.addEventListener("pointerdown", function () { aocPutBack = null; }, true);
 function aocShowHeld(moved) {
   if (aocHeld === null) return;
   var bound = moved && moved.dataset.bound;

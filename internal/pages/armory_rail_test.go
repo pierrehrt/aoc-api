@@ -646,3 +646,20 @@ func TestPillsFollowTheVocabularysOrder(t *testing.T) {
 		t.Errorf("place pills: %q and %q, want sorted", a, b)
 	}
 }
+
+// The pane's chips for slugs the vocabulary lacks come last, sorted, whatever the request's order:
+// a live answer and a direct load draw the same pane (delta verify 7).
+func TestThePanesUnknownChipsAreSorted(t *testing.T) {
+	h := router(t)
+	order := func(q string) string {
+		body := get(t, h, http.MethodGet, "/armory?"+q, nil, "").Body.String()
+		var out []string
+		for _, m := range regexp.MustCompile(`id="f-class-unknown-\d+" name="class" value="([^"]+)"`).FindAllStringSubmatch(body, -1) {
+			out = append(out, m[1])
+		}
+		return strings.Join(out, ",")
+	}
+	if a, b := order("class=zz-cls&class=aa-cls"), order("class=aa-cls&class=zz-cls"); a != b || a != "aa-cls,zz-cls" {
+		t.Errorf("the pane's unknown chips: %q and %q, want aa-cls,zz-cls", a, b)
+	}
+}

@@ -41,8 +41,9 @@ const StatusClientClosedRequest = 499
 // reader saw.
 // ⚠️ The context is what makes it the READER's connection: a reset from the database's connection
 // leaves the request alive, and is the server failing (delta verify 6, N9: without that check, a
-// Postgres reset was answered 499 with an empty body, and logged as nothing). A deadline or a write
-// timeout is not this either: a timeout is the server being slow.
+// Postgres reset was answered 499 with an empty body, and logged as a reader gone, at Info). A
+// deadline (RequestDeadline) or a write timeout is not this either: a timeout is the server being
+// slow.
 func ClientGone(r *http.Request, err error) bool {
 	if !errors.Is(r.Context().Err(), context.Canceled) {
 		return false

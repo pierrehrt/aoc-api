@@ -67,7 +67,8 @@ func without(xs []string, x string) []string {
 }
 
 // checkOptions is a checkbox group: every value, ticked when chosen. A chosen slug the vocabulary does
-// not hold (a mistyped link) stays as a ticked choice at 0, so the form does not silently drop it.
+// not hold (a mistyped link) stays as a ticked choice at 0, so the form does not silently drop it —
+// last, sorted, as the canonical URL and the pills order them (delta verify 7).
 func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates.RailOption {
 	var out []templates.RailOption
 	known := map[string]bool{}
@@ -79,10 +80,15 @@ func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates
 			Count: v.Count, Checked: contains(chosen, v.Slug),
 		})
 	}
-	for i, c := range chosen {
+	var unknown []string
+	for _, c := range chosen {
 		if !known[c] {
-			out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown-" + strconv.Itoa(i), Value: c, Label: c, Checked: true})
+			unknown = append(unknown, c)
 		}
+	}
+	sort.Strings(unknown)
+	for i, c := range unknown {
+		out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown-" + strconv.Itoa(i), Value: c, Label: c, Checked: true})
 	}
 	return out
 }
