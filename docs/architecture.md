@@ -450,6 +450,30 @@ service) answers it, and the handler adds only what a page owns — `p`, the URL
 `items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
 linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
 
+**The filter rail** (AOC-049) is the pattern for any page with filters:
+
+- **One `<form method="get">`** holds the search and the rail, so each keeps the other, and the
+  page works with JavaScript off (Apply is a submit). One value per group: radio groups led by
+  "Any", two number ranges, and `<select>`s for the long vocabularies (24 currencies, 368 sets).
+  Every value and count is `items.Facets`; the handler turns it into controls in
+  `pages.buildRail`, and the template only prints. A 0 is muted, never hidden.
+- **Every link is built from the whole state** — `items.Filters.Values()`, the parser's inverse,
+  pinned by a round-trip test that sets every field. Before it, the page's URL builder knew only `q`
+  and `sort`, so `/armory?region=x&p=2` linked to an unfiltered page 3. Filters the rail has no
+  control for (`region`, `tier`, `place`, …) ride along as hidden inputs **inside the rail**, and
+  show as chips.
+- **With HTMX, a change re-renders the rows and the rail in one request.** The rail's scroll box
+  carries `hx-get hx-trigger="change" hx-include="closest form" hx-target="#results"`; the answer is
+  `armory_update` — the rows, plus the rail and the phone button's count **out of band**
+  (`hx-swap-oob="innerHTML:#…"`), so the counts always describe the rows beside them, and the hidden
+  inputs and the sort can never go stale. Inputs keep stable ids, so HTMX hands focus back after
+  the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
+  fields.
+- **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
+  the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
+  `lg`. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
+  would need a second copy of the form.
+
 **The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
 — rendered through `templates.NewItemData`, which groups the sources for display and does nothing
 else. Four things it added that later pages inherit:
@@ -896,6 +920,52 @@ item_sources 6,571 · item_costs 5,956 · item_classes 4,259 · item_equip_locat
 sets 368 · vendors 23.** Since AOC-054 (2026-09-30): **item_equip_locations 5,028** — the 146
 necklaces.
 
+### Filtering and facet counts: one definition (AOC-049)
+
+The Armory's filter rail shows, beside every value, **how many items picking it would leave under
+the other filters**. That number is only worth showing if it is the total the list then reports, so
+the filter rules exist **once**, as per-item flags, and both the rows and the counts read them.
+
+```
+WITH filtered AS (             -- byte-identical in ListItems, CountItemFacets, ItemFacetTotals
+  SELECT i.item_id, …,          -- what the facets group by: rarity_id, set_id, levels, priced
+         <q, item_type, place, region, tier, unchained, pvp> AS in_base,   -- no facet of their own
+         <rarity rule>   AS in_rarity,   <slot rule> AS in_slot,   <weight rule> AS in_weight,
+         <class rule>    AS in_class,    <ilvl range> AS in_ilvl,  <reqlvl range> AS in_reqlvl,
+         <price rule>    AS in_price,    <currency rule> AS in_currency,   <set rule> AS in_set
+  FROM items i …)
+ListItems:        … WHERE every flag
+a facet value:    count(DISTINCT item) WHERE every flag EXCEPT the facet's own   (0s included)
+a group's "Any":  count(*) FILTER (WHERE every flag except its own)
+```
+
+- **The three copies are one definition by test.** sqlc cannot share a fragment between queries, so
+  `TestTheFilterCTEIsOneDefinition` reads `items.sql` and fails on any difference between the CTE
+  bodies. Only the header differs, deliberately: the facet queries say **`MATERIALIZED`** (they read
+  the flags 6–14 times; inlined, Postgres re-ran every flag's subquery inside each `FILTER` — the
+  totals query took **1.0 s** with five filters set, measured), and `ListItems` does not (inlined, its
+  filters push down and it stays at 2–4 ms on the corpus, as before).
+- **Every flag is two-valued** (NULL coalesced to false), so "all but one" never meets a NULL.
+- **"Has a vendor price"** is one expression in the CTE (`pr.priced`, a FROM-less LATERAL subquery,
+  which Postgres pulls up into its references, so `ListItems` never runs it unless `price` is set —
+  the first build's `LEFT JOIN LATERAL … LIMIT 1` cost the unfiltered list 4 ms → 32 ms).
+- **The vocabulary comes from the lookup tables** (`FROM rarities LEFT JOIN filtered …`), so every
+  value is listed, 0 included, and none comes from Go (`reference/content-model.md` § 0).
+- **The service passes the facet queries the list's own arguments** (`items.facetParams`, and a
+  struct conversion for the totals query, which compiles only while sqlc generates the two from the
+  same CTE). `TestTheFacetQueriesTakeEveryListFilter` sets every list argument and fails on one not
+  carried.
+- **Pinned on fake data in CI** — `TestFacetCountsAreTheRowsTheyPromise` checks every count, every
+  "Any", the price split and both level spans against `items.Service.List`'s total for the state
+  the number promises, under one combination per filter (so a count that ignores any other filter
+  differs from its list) — **and on the real corpus** in the gate (`item_facets_corpus_test.go`).
+  A sweep that dropped each flag from each condition in turn (176 mutants) was run against it; see
+  the AOC-049 ticket for the count.
+- **Single-valued filters, on purpose.** One value per facet makes the number beside a value exactly
+  the result of choosing it; OR-within-a-group would make it a different number (`DECISIONS.md`).
+
+Measured on the dev corpus, without JIT: list 2–4 ms, facets 9–16 ms, totals 4–6 ms.
+
 ### The pool
 
 Built **once in `main`** — never a package-level global, which cannot be swapped in a test and
@@ -906,6 +976,13 @@ succeeds against a completely wrong URL, so without the ping the service boots "
 and fails on the first request a visitor makes. Limits are small on purpose (10 connections):
 Railway's Postgres has a fixed limit shared with migrations, `psql` and backups, and
 exhausting it presents as the site being down.
+
+**JIT is off on every pooled connection** (`jit=off` as a runtime parameter, AOC-049). Postgres
+compiles a plan to machine code once its estimated cost passes `jit_above_cost`, and the facet
+queries estimate ~200,000 (hashed subplans inflate the figure) while running in under 16 ms: with
+five filters set the facet query took **66 ms with JIT, 10 ms without**, 62 ms of it compiling.
+Nothing this service runs is the long analytical query JIT pays off on. Set in `db.New`, so it holds
+on any Postgres whatever its default; `TestNewTurnsJITOff` asks the server.
 
 ### Testing
 

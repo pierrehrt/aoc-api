@@ -88,7 +88,7 @@ func seedFacetFixture(t *testing.T, d *sql.DB) {
 		}
 	}
 	const note = "fixture — internal/db/item_facets_test.go, not a game fact"
-	for i, name := range []string{"Test Facet Set Alpha", "Test Facet Set Beta"} {
+	for i, name := range []string{"Test Facet Set Alpha", "Test Facet Set Beta", "Test Facet Set Gamma"} {
 		exec(`INSERT INTO sets (id, slug, name, confidence_id, source_note)
 		      VALUES ($1, $2, $3, (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'), $4)`,
 			9100+i, strings.ToLower(strings.ReplaceAll(name, " ", "-")), name, note)
@@ -115,14 +115,27 @@ func seedFacetFixture(t *testing.T, d *sql.DB) {
 			sources: [][]int{{0, 1}}}, // two currencies at one source
 		{id: 954, name: "Test Facet Epsilon", rarity: 3, weight: 4, ilvl: 90, req: 80, slots: []int{0},
 			sources: [][]int{{0}, {0}}}, // one currency from two sources: one item
-		{id: 955, name: "Test Facet Zeta", rarity: 0, ilvl: 10, req: 10, pvp: true, slots: []int{11, 12}},
+		{id: 955, name: "Test Facet Zeta", rarity: 0, ilvl: 10, req: 10, pvp: true, slots: []int{11, 12},
+			sources: [][]int{{1}}},
+		// No level at all, and a value of every facet no other item has: picking any of them leaves
+		// only level-less items, so both spans must vanish — the case that tells a span computed
+		// under the other filters from one that ignores one of them (AOC-049 mutant sweep: dropping
+		// any flag from ilvl_n survived until this item existed).
+		{id: 956, name: "Test Facet Eta", rarity: 1, weight: 2, set: 9102, slots: []int{3}, classes: []int{3},
+			sources: [][]int{{2}}},
+		// A required level and no item level — and Delta has the reverse — so each range can leave
+		// only items the OTHER span knows nothing about.
+		{id: 957, name: "Test Facet Theta", rarity: 0, req: 33, sources: [][]int{{1}}},
 	}
 	for _, x := range items {
 		exec(`INSERT INTO items (item_id, slug, name, rarity_id, armour_weight_id, set_id, item_level, requires_level,
 		                         pvp_source, confidence_id, source_note)
 		      VALUES ($1, $2, $3,
 		              (SELECT id FROM rarities ORDER BY sort_order LIMIT 1 OFFSET $4),
-		              (SELECT id FROM armour_weights ORDER BY sort_order LIMIT 1 OFFSET $5),
+		              -- ⚠️ CASE, not a bare subquery: OFFSET NULL is OFFSET 0 in Postgres, so a weightless
+		              -- fixture silently got the first weight (found by the AOC-049 mutant sweep).
+		              CASE WHEN $5::int IS NULL THEN NULL
+		                   ELSE (SELECT id FROM armour_weights ORDER BY sort_order LIMIT 1 OFFSET $5::int) END,
 		              $6, $7, $8, $9,
 		              (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'), $10)`,
 			x.id, strings.ToLower(strings.ReplaceAll(x.name, " ", "-")), x.name, x.rarity, x.weight, x.set, x.ilvl, x.req, x.pvp, note)
@@ -302,6 +315,12 @@ func TestFacetCountsAreTheRowsTheyPromise(t *testing.T) {
 	secondClass := facetSlug(t, d, "classes", "id", 1)
 	firstCurrency := facetSlug(t, d, "currencies", "id", 0)
 	yes, no := true, false
+	// What only Eta has (see the fixture).
+	etaRarity := facetSlug(t, d, "rarities", "sort_order", 1)
+	etaSlot := facetSlug(t, d, "equip_locations", "id", 3)
+	etaWeight := facetSlug(t, d, "armour_weights", "sort_order", 2)
+	etaClass := facetSlug(t, d, "classes", "id", 3)
+	etaCurrency := facetSlug(t, d, "currencies", "id", 2)
 
 	for label, f := range map[string]items.Filters{
 		"no filters":              {},
@@ -319,6 +338,16 @@ func TestFacetCountsAreTheRowsTheyPromise(t *testing.T) {
 		"pvp":                     {PvP: &yes},
 		"class and price":         {Class: secondClass, Price: &yes},
 		"set and currency":        {Set: "test-facet-set-alpha", Currency: firstCurrency},
+		// Each leaves only items with no level of the span's kind: the spans must vanish.
+		"only Eta's rarity":       {Rarity: etaRarity},
+		"only Eta's slot":         {EquipLocation: etaSlot},
+		"only Eta's weight":       {ArmourWeight: etaWeight},
+		"only Eta's class":        {Class: etaClass},
+		"only Eta's currency":     {Currency: etaCurrency},
+		"only Eta's set":          {Set: "test-facet-set-gamma"},
+		"only Eta's name":         {Query: "Facet Eta"},
+		"only Theta's req level":  {ReqLvlMin: i32(30), ReqLvlMax: i32(40)},
+		"only Delta's item level": {ILvlMin: i32(45), ILvlMax: i32(55)},
 	} {
 		if n := assertFacetsAreTheirRows(t, s, f, label); n == 0 {
 			t.Errorf("%s: nothing was checked", label)
@@ -351,8 +380,8 @@ func TestAZeroIsListedAndPriceMeansAnySource(t *testing.T) {
 	if zeros == 0 {
 		t.Error("no currency counted 0 — the fixture uses two, so the rest must be listed at 0")
 	}
-	if res.Facets.Price.Count != 4 || res.Facets.Price.Any != 6 {
-		t.Errorf("price = %d of %d, want 4 of 6 (Alpha priced at one source of two; Gamma and Zeta have none)", res.Facets.Price.Count, res.Facets.Price.Any)
+	if res.Facets.Price.Count != 7 || res.Facets.Price.Any != 8 {
+		t.Errorf("price = %d of %d, want 7 of 8 (Alpha priced at one source of two; only Gamma has none)", res.Facets.Price.Count, res.Facets.Price.Any)
 	}
 	first := facetSlug(t, d, "currencies", "id", 0)
 	for _, v := range res.Facets.Currency.Values {
