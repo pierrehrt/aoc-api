@@ -357,6 +357,7 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 	}
 	var cfg struct {
 		RefreshOnHistoryMiss bool `json:"refreshOnHistoryMiss"`
+		HistoryCacheSize     *int `json:"historyCacheSize"`
 		ResponseHandling     []struct {
 			Code  string `json:"code"`
 			Swap  bool   `json:"swap"`
@@ -370,6 +371,11 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 	// HTMX request — every handler answers that with a fragment, and htmx put it in <body>.
 	if !cfg.RefreshOnHistoryMiss {
 		t.Error("htmx-config does not set refreshOnHistoryMiss — Back after a history miss leaves bare rows")
+	}
+	// AOC-065: and htmx keeps no snapshot, so every Back is that miss: a snapshot is the live DOM when
+	// the next answer lands, which can hold a slider's half-applied value, and Back restored it.
+	if cfg.HistoryCacheSize == nil || *cfg.HistoryCacheSize != 0 {
+		t.Errorf("htmx-config's historyCacheSize is %v, want 0", cfg.HistoryCacheSize)
 	}
 	// First match wins in htmx: walk the list as htmx does.
 	swaps := func(status string) bool {
@@ -385,12 +391,16 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 			t.Errorf("a %s is swapped=%v, want %v", status, swaps(status), want)
 		}
 	}
-	// A change the reader makes while a request is in flight is not wiped by that request's redraw:
-	// the pane is not swapped while such a change is pending (AOC-065; behaviour measured in a browser).
+	// A change the reader makes while a request is in flight is never wiped by that request's
+	// redraw: every request in the form aborts the one in flight (hx-sync on the form, inherited), and
+	// an answer landing mid-drag skips the pane (AOC-065; behaviour measured in a browser).
+	if !strings.Contains(body, `<form method="get" action="/armory" class="armory flex flex-col lg:min-h-0 lg:flex-1" hx-sync="this:replace">`) {
+		t.Error("the form does not sync its requests with replace")
+	}
 	for _, want := range []string{`document.addEventListener("htmx:oobBeforeSwap"`, `e.detail.shouldSwap = false`,
-		`document.addEventListener("htmx:beforeRequest"`, `aocPane.addEventListener("pointerdown"`} {
+		`aocPane.addEventListener("pointerdown"`, `source: "#results"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("the pane's pending-change rule is missing %q", want)
+			t.Errorf("the pane's drag rule is missing %q", want)
 		}
 	}
 }

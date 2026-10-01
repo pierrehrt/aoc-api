@@ -25,10 +25,14 @@
      - refreshOnHistoryMiss (AOC-063): Back to a state htmx kept no snapshot of (it keeps ten) made it
        re-request the URL AS AN HTMX REQUEST and put the answer in <body> — every handler answers
        that with its fragment, so the page became bare rows. A miss now reloads the page normally.
+     - historyCacheSize 0 (AOC-065): htmx keeps no snapshot at all, so EVERY Back is a miss and
+       reloads that URL from the server. A snapshot is the live DOM at the moment the next answer
+       lands; a live pane can hold a slider's half-applied value then, and Back restored it (AOC-065
+       delta verify 3, N2/P1). The server's page for the URL is correct by construction.
      - responseHandling: htmx's own list, plus ONE line — a 400 is swapped (AOC-049 review). htmx
        discards every 4xx by default, so a page's own rejection of a live request (the armory's
        invalid-range message) vanished and the control looked dead. Other 4xx/5xx stay unswapped. */}}
-<meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
+<meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"historyCacheSize":0,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
 <script src="{{asset "htmx.min.js"}}" defer></script>
 </head>
 <body class="flex min-h-screen flex-col bg-ink font-sans text-paper{{if .View.App}} lg:h-screen lg:overflow-hidden{{end}}">

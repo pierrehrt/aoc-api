@@ -533,9 +533,9 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   carries `hx-get hx-trigger="change" hx-include="closest form" hx-target="#results"`; the answer is
   `armory_update` — the rows, plus the rail, the pills and both "active" counts (the phone
   button's and the collapsed strip's) **out of band**
-  (`hx-swap-oob="innerHTML:#…"`), so the counts always describe the rows beside them, and the hidden
-  inputs and the sort can never go stale. Inputs keep stable ids, so HTMX hands focus back after
-  the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
+  (`hx-swap-oob="innerHTML:#…"`), so once an answer has landed the counts describe the rows beside
+  them, and the hidden inputs and the sort match its state. Inputs keep stable ids, so HTMX hands
+  focus back after the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
   fields.
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
@@ -549,34 +549,51 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   of the rows, with `HX-Push-Url: false` and **no rail redraw**, so the bad value stays where the
   reader can fix it. `templates.Engine.FragmentStatus` is a fragment with a status. Without
   JavaScript the same reason is on the `RejectHTML` page.
-- **Back always gets the whole page** (AOC-063). htmx keeps snapshots of the last ten pages; on a
-  miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and a
-  handler that serves fragments (today the armory's) answers that with one, so Back left bare rows
-  (live since 0.2.0 through the pager, and reachable from every filter change once the rail pushed
-  URLs). The same `htmx-config` tag sets
-  `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
-  than a full-page branch for `HX-History-Restore-Request` in every handler.
-- **The pane is never redrawn over a change the reader has not sent yet.** An answer's pane is drawn
-  from the state its request carried. A change made while that request is in flight is not in it:
-  a second box ticked, a slider moved, or a slider being dragged. Redrawing would wipe it, and htmx's
-  queued request for that change (htmx queues the last trigger while one is in flight, and reads the
-  form when it sends it) would then send the wiped form. Measured before the fix: a second tick lost,
-  a slider's move lost, a drag cut short under the pointer, a thumb read again in a new span (AOC-049's
-  live rail; AOC-065 delta verifies, F17–F19). So the page's script keeps a *pending* flag: set by
-  any `input` or `change` in the pane and by a press on a slider, and cleared when any request is
-  sent, since it carries the form as it is then, or a state the reader chose by link. While the flag
-  is set, `htmx:oobBeforeSwap` skips the pane's swap (`shouldSwap = false`). The rows, pills and
-  counts still update, and the request the change queued redraws the pane.
-  - **One request per change the reader makes**, ending on what a direct load of what they set gives.
-    No value is reinterpreted, and a bound beyond the new span applies as set (its legend and pill
-    read "≥ 85", never "85–80"). Measured with 40–300 ms of added latency, with real drags and key
-    presses: two ticks, a slider moved or dragged during a request, a slider taken to its end (no
-    bound) while the span widens, an answer with no span, five arrow presses. A normal move is one
-    request.
-  - A press on a slider that ends without a change queues nothing. If a redraw was skipped
-    meanwhile, the current URL is fetched again.
-  - It relies on the platform firing `change` when a slider's move ends (mouse, touch, keys,
-    assistive technology all do); a script that sets a value and fires only `input` is not a move.
+- **Back always reloads the whole page from the server** (AOC-063, AOC-065). On a history miss htmx
+  used to re-request the URL *as an HTMX request* and put the answer in `<body>`. A handler that
+  serves fragments (today the armory's) answers that with one, so Back left bare rows (live since
+  0.2.0 through the pager, and reachable from every filter change once the rail pushed URLs). The
+  `htmx-config` tag sets `refreshOnHistoryMiss: true`, so a miss reloads the page normally.
+  **`historyCacheSize: 0` makes every Back a miss.** A snapshot is the live DOM at the moment the
+  next answer lands, and on a live pane that can hold what a server never drew: a slider's value
+  written but not yet sent, or a pane whose redraw was skipped mid-drag. Back restored those
+  (AOC-065 delta verify 3, N2 and P1). The server's page for a URL is correct by construction, and
+  it is one request. These are two config lines for every htmx page, rather than a full-page branch
+  for `HX-History-Restore-Request` in every handler.
+- **Only the latest action's answer lands: `hx-sync="this:replace"` on the form.** Every htmx
+  request in the form inherits it: the pane's, the pills', sort's and the pager's. A new one aborts
+  the one in flight. An answer's pane is drawn from the state its request carried, so a stale answer
+  landing over a newer change used to wipe it (a second box ticked, a slider moved). htmx's default
+  queue then sent the change *after* that redraw, reading the wiped form. Measured: a second tick
+  lost (live since AOC-049's rail), and slider moves lost or read again in a new span (AOC-065 delta
+  verifies). With replace, a change is sent at once with the form as the reader has it, and nothing
+  older can land after it.
+  - **One case is left: a drag.** An answer landing mid-drag would replace the slider under the
+    pointer and cut the drag short (F19). While a slider is pressed (`pointerdown` to
+    `pointerup`/`pointercancel`), `htmx:oobBeforeSwap` skips the pane's swap (`shouldSwap = false`);
+    the rows, pills and counts still update. The drag's own `change` sends the form and its answer
+    redraws the pane. A press that ends without a change sends the form once, if a redraw was
+    skipped during it, so no skipped pane outlives the press.
+  - **What the reader sees:** every quiet end state equals a direct load of its URL, and that URL is
+    what they set. No value is reinterpreted. A bound beyond the new span applies as set; its legend
+    and pill read "≥ 85", never "85–80". This was measured on the real corpus with 40–300 ms of added
+    latency, real drags, key presses and touch:
+    - two ticks;
+    - a slider moved or dragged during a request;
+    - a slider taken to its end (no bound) while the span widens;
+    - an answer with no span;
+    - five arrow presses;
+    - a press, tap or swipe while an answer lands;
+    - a pill ×, "clear all" or sort, then a press;
+    - a link clicked mid-burst, which lands on the link's state;
+    - Back and Forward.
+  - **Requests:** one per change; the older ones are aborted (five arrow presses send five, and only
+    the last answer lands). A link aborts a pending change, which is right: it goes to the state it
+    names.
+  - **A 400:** its reason replaces the rows. The pane keeps the reader's input to correct, with the
+    last drawn counts.
+  - **Relies on** the platform firing `change` when a slider's move ends. Mouse, touch, keys and
+    assistive technology all do; a script that sets a value and fires only `input` is not a move.
   - It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
     CSP arrives.
 

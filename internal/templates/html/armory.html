@@ -6,7 +6,10 @@
      ordinary scrolling page, the filters in a sheet.
      ONE form: the search and the filters submit together, so each keeps the other, and without
      JavaScript it is a plain GET form (AOC-049). */}}
-<form method="get" action="/armory" class="armory flex flex-col lg:min-h-0 lg:flex-1">
+{{/* hx-sync, inherited by every htmx request in the form (the pane's, the pills', sort and pager):
+     a new request aborts the one in flight, so the only answer that lands is the latest action's.
+     The pane is then never redrawn from a stale state over the reader's newer change (AOC-065). */}}
+<form method="get" action="/armory" class="armory flex flex-col lg:min-h-0 lg:flex-1" hx-sync="this:replace">
   <div class="flex flex-none flex-col gap-3 border-b border-line bg-ink-pane px-5 pb-[14px] pt-[18px]">
     <div role="search" class="flex items-center gap-3">
       <div class="flex h-[46px] min-w-0 flex-1 items-center gap-[11px] rounded-[7px] border-[1.5px] border-link bg-ink px-[14px] shadow-[0_0_0_3px_rgba(205,151,91,0.13)]">
@@ -59,8 +62,7 @@
 </form>
 {{/* Enhancements only: without them, and without JavaScript, the page works.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
-     - A change's answer redraws the pane, except while the reader has a change no request has
-       carried yet: that change's own request redraws it (AOC-065).
+     - A change's answer redraws the pane, except over a slider being dragged (AOC-065).
      - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
@@ -88,34 +90,30 @@ function aocSyncRange(s) {
 document.addEventListener("input", function (e) {
   if (e.target.matches && e.target.matches("input[type=range][data-bound]")) aocSyncRange(e.target);
 });
-// A change's answer redraws the pane, drawn from the state its request carried. A change the reader
-// makes while that request is in flight is not in it, and the redraw would wipe it: a second box
-// ticked, a slider moved — or the slider under the pointer, mid-drag, replaced — and htmx's queued
-// request for that change, sent after the redraw, would read the wiped form (AOC-065 delta verifies:
-// a second tick lost, a slider's move lost, cut short, or read again in a new span).
-// So while the reader has a change no request has carried yet, the pane stays as the reader has
-// it: the request that change queues — htmx queues the last change while one is in flight — redraws
-// it. A press on a slider that ends without a change queues nothing, so a redraw skipped meanwhile
-// is fetched again.
-var aocPending = false, aocDragging = false, aocSkipped = false, aocPane = document.getElementById("armory-facets");
-aocPane.addEventListener("input", function () { aocPending = true; });
-aocPane.addEventListener("change", function () { aocPending = true; });
+// An answer's pane is drawn from the state its request carried. The form's hx-sync="this:replace"
+// makes every new request abort the one in flight, so an answer that lands is the latest action's,
+// and a change the reader makes is sent at once with the form as it is (AOC-065 delta verifies: a
+// second tick, a slider's move, had been wiped by a stale redraw).
+// One case is left: an answer landing while a slider is being dragged would replace the slider under
+// the pointer and cut the drag short. So during a drag the pane's redraw is skipped; the drag's own
+// change sends the form and redraws it, and a drag that ends without a change sends it once.
+var aocDragging = false, aocSkipped = false, aocPane = document.getElementById("armory-facets");
 aocPane.addEventListener("pointerdown", function (e) {
-  if (e.target.matches("input[type=range]")) aocPending = aocDragging = true;
+  if (e.target.matches("input[type=range]")) aocDragging = e.target;
 });
 function aocDragEnd() {
-  if (!aocDragging) return;
+  var s = aocDragging;
+  if (!s) return;
   aocDragging = false;
   setTimeout(function () {
-    if (aocSkipped) htmx.ajax("GET", location.pathname + location.search, { target: "#results", swap: "innerHTML" });
+    if (aocSkipped && s.isConnected) s.dispatchEvent(new Event("change", { bubbles: true }));
   }, 0);
 }
 document.addEventListener("pointerup", aocDragEnd);
 document.addEventListener("pointercancel", aocDragEnd);
-// A request carries the form as it is now (or, from a link, a state the reader chose): nothing is pending.
-document.addEventListener("htmx:beforeRequest", function () { aocPending = aocSkipped = false; });
+document.addEventListener("htmx:beforeRequest", function () { aocSkipped = false; });
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  if (e.detail.target === aocPane && (aocPending || aocDragging)) {
+  if (e.detail.target === aocPane && aocDragging) {
     e.detail.shouldSwap = false;
     aocSkipped = true;
   }
@@ -130,7 +128,8 @@ document.addEventListener("reset", function (e) {
   var back = aocOpenedAt;
   aocOpenedAt = null;
   if (back !== null && back !== location.pathname + location.search) {
-    htmx.ajax("GET", back, { target: "#results", swap: "innerHTML" });
+    // from #results, so the request syncs on the form (hx-sync) but sends none of its fields
+    htmx.ajax("GET", back, { source: "#results", target: "#results", swap: "innerHTML" });
   }
 });
 document.addEventListener("keydown", function (e) {
