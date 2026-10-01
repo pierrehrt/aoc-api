@@ -1,0 +1,305 @@
+package pages_test
+
+import (
+	"context"
+	"encoding/json"
+	"html"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/httpx"
+	"github.com/pierrehrt/aoc-api/internal/items"
+	"github.com/pierrehrt/aoc-api/internal/pages"
+	"github.com/pierrehrt/aoc-api/internal/templates"
+)
+
+// The filter rail (AOC-049), against the fake corpus. The counts' correctness is pinned against real
+// SQL in internal/db; what is pinned here is that the page prints them, keeps every state in its
+// URLs, and works as a plain form.
+
+// everyFilter is a state with every filter the parser accepts set — the page's links and its form
+// must carry all of them.
+const everyFilter = "q=Item&rarity=epic&item_type=test-type&equip_location=test-slot-head&armour_weight=test-weight-light" +
+	"&class=test-class&region=test-region&tier=test-tier&place=test-cave&place=test-lair&pvp=true&unchained=false" +
+	"&ilvl_min=10&ilvl_max=90&reqlvl_min=5&reqlvl_max=80&price=true&currency=test-token&set=test-set-omega&sort=name"
+
+func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory", nil, "").Body.String()
+	for _, want := range []string{
+		`<form method="get" action="/armory"`,
+		// every group, each led by a checked Any that carries the count with the group unset
+		`<input type="radio" id="f-rarity-any" name="rarity" value="" checked`,
+		`<input type="radio" id="f-rarity-epic" name="rarity" value="epic"`,
+		`id="f-equip_location-test-slot-head"`, `id="f-armour_weight-test-weight-light"`, `id="f-class-test-class"`,
+		`id="f-price-true" name="price" value="true"`, `id="f-price-false" name="price" value="false"`,
+		// two level ranges, the span as placeholders
+		`name="ilvl_min"`, `name="ilvl_max"`, `name="reqlvl_min"`, `name="reqlvl_max"`, `placeholder="80"`,
+		// the long vocabularies as selects, counts in the option text, a 0 listed
+		`<select id="f-currency" name="currency"`, `<option value="test-coin">Test Coin (0)</option>`,
+		`<select id="f-set" name="set"`,
+		// a class shows its short name and says its full name to a screen reader
+		`<span aria-hidden="true">TC</span><span class="sr-only">Test Class</span>`,
+		// the submit carries the result count (design 1b)
+		`<button type="submit" class="ml-auto rounded bg-link px-4 py-2 text-sm font-medium text-ink">Show 120 items</button>`,
+		// fieldsets with legends: a radio group's semantic container
+		`<legend class="text-xs font-medium uppercase tracking-wide text-muted">Class restriction</legend>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// A 0 is muted, never hidden.
+	if !regexp.MustCompile(`(?s)<label for="f-rarity-test-rarity-dull"[^>]*text-muted">.*?Test Rarity Dull.*?>0</span>`).MatchString(body) {
+		t.Error("the 0-count rarity is not listed muted with its 0")
+	}
+	// The phone sheet's switch has no name: never submitted, never in the URL (design 1b).
+	if m := regexp.MustCompile(`<input[^>]*id="filter-sheet"[^>]*>`).FindString(body); m == "" || strings.Contains(m, "name=") {
+		t.Errorf("the sheet toggle is %q — it must exist and carry no name", m)
+	}
+	// The rail is live with HTMX: one request on change, the whole form, into the results.
+	if !strings.Contains(body, `hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true"`) {
+		t.Error("the rail does not re-render on change")
+	}
+	if strings.Contains(body, "<details") {
+		t.Error("a <details> is back: its open state would reset on every live swap (build decision 4)")
+	}
+	// No active filter: no chips, no clear-all, no count on the phone button.
+	if strings.Contains(body, "clear all") || strings.Contains(body, `<span id="filter-count"> · `) {
+		t.Error("an unfiltered page shows active-filter UI")
+	}
+}
+
+func TestActiveFiltersAreChipsThatEachRemoveOneFilter(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?rarity=epic&ilvl_min=70&price=true&region=test-region&sort=name", nil, "").Body.String()
+	chips := regexp.MustCompile(`<a href="([^"]+)" hx-get="[^"]+" hx-target="#results" hx-push-url="true" aria-label="Remove the filter ([^"]+)"`).FindAllStringSubmatch(body, -1)
+	removes := map[string]string{"Rarity: Test Epic": "rarity", "Item level ≥ 70": "ilvl_min", "Has a vendor price": "price", "region: test-region": "region"}
+	if len(chips) != len(removes) {
+		t.Fatalf("got %d chips, want %d: %v", len(chips), len(removes), chips)
+	}
+	for _, c := range chips {
+		label := html.UnescapeString(c[2])
+		param, ok := removes[label]
+		if !ok {
+			t.Errorf("unexpected chip %q", label)
+			continue
+		}
+		u, _ := url.Parse(html.UnescapeString(c[1]))
+		q := u.Query()
+		if q.Has(param) {
+			t.Errorf("chip %q links to %s, which still has %s", label, c[1], param)
+		}
+		// …and keeps everything else, the sort included.
+		for _, keep := range []string{"rarity", "ilvl_min", "price", "region", "sort"} {
+			if keep != param && !q.Has(keep) {
+				t.Errorf("chip %q drops %s too: %s", label, keep, c[1])
+			}
+		}
+	}
+	if !strings.Contains(body, `<a href="/armory?sort=name" hx-get="/armory?sort=name" hx-target="#results" hx-push-url="true" class="text-xs text-link">clear all</a>`) {
+		t.Error("clear all must keep the sort and drop every filter")
+	}
+	if !strings.Contains(body, `<span id="filter-count"> · 4</span>`) {
+		t.Error("the phone's Filters button does not carry the active count")
+	}
+	// The state is in the form: the chosen radio checked, the non-rail filter and the sort hidden.
+	for _, want := range []string{
+		`id="f-rarity-epic" name="rarity" value="epic" checked`, `id="f-price-true" name="price" value="true" checked`,
+		`name="ilvl_min" value="70"`, `<input type="hidden" name="region" value="test-region">`,
+		`<input type="hidden" name="sort" value="name">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// ⭐ Every state is a URL: the pager, the sort links and the canonical carry every filter. Before
+// AOC-049 the page's links knew only q and sort, so a filtered page 2 linked to an unfiltered page 3.
+func TestEveryFilterSurvivesThePagesLinks(t *testing.T) {
+	carries := func(where, link string, want url.Values) {
+		t.Helper()
+		u, _ := url.Parse(html.UnescapeString(link))
+		got := u.Query()
+		for k, vs := range want {
+			if strings.Join(got[k], ",") != strings.Join(vs, ",") {
+				t.Errorf("%s %s: %s = %v, want %v", where, link, k, got[k], vs)
+			}
+		}
+	}
+	canonical := regexp.MustCompile(`<link rel="canonical" href="https://aoc-codex.app(/armory\?[^"]+)">`)
+
+	// The canonical, for the full state.
+	want, _ := url.ParseQuery(everyFilter)
+	if c := canonical.FindStringSubmatch(get(t, router(t), http.MethodGet, "/armory?"+everyFilter+"&p=2", nil, "").Body.String()); c == nil {
+		t.Fatal("no canonical")
+	} else {
+		carries("canonical", c[1], want)
+	}
+
+	// The pager and the sort links. Without `place`: naming places makes the list one row per named
+	// place, and the fake corpus has none, so that page has no rows to page through.
+	state := strings.Replace(everyFilter, "&place=test-cave&place=test-lair", "", 1)
+	want, _ = url.ParseQuery(state)
+	body := get(t, router(t), http.MethodGet, "/armory?"+state+"&p=2", nil, "").Body.String()
+	pager := regexp.MustCompile(`href="(/armory\?[^"]*&amp;p=[13][^"]*)"`).FindAllStringSubmatch(body, -1)
+	if len(pager) == 0 {
+		t.Fatal("no pager links")
+	}
+	for _, l := range pager {
+		carries("pager", l[1], want)
+	}
+	sorts := regexp.MustCompile(`href="(/armory\?[^"]*sort=id[^"]*)"`).FindAllStringSubmatch(body, -1)
+	if len(sorts) == 0 {
+		t.Fatal("no sort link")
+	}
+	want.Set("sort", "id")
+	carries("sort", sorts[0][1], want)
+}
+
+// The form carries every filter of the state it shows — through a control or a hidden input — so a
+// submit (JS off) or a change (JS on) never drops one the reader did not touch.
+func TestTheFormCarriesEveryFilter(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?"+everyFilter, nil, "").Body.String()
+	form := body[strings.Index(body, `<form method="get"`):strings.Index(body, `</form>`)]
+	got := url.Values{}
+	for _, m := range regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)">`).FindAllStringSubmatch(form, -1) {
+		got.Add(m[1], m[2])
+	}
+	for _, m := range regexp.MustCompile(`<input type="radio" id="[^"]+" name="([^"]+)" value="([^"]*)" checked`).FindAllStringSubmatch(form, -1) {
+		if m[2] != "" {
+			got.Add(m[1], m[2])
+		}
+	}
+	for _, m := range regexp.MustCompile(`name="((?:ilvl|reqlvl)_(?:min|max))" value="(\d+)"`).FindAllStringSubmatch(form, -1) {
+		got.Add(m[1], m[2])
+	}
+	for _, m := range regexp.MustCompile(`(?s)<select id="[^"]+" name="([^"]+)".*?<option value="([^"]+)" selected`).FindAllStringSubmatch(form, -1) {
+		got.Add(m[1], m[2])
+	}
+	if m := regexp.MustCompile(`<input id="q" name="q" type="search" value="([^"]*)"`).FindStringSubmatch(form); m != nil {
+		got.Add("q", m[1])
+	}
+	want, _ := url.ParseQuery(everyFilter)
+	for k, vs := range want {
+		g := append([]string{}, got[k]...)
+		sort.Strings(g)
+		w := append([]string{}, vs...)
+		sort.Strings(w)
+		if strings.Join(g, ",") != strings.Join(w, ",") {
+			t.Errorf("the form submits %s=%v, the state has %v", k, got[k], vs)
+		}
+	}
+}
+
+// One HTMX request answers the rows AND the rail, and pushes the state's own URL — not the form's
+// raw query string with its empty fields.
+func TestTheHTMXAnswerCarriesTheRowsAndTheRail(t *testing.T) {
+	rr := get(t, router(t), http.MethodGet, "/armory?q=&rarity=epic&ilvl_min=&ilvl_max=&currency=&set=&price=", map[string]string{"HX-Request": "true"}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"page 1 of 3", // the rows
+		`<div hx-swap-oob="innerHTML:#armory-facets">`, `id="f-rarity-epic" name="rarity" value="epic" checked`,
+		`<span hx-swap-oob="innerHTML:#filter-count"> · 1</span>`,
+		"Rarity: Test Epic", // the chip
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the HTMX answer is missing %q", want)
+		}
+	}
+	if got := rr.Header().Get("HX-Push-Url"); got != "/armory?rarity=epic" {
+		t.Errorf("HX-Push-Url = %q, want /armory?rarity=epic", got)
+	}
+	if strings.Contains(body, "<html") || strings.Contains(body, "<form") {
+		t.Error("an HTMX request got the page, not the fragment")
+	}
+}
+
+// A range that is empty by construction, or a level that is not one, is a 400 on the page as on /v1.
+func TestABadRangeIs400OnThePage(t *testing.T) {
+	for _, q := range []string{"ilvl_min=80&ilvl_max=70", "reqlvl_min=x", "ilvl_max=-1", "price=maybe"} {
+		rr := get(t, router(t), http.MethodGet, "/armory?"+q, nil, "")
+		if rr.Code != http.StatusBadRequest || !strings.HasPrefix(rr.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("%s: %d %s, want a 400 HTML page", q, rr.Code, rr.Header().Get("Content-Type"))
+		}
+	}
+	// An unknown slug is not malformed: a chip names it, it stays chosen, and the page answers.
+	rr := get(t, router(t), http.MethodGet, "/armory?currency=not-a-currency", nil, "")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Currency: not-a-currency") ||
+		!strings.Contains(rr.Body.String(), `<option value="not-a-currency" selected>not-a-currency (0)</option>`) {
+		t.Errorf("an unknown currency: %d, chip or kept choice missing", rr.Code)
+	}
+}
+
+type stubTaxonomies struct{}
+
+func (stubTaxonomies) Taxonomies(context.Context) (items.Taxonomies, error) {
+	return items.Taxonomies{}, nil
+}
+
+// ⭐ THE CRITERION: /v1/items?facets=1 returns the counts the page shows. One service behind both
+// surfaces, as in production; every number the rail prints is compared with the JSON's.
+func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
+	set, err := assets.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl, err := templates.New(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := items.NewService(newFakeItems(120))
+	api := items.NewHandler(svc, stubTaxonomies{})
+	h := httpx.NewRouterWithAPI(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, svc).Routes, set.Handler(),
+		func(v1 chi.Router) { v1.Mount("/items", api.Routes()) })
+
+	for _, state := range []string{"", "rarity=epic&price=false&ilvl_min=10"} {
+		page := get(t, h, http.MethodGet, "/armory?"+state, nil, "").Body.String()
+		var env struct {
+			Facets items.Facets `json:"facets"`
+		}
+		rr := get(t, h, http.MethodGet, "/v1/items?facets=1&"+state, nil, "")
+		if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%s: %v", state, err)
+		}
+		want := map[string]int64{} // "param=value" -> count, from the JSON
+		for param, g := range map[string]items.FacetGroup{"rarity": env.Facets.Rarity, "equip_location": env.Facets.EquipLocation,
+			"armour_weight": env.Facets.ArmourWeight, "class": env.Facets.Class, "currency": env.Facets.Currency, "set": env.Facets.Set} {
+			want[param+"="] = g.Any
+			for _, v := range g.Values {
+				want[param+"="+v.Slug] = v.Count
+			}
+		}
+		want["price="], want["price=true"], want["price=false"] = env.Facets.Price.Any, env.Facets.Price.Count, env.Facets.Price.Any-env.Facets.Price.Count
+
+		got := map[string]int64{}
+		for _, m := range regexp.MustCompile(`(?s)<input type="radio" id="[^"]+" name="([^"]+)" value="([^"]*)".*?<span class="font-mono text-xs text-muted">(\d+)</span>`).FindAllStringSubmatch(page, -1) {
+			n, _ := strconv.ParseInt(m[3], 10, 64)
+			got[m[1]+"="+m[2]] = n
+		}
+		for _, sel := range regexp.MustCompile(`(?s)<select id="[^"]+" name="([^"]+)"[^>]*>(.*?)</select>`).FindAllStringSubmatch(page, -1) {
+			for _, o := range regexp.MustCompile(`<option value="([^"]*)"[^>]*>[^<]*\((\d+)\)</option>`).FindAllStringSubmatch(sel[2], -1) {
+				n, _ := strconv.ParseInt(o[2], 10, 64)
+				got[sel[1]+"="+o[1]] = n
+			}
+		}
+		if len(got) != len(want) {
+			t.Errorf("%q: the page shows %d counts, the JSON has %d", state, len(got), len(want))
+		}
+		for k, n := range want {
+			if g, ok := got[k]; !ok || g != n {
+				t.Errorf("%q: %s — page %d (shown: %v), JSON %d", state, k, g, ok, n)
+			}
+		}
+	}
+}

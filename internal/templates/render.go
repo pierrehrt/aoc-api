@@ -79,9 +79,12 @@ var pageProbes = map[string]any{
 
 // fragmentProbes likewise, by fragment name.
 var fragmentProbes = map[string]any{
-	"armory_rows": armoryProbe(),
-	"armory_slot": armoryProbe().Result.Items[0],
-	"armory_type": armoryProbe().Result.Items[0],
+	"armory_rows":         armoryProbe(),
+	"armory_facets":       armoryProbe(),
+	"armory_update":       armoryProbe(),
+	"armory_filter_count": armoryProbe(),
+	"armory_slot":         armoryProbe().Result.Items[0],
+	"armory_type":         armoryProbe().Result.Items[0],
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.
