@@ -28,6 +28,14 @@ SELECT id, slug, name, sort_order FROM tiers ORDER BY sort_order;
 -- name: ListItemTypes :many
 SELECT id, slug, name FROM item_types ORDER BY name;
 
+-- name: ListItemTypeDefaultSlots :many
+-- AOC-054: item type -> the slot its items go in when their tooltip names none. By NAME on both
+-- sides, because the importer resolves the snapshot's names; read by internal/items LoadLookups.
+SELECT t.name AS item_type, el.name AS slot
+FROM item_types t
+JOIN equip_locations el ON el.id = t.default_equip_location_id
+ORDER BY t.name;
+
 -- name: ListEquipLocations :many
 SELECT id, slug, name FROM equip_locations ORDER BY name;
 

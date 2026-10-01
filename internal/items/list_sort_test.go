@@ -2,6 +2,8 @@ package items
 
 import (
 	"context"
+	"errors"
+	"math"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
 
 // AOC-047: the list's sort and id search, at the service and the parser.
@@ -74,11 +78,30 @@ func TestMoneyRendersLikeATooltip(t *testing.T) {
 		return v
 	}
 	for in, want := range map[string]string{"9.00": "9", "2.50": "2.5", "100": "100", "0.10": "0.1"} {
-		if got := money(n(in)); got != want {
-			t.Errorf("money(%s) = %q, want %q", in, got, want)
+		// Through the path a price takes: NUMERIC -> numeric -> TrimNumber (Price and the stat lines).
+		if got := TrimNumber(numeric(n(in))); got != want {
+			t.Errorf("TrimNumber(%s) = %q, want %q", in, got, want)
 		}
 	}
 	_ = big.NewInt // keep the import honest if pgtype changes shape
+}
+
+func TestDPSReadsLikeTheTooltip(t *testing.T) {
+	for in, want := range map[string]string{"143.00": "143.0", "125.80": "125.8", "": ""} {
+		if got := dpsText(in); got != want {
+			t.Errorf("dpsText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Price is the ONE spelling of a cost, for the list row and the item page alike (AOC-048 review).
+func TestPriceIsOneFormatForBothPages(t *testing.T) {
+	if got, want := Price([]CostRef{{CurrencyName: "Test Relic", Amount: "9.00"}, {CurrencyName: "Test Gold", Amount: "2.50"}}), "9 Test Relic + 2.5 Test Gold"; got != want {
+		t.Errorf("Price = %q, want %q", got, want)
+	}
+	if got := Price(nil); got != "" {
+		t.Errorf("no costs gave %q", got)
+	}
 }
 
 func TestIDSpanCountsTheAbsentIDs(t *testing.T) {
@@ -91,4 +114,18 @@ func TestIDSpanCountsTheAbsentIDs(t *testing.T) {
 		t.Errorf("span = %+v", span)
 	}
 	_ = httptest.NewRecorder
+}
+
+// Slugs refuses a page it cannot pass to Postgres as it was asked — a negative or oversized offset
+// would otherwise wrap in int32 and come back as a 500 (AOC-025 review).
+func TestSlugsRefusesAPageItCannotAsk(t *testing.T) {
+	s := NewService(sharedItem())
+	for _, tc := range []struct{ limit, offset int }{{0, 0}, {-1, 0}, {10, -1}, {10, math.MaxInt32 + 1}, {math.MaxInt32 + 1, 0}} {
+		if _, err := s.Slugs(context.Background(), tc.limit, tc.offset); !errors.Is(err, httpx.ErrInvalid) {
+			t.Errorf("Slugs(%d, %d) = %v, want ErrInvalid", tc.limit, tc.offset, err)
+		}
+	}
+	if _, err := s.Slugs(context.Background(), 10, 0); err != nil {
+		t.Errorf("a valid page failed: %v", err)
+	}
 }

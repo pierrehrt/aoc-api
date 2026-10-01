@@ -17,6 +17,9 @@ SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, it.slug AS item_type,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, b.slug AS binding,
+       -- the display names and the rarity's colour, for the item PAGE (AOC-048); /v1 keeps the slugs
+       r.name AS rarity_name, r.colour_token AS rarity_colour_token, it.name AS item_type_name,
+       aw.name AS armour_weight_name, b.name AS binding_name,
        i.item_level, i.requires_level, i.armor, i.critigation, i.dps, i.damage_range,
        i.set_id, s.name AS set_name, s.declared_piece_count,
        f.slug AS faction, i.faction_rank,
@@ -44,6 +47,11 @@ type GetItemRow struct {
 	SlotFit            *string
 	ArmourWeight       *string
 	Binding            *string
+	RarityName         string
+	RarityColourToken  *string
+	ItemTypeName       *string
+	ArmourWeightName   *string
+	BindingName        *string
 	ItemLevel          *int32
 	RequiresLevel      *int32
 	Armor              *int32
@@ -70,8 +78,9 @@ type GetItemRow struct {
 // public endpoints to AOC-012; what is here is the shape both of them read through.
 //
 // ⭐ EQUIP LOCATION IS A JOIN. `ListItems` filters slots through item_equip_locations, never
-// through a column on items, because 390 two-handers occupy Main Hand AND Off Hand and 188 rings
-// occupy EITHER finger. A query that filtered a single column would silently drop the 390 —
+// through a column on items, because 389 one-handed weapons fit EITHER hand and 187 rings EITHER
+// finger (AOC-058: the first were read as "two-handers occupying both" until Pierre said otherwise).
+// A query that filtered a single column would silently drop the 389 —
 // the reason the join exists at all (see the migration header).
 //
 // ⚠️ Every read returns confidence and open_question with the row, like places.sql. A page that
@@ -92,6 +101,11 @@ func (q *Queries) GetItem(ctx context.Context, itemID int32) (GetItemRow, error)
 		&i.SlotFit,
 		&i.ArmourWeight,
 		&i.Binding,
+		&i.RarityName,
+		&i.RarityColourToken,
+		&i.ItemTypeName,
+		&i.ArmourWeightName,
+		&i.BindingName,
 		&i.ItemLevel,
 		&i.RequiresLevel,
 		&i.Armor,
@@ -149,7 +163,7 @@ func (q *Queries) ItemIDSpan(ctx context.Context) (ItemIDSpanRow, error) {
 }
 
 const listItemClasses = `-- name: ListItemClasses :many
-SELECT cl.id, cl.slug, cl.name
+SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
@@ -157,9 +171,10 @@ ORDER BY cl.name
 `
 
 type ListItemClassesRow struct {
-	ID   int32
-	Slug string
-	Name string
+	ID        int32
+	Slug      string
+	Name      string
+	ShortName *string
 }
 
 func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItemClassesRow, error) {
@@ -171,7 +186,12 @@ func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItem
 	items := []ListItemClassesRow{}
 	for rows.Next() {
 		var i ListItemClassesRow
-		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -444,17 +464,54 @@ func (q *Queries) ListItemPlaces(ctx context.Context, itemIds []int32) ([]ListIt
 	return items, nil
 }
 
+const listItemSlugs = `-- name: ListItemSlugs :many
+SELECT i.slug
+FROM items i
+ORDER BY i.item_id
+LIMIT $2::int OFFSET $1::int
+`
+
+type ListItemSlugsParams struct {
+	PageOffset int32
+	PageSize   int32
+}
+
+// AOC-025: the sitemap's item URLs, one page of them. Ordered by the source site's own id, which
+// never changes, so a chunk holds the same items from one crawl to the next.
+func (q *Queries) ListItemSlugs(ctx context.Context, arg ListItemSlugsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listItemSlugs, arg.PageOffset, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItemSources = `-- name: ListItemSources :many
 SELECT src.id, src.item_id,
-       at.slug AS acquisition_type,
+       at.slug AS acquisition_type, at.name AS acquisition_type_name,
        src.place_id, p.name AS place_name, p.slug AS place_slug,
        src.boss_id, bo.name AS boss_name,
        src.vendor_id, v.name AS vendor_name,
        src.quest_id, q.name AS quest_name,
+       -- what the armory's quest column said: a giver, a hub or a bucket as often as a title, so
+       -- the page shows it as listed and never calls it the quest's name (quests.name is NULL)
+       q.armory_label AS quest_label,
        src.container_id, ct.name AS container_name,
        src.region_id, rg.name AS region_name, rg.slug AS region_slug,
        src.map_id, mp.name AS map_name, mp.slug AS map_slug,
-       src.tier_id, tr.slug AS tier,
+       src.tier_id, tr.slug AS tier, tr.name AS tier_name,
        src.is_raid, src.coords, src.section_raw,
        -- ⭐ src OR place (AOC-039): the one unchained expression, shared with the list filter and
        -- ListItemPlaces. This was the bare src.unchained -- the third spelling of one rule, which
@@ -477,35 +534,38 @@ ORDER BY src.id
 `
 
 type ListItemSourcesRow struct {
-	ID              int64
-	ItemID          int32
-	AcquisitionType *string
-	PlaceID         *int32
-	PlaceName       *string
-	PlaceSlug       *string
-	BossID          *int32
-	BossName        *string
-	VendorID        *int32
-	VendorName      *string
-	QuestID         *int32
-	QuestName       *string
-	ContainerID     *int32
-	ContainerName   *string
-	RegionID        *int32
-	RegionName      *string
-	RegionSlug      *string
-	MapID           *int32
-	MapName         *string
-	MapSlug         *string
-	TierID          *int32
-	Tier            *string
-	IsRaid          bool
-	Coords          *string
-	SectionRaw      *string
-	Unchained       bool
-	Confidence      string
-	SourceNote      string
-	OpenQuestion    *string
+	ID                  int64
+	ItemID              int32
+	AcquisitionType     *string
+	AcquisitionTypeName *string
+	PlaceID             *int32
+	PlaceName           *string
+	PlaceSlug           *string
+	BossID              *int32
+	BossName            *string
+	VendorID            *int32
+	VendorName          *string
+	QuestID             *int32
+	QuestName           *string
+	QuestLabel          *string
+	ContainerID         *int32
+	ContainerName       *string
+	RegionID            *int32
+	RegionName          *string
+	RegionSlug          *string
+	MapID               *int32
+	MapName             *string
+	MapSlug             *string
+	TierID              *int32
+	Tier                *string
+	TierName            *string
+	IsRaid              bool
+	Coords              *string
+	SectionRaw          *string
+	Unchained           bool
+	Confidence          string
+	SourceNote          string
+	OpenQuestion        *string
 }
 
 // An item page's "where does this come from". 237 items have more than one place — 8 with two and
@@ -530,6 +590,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.ID,
 			&i.ItemID,
 			&i.AcquisitionType,
+			&i.AcquisitionTypeName,
 			&i.PlaceID,
 			&i.PlaceName,
 			&i.PlaceSlug,
@@ -539,6 +600,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.VendorName,
 			&i.QuestID,
 			&i.QuestName,
+			&i.QuestLabel,
 			&i.ContainerID,
 			&i.ContainerName,
 			&i.RegionID,
@@ -549,6 +611,7 @@ func (q *Queries) ListItemSources(ctx context.Context, itemID int32) ([]ListItem
 			&i.MapSlug,
 			&i.TierID,
 			&i.Tier,
+			&i.TierName,
 			&i.IsRaid,
 			&i.Coords,
 			&i.SectionRaw,
@@ -571,7 +634,7 @@ const listItemSpellEffects = `-- name: ListItemSpellEffects :many
 SELECT se.item_id, se.stat, se.value, se.sign, se.unit, se.damage_type, se.pvp
 FROM item_spell_effects se
 WHERE se.item_id = $1
-ORDER BY se.stat
+ORDER BY se.id
 `
 
 type ListItemSpellEffectsRow struct {
@@ -584,7 +647,8 @@ type ListItemSpellEffectsRow struct {
 	Pvp        bool
 }
 
-// Deliberately its own query against its own table. See the header.
+// Deliberately its own query against its own table. See the header. In the tooltip's order, like
+// ListItemStats.
 func (q *Queries) ListItemSpellEffects(ctx context.Context, itemID int32) ([]ListItemSpellEffectsRow, error) {
 	rows, err := q.db.Query(ctx, listItemSpellEffects, itemID)
 	if err != nil {
@@ -617,7 +681,7 @@ const listItemStats = `-- name: ListItemStats :many
 SELECT st.item_id, st.stat, st.value, st.sign, st.unit, st.damage_type, st.pvp
 FROM item_stats st
 WHERE st.item_id = $1
-ORDER BY st.stat
+ORDER BY st.id
 `
 
 type ListItemStatsRow struct {
@@ -630,6 +694,9 @@ type ListItemStatsRow struct {
 	Pvp        bool
 }
 
+// In the TOOLTIP's order (AOC-048): the importer writes each item's stats in the order its tooltip
+// prints them, so the id is that order — Dexterity before Combat Rating, as the game shows it.
+// It was alphabetical until then, which no reader of a tooltip would recognise.
 func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemStatsRow, error) {
 	rows, err := q.db.Query(ctx, listItemStats, itemID)
 	if err != nil {
@@ -661,7 +728,7 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 const listItems = `-- name: ListItems :many
 SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
-       it.slug AS item_type,
+       it.slug AS item_type, it.name AS item_type_name,
        sf.slug AS slot_fit,
        aw.slug AS armour_weight, aw.name AS armour_weight_name,
        i.item_level, i.requires_level, i.armor, i.dps,
@@ -768,6 +835,7 @@ type ListItemsRow struct {
 	RaritySort        int32
 	RarityColourToken *string
 	ItemType          *string
+	ItemTypeName      *string
 	SlotFit           *string
 	ArmourWeight      *string
 	ArmourWeightName  *string
@@ -785,9 +853,9 @@ type ListItemsRow struct {
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //
 // ⭐ The equip-location filter goes through the join (EXISTS), so asking for 'off-hand' returns
-// the 390 two-handers as well as the 141 off-hand-only items — 531, not 141. That is the
-// acceptance criterion this whole schema shape exists for, and
-// TestListItemsFindsTwoHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
+// the 389 one-handed weapons (they fit either hand) as well as the 141 off-hand-only items — 530,
+// not 141 (measured 2026-09-30). That is the acceptance criterion this whole schema shape exists for,
+// and TestListItemsFindsOneHandersWhenAskedForOffHand exercises THIS query, not a copy of it.
 // ⭐ ONE query, three orders (AOC-047). A CASE per sort key keeps every filter above in one
 // place; the keys are code ('name', 'ilvl', 'id' — not a game concept), validated before they
 // get here. ilvl is DESCENDING with NULLs LAST, so the 50 items with no recorded level end the
@@ -825,6 +893,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.RaritySort,
 			&i.RarityColourToken,
 			&i.ItemType,
+			&i.ItemTypeName,
 			&i.SlotFit,
 			&i.ArmourWeight,
 			&i.ArmourWeightName,
@@ -987,6 +1056,49 @@ func (q *Queries) ListOpenItemQuestions(ctx context.Context) ([]ListOpenItemQues
 			&i.ID,
 			&i.Name,
 			&i.OpenQuestion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSetPieces = `-- name: ListSetPieces :many
+SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token
+FROM items i
+JOIN rarities r ON r.id = i.rarity_id
+WHERE i.set_id = $1
+ORDER BY i.name, i.item_id
+`
+
+type ListSetPiecesRow struct {
+	ItemID            int32
+	Slug              string
+	Name              string
+	RarityColourToken *string
+}
+
+// AOC-048: every piece of one set, for the item page and /v1's set_pieces. Bounded by the data's
+// own shape — the largest set holds 16 (measured 2026-09-30) — so it is part of one item's detail,
+// not a list endpoint.
+func (q *Queries) ListSetPieces(ctx context.Context, setID *int32) ([]ListSetPiecesRow, error) {
+	rows, err := q.db.Query(ctx, listSetPieces, setID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSetPiecesRow{}
+	for rows.Next() {
+		var i ListSetPiecesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.Slug,
+			&i.Name,
+			&i.RarityColourToken,
 		); err != nil {
 			return nil, err
 		}

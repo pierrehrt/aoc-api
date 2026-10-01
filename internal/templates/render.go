@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"github.com/pierrehrt/aoc-api/internal/items"
 	"html/template"
 	"io/fs"
 	"net/http"
-	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 )
@@ -43,6 +41,7 @@ var pageTemplates = map[string]string{
 	"home":   "html/home.html",
 	"smoke":  "html/smoke.html",
 	"armory": "html/armory.html",
+	"item":   "html/item.html",
 }
 
 // fragmentsIn lists the HTMX partials: every html/*.html that is neither base.html nor a page.
@@ -75,12 +74,14 @@ func fragmentsIn(fsys fs.FS, pageMap map[string]string) ([]string, error) {
 // not enough. A page that reads fields nobody declared here fails at boot — the point.
 var pageProbes = map[string]any{
 	"armory": armoryProbe(),
+	"item":   itemProbe(),
 }
 
 // fragmentProbes likewise, by fragment name.
 var fragmentProbes = map[string]any{
-	"armory_rows":      armoryProbe(),
-	"armory_slot_type": armoryProbe().Result.Items[0],
+	"armory_rows": armoryProbe(),
+	"armory_slot": armoryProbe().Result.Items[0],
+	"armory_type": armoryProbe().Result.Items[0],
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.
@@ -103,18 +104,13 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		// asset resolves at RENDER time but is validated at STARTUP by the probe below,
 		// so a template referring to an asset that does not exist cannot reach production.
 		"asset": func(name string) (string, error) { return assets.Path(name) },
-		// typeIsSlot: for armour the item type repeats the slot name; the row shows it once.
-		"typeIsSlot": func(it items.ListItem) bool {
-			if it.ItemType == nil {
-				return false
-			}
-			for _, s := range it.EquipLocations {
-				if strings.EqualFold(s.Slug, *it.ItemType) || strings.EqualFold(s.Name, *it.ItemType) {
-					return true
-				}
-			}
-			return false
-		},
+		// statText: a stat line as the tooltip prints it (AOC-048).
+		"statText": StatText,
+		// The list row's three display rules (AOC-062), in Go so each is written once: the Slot cell,
+		// the Type cell, and the phone line that joins what is present.
+		"slotNames": SlotNames,
+		"typeLabel": TypeLabel,
+		"phoneLine": PhoneLine,
 	}
 
 	fragmentFiles, err := fragmentsIn(fsys, pageMap)

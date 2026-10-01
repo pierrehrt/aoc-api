@@ -1,6 +1,8 @@
-{{/* Slot · weight for armour ("Hands · Light", design 1a); slot · type otherwise, and the type only
-     when it says something the slot did not — for armour the type IS the slot name ("Head · head"). */}}
-{{define "armory_slot_type"}}{{range $i, $s := .EquipLocations}}{{if $i}}, {{end}}{{$s.Name}}{{end}}{{if .ArmourWeight}}<span class="text-muted">{{if .EquipLocations}} · {{end}}{{.ArmourWeight.Name}}</span>{{else if .ItemType}}{{if not (typeIsSlot .)}}<span class="text-muted">{{if .EquipLocations}} · {{end}}{{.ItemType}}</span>{{end}}{{end}}{{end}}
+{{/* A row's Slot and Type cells (AOC-062, Pierre: "Slot / type should be in two different column").
+     What each holds is templates.SlotNames and templates.TypeLabel; the phone line under a row's
+     name is templates.PhoneLine. The template only prints them. */}}
+{{define "armory_slot"}}{{with slotNames .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
+{{define "armory_type"}}{{with typeLabel .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
 {{define "armory_rows"}}
 <div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm text-muted">
   <p>{{if .Result.Total}}<strong class="text-paper">{{.Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</strong> of {{.Span.Total}}{{else}}<strong class="text-paper">0 items</strong> of {{.Span.Total}}{{end}}{{if .Query}} · for “{{.Query}}” · <a href="{{.Clear}}" class="text-link">clear search</a>{{end}}</p>
@@ -11,7 +13,8 @@
   <thead class="text-left text-xs uppercase tracking-wide text-muted">
     <tr class="border-b border-line">
       <th scope="col" class="py-2 pr-3 font-medium">Item</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Slot / type</th>
+      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Slot</th>
+      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Type</th>
       <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">iLvl</th>
       <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Class</th>
       <th scope="col" class="hidden py-2 pr-3 font-medium lg:table-cell">Source</th>
@@ -22,18 +25,16 @@
   {{range .Result.Items}}
     <tr class="border-b border-line align-top">
       <td class="py-2 pr-3">
-        <span class="font-medium"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</span>
+        <a href="/armory/{{.Slug}}" class="font-medium hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
-        <div class="mt-0.5 font-mono text-xs text-muted md:hidden">
-          {{/* the separator sits only BETWEEN two present parts (verify rounds 1 and 2) */}}
-          {{template "armory_slot_type" .}}{{if .ItemLevel}}{{if or .EquipLocations .ArmourWeight (and .ItemType (not (typeIsSlot .)))}} · {{end}}iLvl {{.ItemLevel}}{{end}}{{if .Classes}} · {{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}{{end}}
-        </div>
+        {{with phoneLine .}}<div class="mt-0.5 font-mono text-xs text-muted md:hidden">{{.}}</div>{{end}}
         {{/* place · price, or either alone — a price with no place must not lead with the separator (verify round 1: 1,378 items). */}}
         {{if or .Place .Places .Price}}<div class="mt-0.5 font-mono text-xs text-muted lg:hidden">
           {{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}{{if .Price}}{{if or .Place .Places}} · {{end}}{{.Price}}{{end}}
         </div>{{end}}
       </td>
-      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{template "armory_slot_type" .}}</td>
+      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{template "armory_slot" .}}</td>
+      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{template "armory_type" .}}</td>
       <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{if .ItemLevel}}{{.ItemLevel}}{{else}}<span class="text-muted">—</span>{{end}}</td>
       <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}</td>
       <td class="hidden py-2 pr-3 font-mono text-xs lg:table-cell">{{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}</td>

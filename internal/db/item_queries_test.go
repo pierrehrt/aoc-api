@@ -6,7 +6,7 @@ package db_test
 // schema using queries written inside the test file itself. None of the twelve queries in
 // internal/db/queries/items.sql was executed by any test: TestGeneratedQueriesRunAgainstTheRealSchema
 // only ever ran GetProbe and CountProbes. So the acceptance criterion that the whole schema shape
-// exists for — "a query for every Off Hand item returns the two-handers too" — was pinned for a
+// exists for — "a query for every Off Hand item returns the one-handers too" — was pinned for a
 // query the site will never run, and `ListItems` could have filtered a column instead of the join
 // with every test still green. These tests run the shipped queries.
 //
@@ -67,8 +67,8 @@ func strPtr(s string) *string { return &s }
 // ⭐ THE CRITERION, against the query the Armory page will actually run.
 //
 // ListItems filters the slot through EXISTS on item_equip_locations. Point it at a column on
-// items instead and the two-hander disappears from the Off Hand list — 390 real items, silently.
-func TestListItemsFindsTwoHandersWhenAskedForOffHand(t *testing.T) {
+// items instead and the one-hander disappears from the Off Hand list — 389 real items, silently.
+func TestListItemsFindsOneHandersWhenAskedForOffHand(t *testing.T) {
 	q, _ := queriesOn(t)
 
 	rows, err := q.ListItems(context.Background(), sqlcgen.ListItemsParams{
@@ -81,7 +81,7 @@ func TestListItemsFindsTwoHandersWhenAskedForOffHand(t *testing.T) {
 	got := names(rows)
 	want := map[string]bool{"Test Blade Alpha": true, "Test Shield Beta": true}
 	if len(got) != len(want) {
-		t.Fatalf("ListItems(off-hand) = %v, want exactly the two-hander AND the off-hand-only item", got)
+		t.Fatalf("ListItems(off-hand) = %v, want exactly the one-hander AND the off-hand-only item", got)
 	}
 	for _, n := range got {
 		if !want[n] {

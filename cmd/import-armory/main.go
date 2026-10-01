@@ -155,6 +155,18 @@ func printReport(r *items.Report) {
 	fmt.Printf("\nquarantined source rows held back (Pierre, 2026-09-13): %d\n", r.HeldSources)
 	fmt.Printf("items left with no source at all: %d %v\n", len(r.ItemsNoSources), r.ItemsNoSources)
 
+	if len(r.TypeDefaultSlots) > 0 {
+		fmt.Println("\nitems placed by their type's default slot (the tooltip names none, AOC-054):")
+		tk := make([]string, 0, len(r.TypeDefaultSlots))
+		for k := range r.TypeDefaultSlots {
+			tk = append(tk, k)
+		}
+		sort.Strings(tk)
+		for _, k := range tk {
+			fmt.Printf("  %-22s %6d\n", k, r.TypeDefaultSlots[k])
+		}
+	}
+
 	if len(r.AppliedNulls) > 0 {
 		fmt.Println("\nrecorded decisions applied — value nulled, question kept:")
 		ks := make([]string, 0, len(r.AppliedNulls))

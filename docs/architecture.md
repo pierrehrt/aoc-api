@@ -440,15 +440,102 @@ answer uses: **one definition of the rows, two renderings** (AOC-047). A fragmen
 same dependency-free HTML as the router's 404/405 on the HTML surface, JSON on a machine surface —
 never `Fail`, which is JSON-only, and never a template, which may be the thing that broke.
 
-**The Armory list** (`/armory`, AOC-047) is the first content page and the pattern for the rest:
+**The Armory list** (`/armory`, AOC-047; Slot and Type in two columns since AOC-062 — Type is the
+armour weight when there is one, otherwise the item type's **name**, following the tooltip's own
+`Light Armor - Hands` / `Crossbow - Main Hand`; the phone row keeps one line) is the first content
+page and the pattern for the rest:
 `items.ParseFilters` (the `/v1` parser) reads the query string, `items.Service.List` (the `/v1`
 service) answers it, and the handler adds only what a page owns — `p`, the URLs it links, the
 `<title>`/description/canonical per state, and the honest empty state whose numbers come from
-`items.Service.IDSpan`. Rows link to nothing until the item page exists (AOC-048): a link to a 404 is
-a bug, the same rule as the nav.
+`items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
+linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
+
+**The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
+— rendered through `templates.NewItemData`, which groups the sources for display and does nothing
+else. Four things it added that later pages inherit:
+
+- **`Detail.Display`, a `json:"-"` block**: the names and colours the page shows where the contract
+  carries slugs (rarity name and colour token, type, weight, binding, slots, classes with short
+  names, DPS), filled from the **same rows** in `hydrate`. ⛔ **Not the set's size**:
+  `sets.declared_piece_count` is the last per-item `set_pieces` the importer saw, and inside one set
+  those vary (Waning Dusk: 1, 2, 3 across 16 items) — the page lists the items sharing the name and
+  states no size (AOC-060). So the page reads
+  exactly what `/v1` reads without `/v1` growing a field per page need; exposing any of it is an
+  additive decision of its own. `SourceRef` carries three the same way (type name, tier name, the
+  quest's `armory_label` — shown *as listed*, never as a quest name, which is unknown).
+- **Per-page `og:image` and JSON-LD.** `View.OGImage` is the tooltip image, so a pasted link
+  previews the item as the game shows it; `View.JSONLD` is a value `base.html` writes into
+  `<script type="application/ld+json">` — html/template marshals it as JSON there and escapes `<`,
+  so no field can close the script. `templates.ThingLD` is schema.org **`Thing`, not `Product`**:
+  Google reports a Product with no offer, review or rating as an error, and a game item has none.
+  `TestItemPageJSONLDParses` parses it back.
+- **Groups come from the rows, never from a literal.** Sources group by each row's own acquisition
+  type, in the order they first appear; one uniform row prints whatever is present (vendor, quest as
+  listed, place — boss, container, and the `raid` / `Unchained` flags — the latter only when the
+  place's name does not say it, which "Otherworldly Junction" does not); a group's **cost and tier
+  columns exist only when one of its rows has one** — so drops (0 of 3,436 carry a cost) and quests
+  (228 of 229 have no tier) get no column of dashes without the page asking which group is which.
+  A line identical to one already shown is shown once (42 items carry rows equal in every column but
+  the id); `/v1` keeps every row. A row with nothing in it says "No place recorded".
+- **One rule, two pages.** `items.Price` is the only spelling of a cost ("9 Simple Relic I + 2
+  Gold") — the list row and the item page both call it; `templates.typeRepeatsSlot` decides for both
+  when an item type is worth printing beside its slot.
+- **A few lines of inline script may ENHANCE a page, never complete it.** The back link is
+  `/armory` in the HTML; the browser upgrades it to the reader's own search when `document.referrer`
+  is a same-origin `/armory?…`. It is client-side **because** the page is edge-cached for an hour: a
+  server that read the Referer would store one reader's search and hand it to everyone.
+  `TestItemPageIsTheSameWhoeverAsks` pins that the bytes do not change with the Referer. There is no
+  Content-Security-Policy today; the day one is added, this script moves to a hashed asset.
+
+⛔ **Nothing sits below the tooltip image.** Its size is not in the data (90% of tooltips are 208–344
+px wide and 337–512 tall, measured on the local archive 2026-09-30), so the browser cannot reserve its
+box — and the first build, which put Set and Sources under it, moved them **260–460 px** when it
+arrived (CLS 0.08–0.19; AOC-048 verify round 1). So the page is **one block of text, then the
+image**: from `lg` up the image has its own fixed `22rem` column beside the text, which is
+top-aligned and never moves; below `lg` it comes last. Measured with the image served 2 s late:
+headings stay put, CLS ≤ 0.02 on a phone and ≈ 0 on desktop.
+`TestNothingOnTheItemPageSitsBelowTheTooltip` pins the order. A wider tooltip (744 of 4,645) scales
+to the column, so the image links to itself at full size. It is **not lazy** (on desktop it is the
+main above-the-fold image), and it is portrait, so the page sets `View.Card = "summary"` —
+`summary_large_image` crops to 2:1 and can cut the item's name off. Storing the dimensions would let
+the browser reserve the box anywhere, but needs the snapshot and a re-import.
 
 If the page needs data the startup probe does not supply, the probe **fails** — which is the
 point: it should not be possible to add a page whose data nobody declared.
+
+### Being found: robots.txt, the sitemap, one indexed host (AOC-025)
+
+`internal/pages/seo.go`. **The sitemap is built from the database and the nav, never from a list**:
+`/`, every `siteNav` section (which lists only routes that exist), then every item slug in item-id
+order (`items.Service.Slugs`, paged by the chunk) — so an import that adds items adds their URLs,
+and a new section is in the sitemap the day it enters the nav. `/sitemap.xml` is an index; chunks
+hold at most the protocol's **50,000** URLs (`sitemapMaxURLs`, boundary-tested; a full chunk of the
+longest possible slug is well under 50 MB). XML is written with **`encoding/xml`**, not a template —
+html/template escapes for HTML.
+
+- ⛔ **No `<lastmod>`.** No row carries a real modification time and the import is a full replace;
+  a stamp would be the last import's, on all 4,646 at once, and a lastmod that is not accurate is
+  one Google learns to ignore for the whole site. Revisit when community edits (EP-06) give rows a
+  real one.
+- **`robots.txt` disallows machinery only** (`/_smoke`, `/v1/`, `/health`) and names the sitemap.
+  `/assets` stays open — Google renders with our CSS. ⚠️ Cloudflare's managed robots.txt is on for
+  the zone and **prepends its comment block** to ours; the origin's rules follow it.
+- **One indexed host, by redirect.** Requests reach the origin as `Host: aoc-codex.app` (Railway
+  routes custom domains by Host, measured 2026-09-30); the service's own Railway domain served a
+  crawlable copy. `httpx.WithCanonicalHost` — a router option, so the router tests cover it as
+  composed, 404 page and `/v1` included — **301s every other host to the same path on
+  `PUBLIC_BASE_URL`** (308 for writes), except `/health`. Chosen over `X-Robots-Tag: noindex`
+  (the first build): a noindex beside a canonical pointing elsewhere is a mixed signal Google may
+  carry to the target, and a redirect is also *loud* — a wrong host rule shows as a broken site at
+  the release check, not as a site quietly dropping out of the index. Not robots.txt: disallowing
+  the crawl would stop Google seeing any signal at all.
+  ⛔ **`PUBLIC_BASE_URL` is required in production, parsed strictly and must be https**
+  (`httpx.ResolvePublicBase`, table-tested — the rule was first written in `main`, where dropping it
+  failed no test) — unset, malformed or http, the boot fails, where Railway keeps the previous deploy
+  serving. The Location is built by `canonicalLocation` from the request's path and query only, the
+  path always starting with `/`: the first build's `base + RequestURI()` let `GET x:@evil.example/`
+  become `https://aoc-codex.app@evil.example/` (verify round 1). The release checks that the live apex answers 200, not a redirect
+  (`workflows/5-release.md` § 4).
 
 ## Database
 
@@ -624,15 +711,29 @@ live in `internal/db/queries/items.sql` and the service layer that wraps them ar
 Four shapes that are not obvious, each of which a simpler schema would have got confidently wrong:
 
 1. **Equip location is a JOIN, not a column on `items`.** Two of the snapshot's 16
-   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items (a two-hander
-   occupying both slots at once) and `Left/Right Finger` on **188** (a ring occupying either) —
-   and AOC-009 seeds only the **13 atomic slots**. Flattened into one column, *"show me every Off
-   Hand item"* silently returns 141 instead of 531. `items.slot_fit_id`
-   (`single` · `both` · `either`) says how to read an item's rows, and it lives on the **item**
+   `equip_location` values are **compound** — `Main Hand, Off Hand` on **390** items and
+   `Left/Right Finger` on **188** — and AOC-009 seeds only the **atomic slots** (**14** since
+   AOC-054 added the necklace, which no tooltip names as a slot). Both compounds are an item that
+   fits **either** slot: `Main Hand, Off Hand` sits on the one-handed weapons (1HB, 1HE, dagger,
+   talisman), which go in either hand — Pierre, 2026-09-30 (**AOC-058**). ⚠️ Until then it was read
+   as `both` ("a two-hander occupying both slots at once"), from the value's shape alone; the data
+   put it on the one-handers all along. The importer now reads compounds from **`compoundSlots`**,
+   one recorded meaning per value, and **refuses an import carrying any other** `,`/`/` value before
+   it deletes anything — the shape of a value is never read as its meaning again. Nine one-handers
+   are `Main Hand` or `Off Hand` alone, and their own tooltips say so ("Talisman - Off Hand"): the
+   game restricts those items; they are `single`. Flattened into one column, *"show me every Off Hand item"*
+   silently returns 141 instead of 530. `items.slot_fit_id` (`single` · `either`; `both` stays a
+   row, and no item carries it) says how to read an item's rows, and it lives on the **item**
    because it describes the whole set: two join rows could otherwise contradict each other.
-   `TestListItemsFindsTwoHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
-   is mutation-tested: break that query and it fails naming the lost two-hander.
-   `TestAskingForOffHandItemsReturnsTwoHandersToo` pins the same property at the schema level.
+   **What takes both hands is a fact about the TYPE**: `item_types.two_handed` — true for 2HB, 2HE,
+   staff, bow, polearm, thrown; false for 1HB, 1HE, dagger, talisman, crossbow (Pierre); NULL for
+   types with no main-hand item. The gear builder reads it; nothing lists weapon types in code.
+   `TestEveryWeaponFollowsPierresHands` (corpus) checks every weapon's fit against its own rows;
+   `TestTheWeaponMigrationAndTheImporterAgree` runs the migration's UPDATE, read from the file,
+   against what the importer writes.
+   `TestListItemsFindsOneHandersWhenAskedForOffHand` exercises the **shipped** `ListItems` query and
+   is mutation-tested: break that query and it fails naming the lost one-hander.
+   `TestAskingForOffHandItemsReturnsOneHandersToo` pins the same property at the schema level.
    ⚠️ The distinction matters — an earlier version of this paragraph cited only the schema-level
    test, which passes even when the shipped query is wrong.
 2. **Stat values are `numeric(8,2)`, not `integer`.** The 2026-09-13 decision said *"integers"*
@@ -745,6 +846,30 @@ never a guess:
 list above would rot into an exemption nobody rechecks — the shape this repo has now found four
 times (AOC-019, AOC-020, AOC-032, and the guard inside AOC-032's own fix).
 
+**A slot the tooltip does not name (AOC-054).** A necklace's tooltip line reads `Necklace` where
+armour's reads `Light Armor - Hands`, so the OCR had no slot to find and all 146 arrived slotless.
+The fix is data on `item_types`, read by the importer, never a literal:
+
+| column | means | set on |
+|---|---|---|
+| `default_equip_location_id` | the slot an item of this type goes in **when its own record names none** — a fallback, never an override | `necklace` only (AoC>TV's builder, Pierre 2026-09-29). ⛔ Not for other types: two items typed Crossbow and Polearm are really a consumable and a companion (AOC-059), and a default would put them in a hand |
+| `is_equipment` | whether an item of this type is worn at all — **nullable, no default**, so a type added later must be classified rather than filed as "not worn" by omission; a NULL fails `TestTheNecklaceSlotAndItsRuleAreSeeded` | `true` on the 23 types that carry a slot in the data plus `necklace`, `false` on the other six |
+
+`slotFit` applies the fallback and the report prints how many items it placed, per type. The rule
+runs in **two places that must agree**: the migration `20260930120000_necklace_slot.sql` backfills the
+rows already there — so production got the slot **without a 15-minute re-import** — and the
+importer applies it on every later run. Measured on a restored production dump: the backfill and a
+fresh import produce **byte-identical** `item_equip_locations` and `slot_fit_id` rows — and
+`TestTheBackfillAndTheImporterAgree` keeps checking it, replaying the pre-AOC-054 importer, running
+the backfill statement read out of the migration file, and comparing with the current importer.
+The default is read through sqlc (`ListItemTypeDefaultSlots`), so a column rename breaks the build.
+
+`is_equipment` is deliberately **independent of the slots**: derived from them, a type whose
+tooltips never name a slot is simply not equipment, and "every piece of equipment has a slot"
+passes on exactly the bug it exists to catch. `TestEveryPieceOfEquipmentHasASlot` (corpus) holds
+it, with seven recorded exceptions each read off its own tooltip — and, as with `knownUnresolved`,
+**an exception that stops matching fails the test**.
+
 **Join keys that are not names.** Places join on the armory's own pair
 `(armory_instance, armory_dungeon)` — `places_armory_key` is UNIQUE on it. Quests join on
 `quests.armory_label`, because `quests.name` is **NULL on all 51 rows**: the real quest names are
@@ -768,7 +893,8 @@ snapshot says next. Mutation-tested: dropping nine stat rows fails the import an
 
 As of 2026-09-20, against dev: **items 4,646 · item_stats 23,063 · item_spell_effects 19 ·
 item_sources 6,571 · item_costs 5,956 · item_classes 4,259 · item_equip_locations 4,882 ·
-sets 368 · vendors 23.**
+sets 368 · vendors 23.** Since AOC-054 (2026-09-30): **item_equip_locations 5,028** — the 146
+necklaces.
 
 ### The pool
 
@@ -1120,6 +1246,11 @@ cp ../armory_snapshot/items_clean.json "$CTX/armory_snapshot/"
 cd "$CTX" && git init -q && git add -A && git -c user.email=a@b -c user.name=c commit -qm ctx
 railway up -d -s import -e production
 ```
+
+⚠️ **The flip side: it runs the code it was last deployed with.** A release that changes the importer
+redeploys this service in the same release (`workflows/5-release.md` § 4) — AOC-054's migration
+backfilled 146 necklace slots, and an importer from before it would delete them on its next real
+run and exit 0, because its own count check expects no such rows.
 
 ⭐ **A safety consequence worth keeping deliberately: a push to `main` cannot rebuild or trigger this
 service.** `api` and `backup` both carry `source.repo = pierrehrt/aoc-api`, so a merge redeploys

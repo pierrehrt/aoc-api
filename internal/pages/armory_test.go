@@ -32,9 +32,12 @@ func TestArmoryRendersTheTableWithoutJavaScript(t *testing.T) {
 			t.Errorf("renders %q — the site shows no provenance", banned)
 		}
 	}
-	// Rows link to nothing until the item page exists (AOC-048): a link to a 404 is a bug.
-	if regexp.MustCompile(`href="/armory/test-item`).MatchString(body) {
-		t.Error("rows link to item pages that do not exist yet")
+	// AOC-048: every row links to its item page, and the link lands — a link to a 404 is a bug.
+	if !strings.Contains(body, `href="/armory/test-item-1"`) {
+		t.Error("rows do not link to their item pages")
+	}
+	if rr := get(t, h, http.MethodGet, "/armory/test-item-1", nil, ""); rr.Code != http.StatusOK {
+		t.Errorf("a row's link answers %d, want 200", rr.Code)
 	}
 }
 

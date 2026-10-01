@@ -178,9 +178,12 @@ type ItemStat struct {
 }
 
 type ItemType struct {
-	ID   int32
-	Slug string
-	Name string
+	ID                     int32
+	Slug                   string
+	Name                   string
+	DefaultEquipLocationID *int32
+	IsEquipment            *bool
+	TwoHanded              *bool
 }
 
 type Map struct {
