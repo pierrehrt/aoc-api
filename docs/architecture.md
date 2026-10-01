@@ -416,7 +416,11 @@ source and no other creator anywhere; where the data came from is said once, on 
   `rarities.colour_token` names a CSS property (`rarity-epic` → `--color-rarity-epic`; NULL = no
   colour of its own, renders as paper) and `classes.short_name` holds the abbreviation players use
   (Conq, DT, Guard … — Pierre, Tier A). `/v1/taxonomies` carries both, so the JSON surface and
-  the pages read one row. A template paints a rarity with
+  the pages read one row. **`classes.sort_order`** (AOC-065, migration `20261001120000`) is the one
+  order every class list reads: the filter chips, the list's `Conq/DT/Guard`, the item page and
+  `/v1`. It runs Soldier, Rogue, Priest, Mage (Pierre, Tier A), with the validated design's order
+  within each. A class without one sorts last. `TestClassesAreOrderedSoldierRoguePriestMage` pins
+  it. A template paints a rarity with
   `style="color: var(--color-{{.ColourToken}})"` and never names a rarity itself.
 - Pages are wide (`max-w-7xl`): the Armory table needs it; prose pages constrain themselves.
 

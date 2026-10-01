@@ -100,7 +100,7 @@ since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `pric
 
   (Counts illustrative.) A group lists **every** value of its vocabulary, read from the lookup
   table, **0 counts included**, in display order: rarities best first, slots head to necklace,
-  armour weights heaviest first, classes by archetype, currencies and sets by name. `any` is the
+  armour weights heaviest first, classes in `classes.sort_order` (Soldier, Rogue, Priest, Mage — AOC-065), currencies and sets by name. `any` is the
   count with that facet unset. `price.count` is items with a vendor price, `any − count` those with
   none. `ilvl` / `reqlvl` are the lowest and highest level among the items the other filters leave,
   and are **absent** when none of them has that level.
@@ -242,7 +242,10 @@ of class names in a filter dropdown is the exact bug the content model exists to
 (`reference/content-model.md` § 0).
 
 Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
-- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …);
+- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …). Since AOC-065 they come
+  in `classes.sort_order`: Soldier, Rogue, Priest, Mage (Pierre), the design's order within each —
+  the same order the list's class column and the item page use. The order of an array was never
+  part of the contract; only its contents are;
 - rarities: `"colour_token"` — the name of the CSS custom property that paints it
   (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
 

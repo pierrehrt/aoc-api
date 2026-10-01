@@ -129,13 +129,12 @@ LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity
 GROUP BY aw.id
 UNION ALL
 SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
-       row_number() OVER (ORDER BY a.name, cl.name),
+       row_number() OVER (ORDER BY cl.sort_order NULLS LAST, cl.name),
        count(DISTINCT f.item_id)
 FROM classes cl
-JOIN archetypes a ON a.id = cl.archetype_id
 LEFT JOIN item_classes ic ON ic.class_id = cl.id
 LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
-GROUP BY cl.id, a.name
+GROUP BY cl.id
 UNION ALL
 SELECT 'currency', cu.slug, cu.name, '', '',
        row_number() OVER (ORDER BY cu.name),
@@ -594,7 +593,7 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.name
+ORDER BY cl.sort_order NULLS LAST, cl.name
 `
 
 type ListItemClassesRow struct {
@@ -702,7 +701,7 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY($1::integer[])
-ORDER BY ic.item_id, cl.id
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id
 `
 
 type ListItemPageClassesRow struct {
@@ -739,6 +738,7 @@ func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]L
 }
 
 const listItemPageCosts = `-- name: ListItemPageCosts :many
+
 SELECT src.item_id, src.id AS item_source_id, cu.name AS currency_name, ic.amount
 FROM item_costs ic
 JOIN item_sources src ON src.id = ic.item_source_id
@@ -754,6 +754,7 @@ type ListItemPageCostsRow struct {
 	Amount       pgtype.Numeric
 }
 
+// one order for classes everywhere (AOC-065)
 // A page's vendor prices in one round trip: every cost of every source, grouped by the caller.
 func (q *Queries) ListItemPageCosts(ctx context.Context, itemIds []int32) ([]ListItemPageCostsRow, error) {
 	rows, err := q.db.Query(ctx, listItemPageCosts, itemIds)
@@ -926,6 +927,7 @@ func (q *Queries) ListItemSlugs(ctx context.Context, arg ListItemSlugsParams) ([
 }
 
 const listItemSources = `-- name: ListItemSources :many
+
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type, at.name AS acquisition_type_name,
        src.place_id, p.name AS place_name, p.slug AS place_slug,
@@ -995,6 +997,7 @@ type ListItemSourcesRow struct {
 	OpenQuestion        *string
 }
 
+// one order for classes everywhere (AOC-065)
 // An item page's "where does this come from". 237 items have more than one place — 8 with two and
 // 229 with three — so this is a list and never a single row.
 // ⚠️ THE PLACE DECIDES, here too. AOC-012 verify round 1 settled that a source's place is the
