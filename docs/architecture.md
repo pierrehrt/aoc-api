@@ -473,6 +473,18 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
   `lg`. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
   would need a second copy of the form.
+- **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
+  default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
+  `htmx-config` meta tag that adds one rule, "a 400 is swapped" (other 4xx/5xx stay unswapped), and
+  the handler answers an HTMX request it rejects with `armory_invalid`: the parser's reason, in place
+  of the rows, with `HX-Push-Url: false` and **no rail redraw**, so the bad value stays where the
+  reader can fix it. `templates.Engine.FragmentStatus` is a fragment with a status. Without
+  JavaScript the same reason is on the `RejectHTML` page.
+- **The focused control keeps what the reader typed.** A redraw that answers an earlier change used
+  to wipe a number typed while that request was in flight. A six-line inline script on
+  `htmx:oobBeforeSwap` copies the focused number input's or select's value into the incoming rail.
+  It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
+  CSP arrives.
 
 **The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
 — rendered through `templates.NewItemData`, which groups the sources for display and does nothing

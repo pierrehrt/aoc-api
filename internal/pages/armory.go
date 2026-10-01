@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -26,7 +27,21 @@ var sortLabels = map[string]string{items.SortILvl: "Item level", items.SortName:
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)
 	if err != nil {
-		httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid")
+		// The parser's reason is shown: it names only parameters and the reader's own input
+		// ("ilvl_min (80) is above ilvl_max (60)"), never anything internal.
+		reason := strings.TrimPrefix(err.Error(), httpx.ErrInvalid.Error()+": ")
+		if templates.IsHTMX(r) {
+			// A live change from the rail (AOC-049 review): a 400 that HTMX swapped nowhere left the
+			// rail silently dead. The message goes where the rows were; the rail is not redrawn, so
+			// the bad value stays where the reader can fix it, and no URL is pushed — "false" says so
+			// explicitly, or htmx pushes the request's own URL (measured in a browser).
+			w.Header().Set("HX-Push-Url", "false")
+			if err := h.tpl.FragmentStatus(w, http.StatusBadRequest, "armory_invalid", templates.InvalidSearch{Reason: reason}); err != nil {
+				h.fail(w, r, err)
+			}
+			return
+		}
+		httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
 		return
 	}
 	page := 1

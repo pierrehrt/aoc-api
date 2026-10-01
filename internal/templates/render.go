@@ -83,6 +83,7 @@ var fragmentProbes = map[string]any{
 	"armory_facets":       armoryProbe(),
 	"armory_update":       armoryProbe(),
 	"armory_filter_count": armoryProbe(),
+	"armory_invalid":      InvalidSearch{Reason: "probe"},
 	"armory_slot":         armoryProbe().Result.Items[0],
 	"armory_type":         armoryProbe().Result.Items[0],
 }
@@ -200,6 +201,13 @@ func (e *Engine) Render(w http.ResponseWriter, r *http.Request, status int, name
 
 // Fragment writes an HTMX partial — no <html>, no layout.
 func (e *Engine) Fragment(w http.ResponseWriter, name string, data any) error {
+	return e.FragmentStatus(w, http.StatusOK, name, data)
+}
+
+// FragmentStatus is Fragment with a status other than 200 — a page's own rejection of an HTMX
+// request, which the client swaps in where the answer would have gone (AOC-049: the armory's
+// invalid-range message; base.html's htmx-config is what lets a 400 be swapped at all).
+func (e *Engine) FragmentStatus(w http.ResponseWriter, status int, name string, data any) error {
 	var buf bytes.Buffer
 	if err := e.fragments.ExecuteTemplate(&buf, name, data); err != nil {
 		return fmt.Errorf("templates: executing fragment %q: %w", name, err)
@@ -209,6 +217,7 @@ func (e *Engine) Fragment(w http.ResponseWriter, name string, data any) error {
 	// shared cache can hand a browser asking for a page the bare fragment it stored for
 	// HTMX — a blank-looking site served from cache, which is very hard to diagnose.
 	w.Header().Add("Vary", "HX-Request")
+	w.WriteHeader(status)
 	_, err := buf.WriteTo(w)
 	return err
 }

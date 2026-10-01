@@ -303,3 +303,70 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 		}
 	}
 }
+
+// AOC-049 review: with JavaScript on, a malformed range from the rail used to answer a 400 that htmx
+// discarded — the rail looked dead and said nothing. Now the reason comes back as a fragment for
+// #results, the rail is not redrawn (the bad value stays to be fixed), and no URL is pushed.
+func TestALiveRequestWithABadRangeSaysWhy(t *testing.T) {
+	rr := get(t, router(t), http.MethodGet, "/armory?rarity=epic&ilvl_min=80&ilvl_max=60", map[string]string{"HX-Request": "true"}, "")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`role="alert"`, "That search is not valid.", "ilvl_min (80) is above ilvl_max (60)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in %s", want, body)
+		}
+	}
+	if strings.Contains(body, "hx-swap-oob") || strings.Contains(body, "<html") {
+		t.Error("the rejection redraws the rail or is a whole page — the reader's input would be lost")
+	}
+	if got := rr.Header().Get("HX-Push-Url"); got != "false" {
+		t.Errorf("HX-Push-Url = %q, want \"false\" — without it htmx pushes the invalid request's URL", got)
+	}
+	if v := rr.Header().Get("Vary"); !strings.Contains(v, "HX-Request") {
+		t.Errorf("Vary = %q", v)
+	}
+	// Without JavaScript, the same reason on the rejection page.
+	if b := get(t, router(t), http.MethodGet, "/armory?ilvl_min=80&ilvl_max=60", nil, "").Body.String(); !strings.Contains(b, "ilvl_min (80) is above ilvl_max (60)") {
+		t.Error("the JS-off rejection page does not say why")
+	}
+}
+
+// htmx discards every 4xx unless told otherwise: the page tells it to swap a 400 — and nothing else
+// that it did not swap before.
+func TestHTMXIsToldToSwapA400(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory", nil, "").Body.String()
+	m := regexp.MustCompile(`<meta name="htmx-config" content='([^']+)'>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("no htmx-config meta")
+	}
+	var cfg struct {
+		ResponseHandling []struct {
+			Code  string `json:"code"`
+			Swap  bool   `json:"swap"`
+			Error bool   `json:"error"`
+		} `json:"responseHandling"`
+	}
+	if err := json.Unmarshal([]byte(html.UnescapeString(m[1])), &cfg); err != nil {
+		t.Fatalf("htmx-config is not JSON: %v", err)
+	}
+	// First match wins in htmx: walk the list as htmx does.
+	swaps := func(status string) bool {
+		for _, r := range cfg.ResponseHandling {
+			if regexp.MustCompile("^" + r.Code + "$").MatchString(status) {
+				return r.Swap
+			}
+		}
+		return false
+	}
+	for status, want := range map[string]bool{"200": true, "204": false, "400": true, "404": false, "500": false} {
+		if swaps(status) != want {
+			t.Errorf("a %s is swapped=%v, want %v", status, swaps(status), want)
+		}
+	}
+	// The value a reader is typing survives a redraw that answers an earlier change.
+	if !strings.Contains(body, `document.addEventListener("htmx:oobBeforeSwap"`) {
+		t.Error("the focused control's value is not kept across the rail's redraw")
+	}
+}

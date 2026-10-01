@@ -33,4 +33,16 @@
     </aside>
   </div>
 </form>
+{{/* A change's answer redraws the rail. A number typed, or a choice made, while that request was in
+     flight would be wiped by the redraw (AOC-049 review) — so the control that has focus keeps what
+     the reader put in it, and its own change sends it next. An enhancement only: without it, and
+     without JavaScript, the page works. */}}
+<script>
+document.addEventListener("htmx:oobBeforeSwap", function (e) {
+  var a = document.activeElement, f = e.detail.fragment;
+  if (!a || !a.id || !f || !(a.tagName === "SELECT" || a.type === "number")) return;
+  var n = f.querySelector("#" + CSS.escape(a.id));
+  if (n) n.value = a.value;
+});
+</script>
 {{end}}

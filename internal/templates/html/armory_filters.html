@@ -57,3 +57,10 @@
 <div hx-swap-oob="innerHTML:#armory-facets">{{template "armory_facets" .}}</div>
 <span hx-swap-oob="innerHTML:#filter-count">{{template "armory_filter_count" .}}</span>
 {{end}}
+{{/* An HTMX change with a malformed filter (AOC-049 review): the reason, in place of the rows. */}}
+{{define "armory_invalid"}}<div role="alert" class="rounded border border-line bg-ink-2 p-4 text-sm">
+  <p class="font-medium text-paper">That search is not valid.</p>
+  <p class="mt-2 font-mono text-xs text-muted">{{.Reason}}</p>
+  <p class="mt-2 text-muted">Correct it in the filters and the list comes back.</p>
+</div>
+{{end}}

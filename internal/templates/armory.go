@@ -33,6 +33,10 @@ type ArmoryData struct {
 	ClearAll string // URL with every filter removed, the search and sort kept; "" when none is active
 }
 
+// InvalidSearch is what an HTMX request with a malformed filter gets back, in place of the rows: the
+// parser's reason, while the rail — and the reader's input in it — stays as it is to be corrected.
+type InvalidSearch struct{ Reason string }
+
 // Active is how many filters are on — the number the phone's Filters button carries.
 func (d ArmoryData) Active() int { return len(d.Chips) }
 
