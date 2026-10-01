@@ -65,9 +65,13 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 			t.Errorf("the pane still carries %q — not in the design", gone)
 		}
 	}
-	// A 0 is muted, never hidden: listed, with its 0, in the faint colour.
-	if !regexp.MustCompile(`(?s)id="f-rarity-test-rarity-dull"[^>]*data-count="0"[^>]*>.*?text-faint">Test Rarity Dull</span>`).MatchString(body) {
-		t.Error("the 0-count rarity is not listed muted with its 0")
+	// A 0 is listed, never hidden. A rarity keeps its colour at 0, as the design draws "the name in its
+	// colour" (AOC-065 verify round 1); a chip at 0 is muted (TestEveryRadioIsMutedExactlyWhenItsCountIsZero).
+	if !regexp.MustCompile(`(?s)id="f-rarity-test-rarity-dull"[^>]*data-count="0"[^>]*>.*?>Test Rarity Dull</span>\s*<span class="flex-1"></span>\s*<span[^>]*>0</span>`).MatchString(body) {
+		t.Error("the 0-count rarity is not listed with its 0")
+	}
+	if !regexp.MustCompile(`id="f-rarity-epic"[^>]*>(?s:.*?)style="color: var\(--color-rarity-epic\)"`).MatchString(body) {
+		t.Error("a rarity row does not carry its colour")
 	}
 	// The phone sheet's switch has no name: never submitted, never in the URL (design 1b).
 	if m := regexp.MustCompile(`<input[^>]*id="filter-sheet"[^>]*>`).FindString(body); m == "" || strings.Contains(m, "name=") {
@@ -80,9 +84,9 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 	if strings.Contains(body, "<details") {
 		t.Error("a <details> is back: its open state would reset on every live swap (build decision 4)")
 	}
-	// No active filter: no pills, "clear all" is not a link, no count on the phone button.
-	if strings.Contains(body, `aria-label="Remove the filter`) || regexp.MustCompile(`<a [^>]*>clear all</a>`).MatchString(body) ||
-		strings.Contains(body, `<span id="filter-count"> · `) {
+	// No active filter: no pills, no count on the phone button, the strip reads "0 active".
+	if strings.Contains(body, `aria-label="Remove the filter`) || strings.Contains(body, `<span id="filter-count"> · `) ||
+		!strings.Contains(body, `<span id="strip-active">0 active</span>`) {
 		t.Error("an unfiltered page shows active-filter UI")
 	}
 }
@@ -90,7 +94,7 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 func TestActiveFiltersAreChipsThatEachRemoveOneFilter(t *testing.T) {
 	body := get(t, router(t), http.MethodGet, "/armory?rarity=epic&ilvl_min=70&price=true&region=test-region&sort=name", nil, "").Body.String()
 	chips := regexp.MustCompile(`<a href="([^"]+)" hx-get="[^"]+" hx-target="#results" hx-push-url="true" aria-label="Remove the filter ([^"]+)"`).FindAllStringSubmatch(body, -1)
-	removes := map[string]string{"Rarity: Test Epic": "rarity", "Item level ≥ 70": "ilvl_min", "Has a vendor price": "price", "region: test-region": "region"}
+	removes := map[string]string{"rarity: Test Epic": "rarity", "ilvl 70–80": "ilvl_min", "vendor price: yes": "price", "region: test-region": "region"}
 	if len(chips) != len(removes) {
 		t.Fatalf("got %d chips, want %d: %v", len(chips), len(removes), chips)
 	}
@@ -223,7 +227,7 @@ func TestTheHTMXAnswerCarriesTheRowsAndTheRail(t *testing.T) {
 		"rows 1–50 of 120", // the rows
 		`<div hx-swap-oob="innerHTML:#armory-facets">`, `<div hx-swap-oob="innerHTML:#armory-chips">`, `id="f-rarity-epic" name="rarity" value="epic" checked`,
 		`<span hx-swap-oob="innerHTML:#filter-count"> · 1</span>`,
-		"Rarity: Test Epic", // the chip
+		"rarity: Test Epic", // the chip
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the HTMX answer is missing %q", want)
@@ -247,7 +251,7 @@ func TestABadRangeIs400OnThePage(t *testing.T) {
 	}
 	// An unknown slug is not malformed: a chip names it, it stays chosen, and the page answers.
 	rr := get(t, router(t), http.MethodGet, "/armory?currency=not-a-currency", nil, "")
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Currency: not-a-currency") ||
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "currency: not-a-currency") ||
 		!strings.Contains(rr.Body.String(), `<input type="hidden" name="currency" value="not-a-currency">`) {
 		t.Errorf("an unknown currency: %d, chip or kept value missing", rr.Code)
 	}
@@ -403,8 +407,8 @@ func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
 	}
 	chips := regexp.MustCompile(`<a href="([^"]+)" hx-get="[^"]+" hx-target="#results" hx-push-url="true" aria-label="Remove the filter ([^"]+)"`).FindAllStringSubmatch(body, -1)
 	keeps := map[string][]string{
-		"Rarity: Test Epic":        {"test-rarity-dull"},
-		"Rarity: Test Rarity Dull": {"epic"},
+		"rarity: Test Epic":        {"test-rarity-dull"},
+		"rarity: Test Rarity Dull": {"epic"},
 	}
 	seen := 0
 	for _, c := range chips {
@@ -428,28 +432,38 @@ func TestSeveralValuesAreTickedAndEachIsItsOwnChip(t *testing.T) {
 	}
 }
 
-// AOC-065: each level range is two sliders writing two hidden inputs that ship DISABLED (a
-// script-less submit must send only the number inputs, or the first value — a stale one — wins),
-// and the number inputs sit inside <noscript>, inert where scripts run. Without both, one of the two
-// readers submits each bound twice.
+// AOC-065: each level bound has two inputs, and exactly one may submit. The sliders' hidden input
+// ships DISABLED (data-js-enable); the number input for a script-less reader ships enabled
+// (data-js-disable), visible only without scripts (.no-js-only). The page's script flips both at
+// load and for every pane htmx swaps in — so the guarantee holds after a live update, where the
+// <noscript> inputs this replaced had become live fields (verify round 1: every bound sent twice).
+// The browser half is measured in the ticket's Log; here, the markup and the script that carry it.
 func TestTheLevelSlidersNeverDoubleABound(t *testing.T) {
-	body := get(t, router(t), http.MethodGet, "/armory?ilvl_min=10", nil, "").Body.String()
-	for _, name := range []string{"ilvl_min", "ilvl_max"} { // the design's pane has the item level only
-		hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="[^"]*"([^>]*)>`).FindStringSubmatch(body)
-		if hidden != nil && !strings.Contains(hidden[1], "disabled") {
-			t.Errorf("%s: the slider's hidden input is not disabled — a script-less submit sends it beside the number input", name)
+	h := router(t)
+	for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} { // the page, and a live update
+		body := get(t, h, http.MethodGet, "/armory?ilvl_min=10", hdr, "").Body.String()
+		if strings.Contains(body, "<noscript>") {
+			t.Error("a <noscript> is back: htmx parses it into live fields on a swap")
 		}
-		i := strings.Index(body, `type="number" id="f-`+name+`"`)
-		if i < 0 {
-			t.Errorf("%s: no number input for a script-less reader", name)
-			continue
-		}
-		if open := strings.LastIndex(body[:i], "<noscript>"); open < 0 || strings.LastIndex(body[:i], "</noscript>") > open {
-			t.Errorf("%s: the number input is not inside <noscript> — with scripts on, it would submit beside the slider", name)
+		for _, name := range []string{"ilvl_min", "ilvl_max"} {
+			hidden := regexp.MustCompile(`<input type="hidden" name="` + name + `" value="[^"]*"([^>]*)>`).FindStringSubmatch(body)
+			if hidden == nil || !strings.Contains(hidden[1], "data-js-enable") || !strings.Contains(hidden[1], "disabled") {
+				t.Errorf("%s: the slider's hidden input must ship disabled and data-js-enable: %v", name, hidden)
+			}
+			number := regexp.MustCompile(`<input type="number" id="f-` + name + `" name="` + name + `"[^>]*>`).FindString(body)
+			if number == "" || !strings.Contains(number, "data-js-disable") || strings.Contains(number, "disabled") {
+				t.Errorf("%s: the number input must ship enabled and data-js-disable: %q", name, number)
+			}
 		}
 	}
-	if !strings.Contains(body, `data-bound="ilvl_min" data-end="min"`) || !strings.Contains(body, `value="10" data-bound="ilvl_min"`) {
-		t.Error("the item level slider is missing or does not start at the URL's bound")
+	page := get(t, h, http.MethodGet, "/armory", nil, "").Body.String()
+	for _, want := range []string{`[data-js-disable]").forEach(function (i) { i.disabled = true; })`, `document.addEventListener("htmx:load"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page's script does not %q", want)
+		}
+	}
+	if !strings.Contains(page, `data-bound="ilvl_min" data-end="min"`) {
+		t.Error("the item level slider is missing")
 	}
 }
 
@@ -462,8 +476,8 @@ func TestTheOtherFiltersStillApplyAsPills(t *testing.T) {
 		`<input type="hidden" name="price" value="true">`, `<input type="hidden" name="reqlvl_min" value="10">`,
 		`<input type="hidden" name="reqlvl_max" value="50">`, `<input type="hidden" name="currency" value="test-token">`,
 		`<input type="hidden" name="set" value="test-set-omega">`,
-		`aria-label="Remove the filter Has a vendor price"`, `aria-label="Remove the filter Required level 10–50"`,
-		`aria-label="Remove the filter Currency: Test Token"`, `aria-label="Remove the filter Set: Test Set Omega"`,
+		`aria-label="Remove the filter vendor price: yes"`, `aria-label="Remove the filter reqlvl 10–50"`,
+		`aria-label="Remove the filter currency: Test Token"`, `aria-label="Remove the filter set: Test Set Omega"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
@@ -479,5 +493,29 @@ func TestOneStateHasOneCanonicalWhateverTheOrder(t *testing.T) {
 	b := canon.FindStringSubmatch(get(t, router(t), http.MethodGet, "/armory?class=test-class&class=test-class-two&rarity=epic,test-rarity-dull", nil, "").Body.String())
 	if a == nil || b == nil || a[1] != b[1] {
 		t.Errorf("one state, two canonicals: %v / %v", a, b)
+	}
+}
+
+// The pane ends with its Apply bar — a script-less reader's submit and the phone sheet's way out, with
+// Reset beside it — after the sections, never inside one. The F13 clean-up (AOC-065 verify round 1)
+// took it out with the dead select block, and the page still rendered and every test still passed;
+// the divs balancing, page and fragment, is what shows a lost closing tag.
+func TestThePaneEndsWithItsApplyBar(t *testing.T) {
+	body := get(t, router(t), http.MethodGet, "/armory?rarity=epic", nil, "").Body.String()
+	aside := regexp.MustCompile(`(?s)<aside aria-label="Filters".*?</aside>`).FindString(body)
+	bar := regexp.MustCompile(`(?s)</fieldset>\s*</div>\s*<div class="apply-bar[^"]*">(.*?)</div>\s*</div>\s*</div>\s*</aside>`).FindStringSubmatch(aside)
+	if bar == nil {
+		t.Fatalf("the pane does not end with its Apply bar after the sections:\n%s", aside)
+	}
+	for _, want := range []string{`<a href="/armory" `, `>Reset</a>`, `<button type="submit"`, `>Show 120 items</button>`} {
+		if !strings.Contains(bar[1], want) {
+			t.Errorf("the Apply bar is missing %q:\n%s", want, bar[1])
+		}
+	}
+	hx := get(t, router(t), http.MethodGet, "/armory?rarity=epic", map[string]string{"HX-Request": "true"}, "").Body.String()
+	for name, b := range map[string]string{"page": body, "HTMX answer": hx} {
+		if o, c := strings.Count(b, "<div"), strings.Count(b, "</div>"); o != c {
+			t.Errorf("the %s opens %d divs and closes %d", name, o, c)
+		}
 	}
 }

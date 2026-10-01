@@ -1156,7 +1156,6 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 }
 
 const listItems = `-- name: ListItems :many
-
 WITH filtered AS (
   SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
          pr.priced,
@@ -1332,6 +1331,7 @@ type ListItemsRow struct {
 // ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 // difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 // Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
+//
 // The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //

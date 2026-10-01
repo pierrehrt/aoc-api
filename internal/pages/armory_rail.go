@@ -7,39 +7,40 @@ import (
 	"github.com/pierrehrt/aoc-api/internal/templates"
 )
 
-// The filter rail and its chips (AOC-049), built from items.Facets.
+// The filter rail and its chips (AOC-049), built from items.Facets; drawn and worded as the validated
+// design since AOC-065.
 //
 // ⭐ Presentation only. Every value and every count is the service's — the database's vocabularies,
-// counted by the same SQL that keeps the rows — and the page's own words here are the rail's labels
-// ("Rarity", "Any"), never a game term. One value per group (DECISIONS.md, AOC-049): the number
-// beside a value is then exactly what choosing it gives.
+// counted by the same SQL that keeps the rows. The page's own words are the design's: the pane's
+// legends ("Rarity", "Slot"…) and the pills' prefixes ("rarity: Epic", "class: Conq", "ilvl 60–90",
+// "q: …"), never a game term.
 
-// railFacet is one vocabulary facet: its parameter, its words on the rail, where its counts are, and
-// how to read and write its list on a Filters (AOC-064: every facet is a list).
+// railFacet is one vocabulary facet: its parameter, its legend in the pane, its pill's prefix, how the
+// design draws it, where its counts are, and how to read and write its list on a Filters (AOC-064).
 type railFacet struct {
-	param, legend, anyLabel string
-	kind                    string // how the design draws the group: "list", "mono", "sans", "class"
-	group                   func(*items.Facets) items.FacetGroup
-	get                     func(items.Filters) []string
-	set                     func(*items.Filters, []string)
+	param, legend, pill string
+	kind                string // "list" (rarity rows), "mono", "sans", "class" chips; "" = no control (not in the design)
+	group               func(*items.Facets) items.FacetGroup
+	get                 func(items.Filters) []string
+	set                 func(*items.Filters, []string)
 }
 
-// The checkbox groups, then the selects, in the rail's order.
+// The design's four groups in its order, then the two facets it has no control for.
 var (
 	checkFacets = []railFacet{
-		{"rarity", "Rarity", "", "list", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
+		{"rarity", "Rarity", "rarity", "list", func(fc *items.Facets) items.FacetGroup { return fc.Rarity },
 			func(f items.Filters) []string { return f.Rarities }, func(f *items.Filters, v []string) { f.Rarities = v }},
-		{"equip_location", "Slot", "", "mono", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
+		{"equip_location", "Slot", "slot", "mono", func(fc *items.Facets) items.FacetGroup { return fc.EquipLocation },
 			func(f items.Filters) []string { return f.EquipLocations }, func(f *items.Filters, v []string) { f.EquipLocations = v }},
-		{"armour_weight", "Armour weight", "", "sans", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
+		{"armour_weight", "Armour weight", "weight", "sans", func(fc *items.Facets) items.FacetGroup { return fc.ArmourWeight },
 			func(f items.Filters) []string { return f.ArmourWeights }, func(f *items.Filters, v []string) { f.ArmourWeights = v }},
-		{"class", "Class restriction", "", "class", func(fc *items.Facets) items.FacetGroup { return fc.Class },
+		{"class", "Class restriction", "class", "class", func(fc *items.Facets) items.FacetGroup { return fc.Class },
 			func(f items.Filters) []string { return f.Classes }, func(f *items.Filters, v []string) { f.Classes = v }},
 	}
-	selectFacets = []railFacet{
-		{"currency", "Currency", "Any currency", "", func(fc *items.Facets) items.FacetGroup { return fc.Currency },
+	paneless = []railFacet{
+		{"currency", "Currency", "currency", "", func(fc *items.Facets) items.FacetGroup { return fc.Currency },
 			func(f items.Filters) []string { return f.Currencies }, func(f *items.Filters, v []string) { f.Currencies = v }},
-		{"set", "Set", "Any set", "", func(fc *items.Facets) items.FacetGroup { return fc.Set },
+		{"set", "Set", "set", "", func(fc *items.Facets) items.FacetGroup { return fc.Set },
 			func(f items.Filters) []string { return f.Sets }, func(f *items.Filters, v []string) { f.Sets = v }},
 	}
 )
@@ -85,10 +86,14 @@ func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates
 	return out
 }
 
-// nameOf is the display name of a facet's selected slug; the slug itself when the vocabulary lacks it.
+// nameOf is how a pill names a facet's value: the short name where the vocabulary has one (the
+// design's "class: Conq"), else the name; the slug itself when the vocabulary lacks it.
 func nameOf(g items.FacetGroup, slug string) string {
 	for _, v := range g.Values {
 		if v.Slug == slug {
+			if v.ShortName != "" {
+				return v.ShortName
+			}
 			return v.Name
 		}
 	}
@@ -102,15 +107,25 @@ func levelText(n *int32) string {
 	return strconv.Itoa(int(*n))
 }
 
-// rangeLabel is a level range as a chip reads: "Item level 70–80", "Item level ≥ 70", "… ≤ 80".
-func rangeLabel(legend string, lo, hi *int32) string {
+// rangePill is a level range as the design's pill reads it, both ends: "ilvl 60–90". An open end is
+// the span the other filters leave; with no span, "ilvl ≥ 60" / "ilvl ≤ 80".
+func rangePill(prefix string, lo, hi *int32, span *items.LevelSpan) string {
+	l, h := levelText(lo), levelText(hi)
+	if span != nil {
+		if l == "" {
+			l = strconv.Itoa(int(span.Min))
+		}
+		if h == "" {
+			h = strconv.Itoa(int(span.Max))
+		}
+	}
 	switch {
-	case lo != nil && hi != nil:
-		return legend + " " + levelText(lo) + "–" + levelText(hi)
-	case lo != nil:
-		return legend + " ≥ " + levelText(lo)
+	case l != "" && h != "":
+		return prefix + " " + l + "–" + h
+	case l != "":
+		return prefix + " ≥ " + l
 	default:
-		return legend + " ≤ " + levelText(hi)
+		return prefix + " ≤ " + h
 	}
 }
 
@@ -128,11 +143,16 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		chips = append(chips, templates.Chip{Label: label, URL: here(g)})
 	}
 
+	// The search is the design's first pill ("q: …"), and counts as active.
+	if f.Query != "" {
+		chip("q: "+f.Query, func(g *items.Filters) { g.Query = "" })
+	}
+
 	// One chip per chosen value; its × removes that value only.
 	valueChips := func(rf railFacet, g items.FacetGroup) {
 		for _, c := range rf.get(f) {
 			c := c
-			chip(rf.legend+": "+nameOf(g, c), func(h *items.Filters) { rf.set(h, without(rf.get(*h), c)) })
+			chip(rf.pill+": "+nameOf(g, c), func(h *items.Filters) { rf.set(h, without(rf.get(*h), c)) })
 		}
 	}
 	for _, rf := range checkFacets {
@@ -141,48 +161,37 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		valueChips(rf, g)
 	}
 
+	// The item level: the design's two stacked sliders.
+	il := templates.RailRange{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: levelText(f.ILvlMin), MaxValue: levelText(f.ILvlMax)}
+	if fc.ItemLevel != nil {
+		il.Lo, il.Hi = strconv.Itoa(int(fc.ItemLevel.Min)), strconv.Itoa(int(fc.ItemLevel.Max))
+	}
+	rail.Levels = append(rail.Levels, il)
+	if f.ILvlMin != nil || f.ILvlMax != nil {
+		chip(rangePill("ilvl", f.ILvlMin, f.ILvlMax, fc.ItemLevel), func(g *items.Filters) { g.ILvlMin, g.ILvlMax = nil, nil })
+	}
+
 	// Vendor price, required level, currency and set are not in the validated design's pane (Pierre,
 	// 2026-10-01: "exactly like it is in the design"). They still filter — by link and by /v1 — so an
 	// active one rides along as a hidden input and shows as a pill, removable like any other.
 	if f.Price != nil {
-		label := "No vendor price"
+		label := "vendor price: no"
 		if *f.Price {
-			label = "Has a vendor price"
+			label = "vendor price: yes"
 		}
 		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "price", Value: strconv.FormatBool(*f.Price)})
 		chip(label, func(g *items.Filters) { g.Price = nil })
 	}
-
-	// The two level ranges: they differ on 234 items, so they are two controls (the ticket).
-	for _, lr := range []struct {
-		legend, min, max string
-		lo, hi           *int32
-		span             *items.LevelSpan
-		clear            func(*items.Filters)
-	}{
-		{"Item level", "ilvl_min", "ilvl_max", f.ILvlMin, f.ILvlMax, fc.ItemLevel, func(g *items.Filters) { g.ILvlMin, g.ILvlMax = nil, nil }},
-		{"Required level", "reqlvl_min", "reqlvl_max", f.ReqLvlMin, f.ReqLvlMax, fc.RequiresLevel, func(g *items.Filters) { g.ReqLvlMin, g.ReqLvlMax = nil, nil }},
-	} {
-		if lr.min == "ilvl_min" { // the design's pane has the item level only
-			r := templates.RailRange{Legend: lr.legend, MinName: lr.min, MaxName: lr.max, MinValue: levelText(lr.lo), MaxValue: levelText(lr.hi)}
-			if lr.span != nil {
-				r.Lo, r.Hi = strconv.Itoa(int(lr.span.Min)), strconv.Itoa(int(lr.span.Max))
-			}
-			rail.Levels = append(rail.Levels, r)
-		} else {
-			if lr.lo != nil {
-				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: lr.min, Value: levelText(lr.lo)})
-			}
-			if lr.hi != nil {
-				rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: lr.max, Value: levelText(lr.hi)})
-			}
-		}
-		if lr.lo != nil || lr.hi != nil {
-			chip(rangeLabel(lr.legend, lr.lo, lr.hi), lr.clear)
-		}
+	if f.ReqLvlMin != nil {
+		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "reqlvl_min", Value: levelText(f.ReqLvlMin)})
 	}
-
-	for _, rf := range selectFacets {
+	if f.ReqLvlMax != nil {
+		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "reqlvl_max", Value: levelText(f.ReqLvlMax)})
+	}
+	if f.ReqLvlMin != nil || f.ReqLvlMax != nil {
+		chip(rangePill("reqlvl", f.ReqLvlMin, f.ReqLvlMax, fc.RequiresLevel), func(g *items.Filters) { g.ReqLvlMin, g.ReqLvlMax = nil, nil })
+	}
+	for _, rf := range paneless {
 		g := rf.group(fc)
 		for _, c := range rf.get(f) {
 			rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: rf.param, Value: c})
@@ -190,8 +199,8 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		valueChips(rf, g)
 	}
 
-	// What the rail has no control for rides along as hidden inputs — and as chips, so it can be
-	// seen and removed. Literal "param: value": the page has no vocabulary for these here.
+	// What else the page accepts but offers no control for rides along the same way. Literal
+	// "param: value": the page has no vocabulary for these here.
 	if f.Sort != "" && f.Sort != items.SortILvl {
 		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "sort", Value: f.Sort})
 	}
@@ -232,9 +241,6 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		}
 	}
 
-	clearAll := ""
-	if len(chips) > 0 {
-		clearAll = here(items.Filters{Query: f.Query, Sort: f.Sort})
-	}
-	return rail, chips, clearAll
+	// The design's "clear all" clears the search too, and keeps the sort.
+	return rail, chips, here(items.Filters{Sort: f.Sort})
 }

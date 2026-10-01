@@ -465,16 +465,23 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
 - **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
 - **The design's type is `line-height: normal`** (its `font` shorthand resets it), scoped to `.armory`
-  and the header; prose pages keep 1.5. Without it every row was 43px, not the design's 37–39.
+  and the header; prose pages keep 1.5. With it, and the first cell's own 13.5px (a cell that inherits
+  16px sets a taller line box), every row is the design's 37px; it was 43px, then 39px. The table's
+  lines are on its cells with separate borders: a collapsed table gives half of each line to the next
+  row (a 30.5px header against the design's 31) and its sticky header's line scrolls away.
 - **Tokens:** `app.css` carries the guideline's palette; `TestThemeTextTokensPassAA` measures every
   text token against every pane background (the design's two faintest greys are lifted to `faint`,
   `#827c73`, for AA — a noted deviation). Computed styles of 61 elements were checked against the
   guideline in a browser (AOC-065 ticket Log).
 - **JavaScript-only controls** (⌘K, Copy link, the level sliders) carry `.js-only` and stay hidden until
   `base.html`'s first script marks `<html class="js">`; what only a script-less reader needs carries
-  `.no-js-only` or sits in `<noscript>`. The sliders' hidden inputs ship `disabled` and the page's
-  script enables them, so a script-less submit sends only the `<noscript>` number inputs — never a
-  bound twice (`TestTheLevelSlidersNeverDoubleABound`).
+  `.no-js-only`. Each level bound has **two inputs and exactly one submits**: the sliders' hidden one
+  ships `disabled` (`data-js-enable`), the number input ships enabled (`data-js-disable`), and the
+  page's script flips both at load **and for every pane htmx swaps in** (`htmx:load`). ⚠️ Not
+  `<noscript>`: htmx parses a swapped fragment with scripting off, so `<noscript>` content became live
+  fields after the first update and every bound was sent twice (AOC-065 verify round 1).
+  `TestTheLevelSlidersNeverDoubleABound` pins the markup on the page and on a live update; the
+  browser half (one value per bound in the submitted URL after a swap) was measured.
 - **The filter pane is exactly the design's five sections** (Pierre, 2026-10-01: *"I want exactly like it
   is in the design"*): Rarity (checkbox rows with counts), Slot, Armour weight and Class restriction
   (toggle chips, no numbers), Item level (two stacked sliders and the note). Vendor price, required

@@ -41,8 +41,8 @@
 @theme static {
   /* The type the design set: IBM Plex Sans for prose, Plex Mono for data columns (loaded from
      Google Fonts in base.html; the fallbacks are what renders offline). */
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
 
   /* The palette (AOC-046), since AOC-065 the validated design's own (Pierre, 2026-10-01;
      product_management/reference/ui-guidelines.md § 1 — every value read from the design's source).
@@ -58,6 +58,7 @@
   --color-ink-nav: #221f1c;      /* the active nav pill */
   --color-ink-nav-hover: #191716;
   --color-ink-pill: #1d1a17;     /* an active-filter pill */
+  --color-ink-pane-hover: #151312; /* a collapsed pane strip under the pointer */
   --color-line: #221f1c;         /* structural borders: header, panes, table header, pager bar */
   --color-line-row: #1a1817;     /* between table rows */
   --color-line-control: #2b2723; /* buttons, sort, pager, the ⌘K hint; scrollbar thumb */
@@ -102,11 +103,15 @@
   }
 }
 
-/* The design's scrollbars: 9px, a line-control thumb on an ink-pane track. */
-* { scrollbar-width: thin; scrollbar-color: var(--color-line-control) var(--color-ink-pane); }
-::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: var(--color-line-control); border-radius: 5px; }
-::-webkit-scrollbar-track { background: var(--color-ink-pane); }
+/* The design's scrollbars: 9px, a line-control thumb on an ink-pane track. In the base layer, so a
+   utility (the phone header's [scrollbar-width:none]) can override it — unlayered, it beat every
+   utility (AOC-065 verify round 1: a visible scrollbar under the header's tabs). */
+@layer base {
+  * { scrollbar-width: thin; scrollbar-color: var(--color-line-control) var(--color-ink-pane); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-line-control); border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: var(--color-ink-pane); }
+}
 
 /* The design sets every font with the CSS `font` shorthand, which resets line-height to the font's
    `normal` (~1.3 for Plex) — that is what makes its rows 37px and its bars as tight as they are. The

@@ -141,6 +141,7 @@ JOIN currencies cu ON cu.id = ic.currency_id
 WHERE ic.item_source_id = ANY($1::bigint[])
 ORDER BY ic.item_source_id, cu.name;
 
+-- name: ListItems :many
 -- ⭐ THE FILTER RULES ARE WRITTEN ONCE (AOC-049). Every query that filters the armory list starts with
 -- the same `filtered` CTE, byte for byte: one row per item, carrying one boolean per filter -- a
 -- flag per facet of the rail, and `in_base` for the filters that have none. The list keeps the
@@ -152,8 +153,7 @@ ORDER BY ic.item_source_id, cu.name;
 -- ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 -- difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 -- Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
-
--- name: ListItems :many
+--
 -- The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 -- which keeps one query behind every combination the page offers rather than building SQL by hand.
 --

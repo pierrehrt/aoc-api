@@ -36,7 +36,7 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	// Text tokens: everything that is not a surface or a border. A new surface token must be
 	// added here on purpose, so that a text colour cannot be excused by being misnamed.
 	surfaces := map[string]bool{"ink": true, "ink-header": true, "ink-pane": true, "ink-strip": true, "ink-hover": true,
-		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true,
+		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true, "ink-pane-hover": true,
 		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true}
 	// AOC-065: text sits on every pane of the full-window layout, not only on the page colour — each
 	// pair is measured. (On ink-selected, only paper is ever written; it is measured below.)

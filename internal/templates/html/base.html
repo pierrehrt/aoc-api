@@ -31,7 +31,7 @@
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
 <script src="{{asset "htmx.min.js"}}" defer></script>
 </head>
-<body class="flex min-h-screen flex-col bg-ink font-sans text-paper antialiased{{if .View.App}} lg:h-screen lg:overflow-hidden{{end}}">
+<body class="flex min-h-screen flex-col bg-ink font-sans text-paper{{if .View.App}} lg:h-screen lg:overflow-hidden{{end}}">
 <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-3">Skip to content</a>
 {{/* The header (AOC-065, the validated design): 52px, the diamond mark and the name, pill nav. Every
      tab leads to a page that exists: AA's / Feats / DJ-Raids / More are "Coming Soon" pages until their
@@ -44,7 +44,7 @@
   {{/* On a phone five tabs do not fit beside the name: the row scrolls sideways inside the header, so
        the page itself never does. */}}
   <nav aria-label="Sections" class="flex min-w-0 gap-1 overflow-x-auto text-[13px] font-medium [scrollbar-width:none]">
-    {{range .View.Nav}}<a href="{{.Path}}"{{if .Current}} aria-current="page" class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] bg-ink-nav px-2.5 py-[5px] text-paper"{{else}} class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] px-2.5 py-[5px] text-muted-2 hover:bg-ink-nav-hover hover:text-paper"{{end}}>{{.Label}}{{if .Menu}}<span aria-hidden="true" class="size-[5px] -translate-y-0.5 rotate-45 border-b-[1.4px] border-r-[1.4px] border-[#6f6a62]"></span>{{end}}</a>{{end}}
+    {{range .View.Nav}}<a href="{{.Path}}"{{if .Current}} aria-current="page" class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] bg-ink-nav px-2.5 py-[5px] text-paper"{{else}} class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] px-2.5 py-[5px] text-muted-2 hover:bg-ink-nav-hover hover:text-paper"{{end}}>{{.Label}}{{if .Menu}}<span aria-hidden="true" class="size-[5px] border-b-[1.4px] border-r-[1.4px] border-[#6f6a62] [transform:rotate(45deg)_translateY(-2px)]"></span>{{end}}</a>{{end}}
   </nav>
 </header>
 <main id="main" class="{{if .View.App}}flex w-full flex-1 flex-col lg:min-h-0{{else}}mx-auto w-full max-w-7xl flex-1 px-4 py-8{{end}}">

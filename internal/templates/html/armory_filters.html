@@ -2,12 +2,14 @@
      built in internal/pages (buildRail) from items.Facets — the database's vocabularies and the same
      SQL's counts. The template only prints. A 0 is muted, never hidden. */}}
 {{define "armory_filter_count"}}{{with .Active}} · {{.}}{{end}}{{end}}
+{{/* The collapsed strip's "N active" (the design's), swapped out of band like the button's number. */}}
+{{define "armory_active"}}{{.Active}} active{{end}}
 {{/* The search block's last row (design): "filters", one pill per active filter with ×, "clear all",
      and the state's own URL. Swapped out of band, so it always describes the rows below. */}}
 {{define "armory_chips"}}
 <span class="font-mono text-[11.5px] text-faint">filters</span>
 {{range .Chips}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" aria-label="Remove the filter {{.Label}}" class="flex items-center gap-1.5 rounded-[20px] border border-line-soft bg-ink-pill px-2 py-1 font-mono text-[11.5px] font-medium text-paper hover:border-link">{{.Label}} <span aria-hidden="true" class="text-muted-2">×</span></a>
-{{end}}{{if .ClearAll}}<a href="{{.ClearAll}}" hx-get="{{.ClearAll}}" hx-target="#results" hx-push-url="true" class="font-mono text-[11.5px] text-faint underline hover:text-paper">clear all</a>{{else}}<span class="font-mono text-[11.5px] text-faint underline">clear all</span>{{end}}
+{{end}}<a href="{{.ClearAll}}" hx-get="{{.ClearAll}}" hx-target="#results" hx-push-url="true" class="font-mono text-[11.5px] text-faint underline hover:text-paper">clear all</a>
 <span class="flex-1"></span>
 <span class="hidden max-w-[52%] truncate font-mono text-[11.5px] text-faint sm:inline">{{.URL}}</span>
 {{end}}
@@ -32,7 +34,7 @@
       <label for="{{.ID}}" class="flex cursor-pointer items-center gap-2 text-[12.5px] max-lg:min-h-9">
         {{template "armory_choice" .}}
         <span aria-hidden="true" class="size-[13px] flex-none rounded-[3px] border border-line-box peer-checked:border-link peer-checked:bg-link peer-focus-visible:ring-2 peer-focus-visible:ring-link"></span>
-        <span{{if and .ColourToken (or .Count .Checked)}} style="color: var(--color-{{.ColourToken}})"{{end}} class="{{if or .Count .Checked}}text-muted{{else}}text-faint{{end}}">{{.Label}}</span>
+        <span{{with .ColourToken}} style="color: var(--color-{{.}})"{{end}} class="text-muted">{{.Label}}</span>
         <span class="flex-1"></span>
         <span class="font-mono text-[11px] text-muted-2">{{num .Count}}</span>
       </label>
@@ -52,7 +54,8 @@
 {{end}}
 {{range .Rail.Levels}}
   {{/* Two stacked sliders, as the design draws them. A slider at its end is no bound: it writes its
-       hidden input only when moved inside the span. Without JavaScript, number inputs instead. */}}
+       hidden input only when moved inside the span. Without JavaScript, number inputs instead — the
+       page's script disables those and enables the sliders' inputs (armory.html, aocEnable). */}}
   <fieldset class="flex flex-col gap-2" data-range>
     <legend class="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Legend}} <span data-range-label>{{if or .MinValue .MaxValue}}{{or .MinValue .Lo}} – {{or .MaxValue .Hi}}{{else if .Lo}}{{.Lo}} – {{.Hi}}{{end}}</span></legend>
     {{if .Lo}}
@@ -64,32 +67,24 @@
       <input type="hidden" name="{{.MaxName}}" value="{{.MaxValue}}" data-js-enable disabled>
     </div>
     {{end}}
-    <noscript><div class="flex items-center gap-2">
+    <div class="no-js-only flex items-center gap-2">
       <label for="f-{{.MinName}}" class="sr-only">{{.Legend}} from</label>
-      <input type="number" id="f-{{.MinName}}" name="{{.MinName}}" value="{{.MinValue}}" min="0" step="1" inputmode="numeric"{{with .Lo}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
+      <input type="number" id="f-{{.MinName}}" name="{{.MinName}}" value="{{.MinValue}}" data-js-disable min="0" step="1" inputmode="numeric"{{with .Lo}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
       <span class="text-faint" aria-hidden="true">–</span>
       <label for="f-{{.MaxName}}" class="sr-only">{{.Legend}} to</label>
-      <input type="number" id="f-{{.MaxName}}" name="{{.MaxName}}" value="{{.MaxValue}}" min="0" step="1" inputmode="numeric"{{with .Hi}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
-    </div></noscript>
+      <input type="number" id="f-{{.MaxName}}" name="{{.MaxName}}" value="{{.MaxValue}}" data-js-disable min="0" step="1" inputmode="numeric"{{with .Hi}} placeholder="{{.}}"{{end}} class="w-20 rounded-[5px] border border-line-control bg-ink px-2 py-1 font-mono text-[12px] text-paper placeholder:text-faint focus:border-link focus:outline-none">
+    </div>
     {{if not .Lo}}{{if not (or .MinValue .MaxValue)}}<span class="font-mono text-[11px] text-faint">no item here has one</span>{{end}}{{end}}
     <span class="font-mono text-[11px] text-faint">items with no recorded level drop out once narrowed</span>
   </fieldset>
-{{end}}
-{{range .Rail.Selects}}
-  <div class="flex flex-col gap-[7px]">
-    <label for="{{.ID}}" class="font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">{{.Label}}</label>
-    <select id="{{.ID}}" name="{{.Name}}" class="w-full rounded-[5px] border border-line-control bg-ink px-2 py-1.5 font-mono text-[12px] text-paper focus:border-link focus:outline-none">
-    {{range .Options}}<option value="{{.Value}}"{{if .Checked}} selected{{end}}>{{.Label}} ({{num .Count}})</option>
-    {{end}}</select>
-  </div>
 {{end}}
 </div>
 {{/* Apply: a plain submit, so the pane works without JavaScript; on a phone it closes the sheet and
      carries the count (design 1b). On a wide screen with scripts every change already applies, and
      it is hidden (app.css .apply-bar). */}}
 <div class="apply-bar sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ink-pane px-4 py-3 lg:-mx-[14px] lg:px-[14px]">
-  {{if .ClearAll}}<a href="{{.ClearAll}}" class="text-[13px] text-link hover:text-link-hover">Reset</a>{{end}}
-  <button type="submit" class="ml-auto rounded-[7px] bg-link px-4 py-2 text-[13px] font-medium text-ink hover:bg-link-hover">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
+  <a href="{{.ClearAll}}" class="inline-flex items-center text-[13px] text-link hover:text-link-hover max-lg:min-h-9">Reset</a>
+  <button type="submit" class="ml-auto rounded-[7px] bg-link px-4 py-2 text-[13px] font-medium text-ink hover:bg-link-hover max-lg:min-h-9">Show {{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
 </div>
 {{end}}
 {{/* An HTMX answer: the rows into #results, and the pane, the pills and the phone button's number out
@@ -98,6 +93,7 @@
 <div hx-swap-oob="innerHTML:#armory-facets">{{template "armory_facets" .}}</div>
 <div hx-swap-oob="innerHTML:#armory-chips">{{template "armory_chips" .}}</div>
 <span hx-swap-oob="innerHTML:#filter-count">{{template "armory_filter_count" .}}</span>
+<span hx-swap-oob="innerHTML:#strip-active">{{template "armory_active" .}}</span>
 {{end}}
 {{/* An HTMX change with a malformed filter (AOC-049 review): the reason, in place of the rows. */}}
 {{define "armory_invalid"}}<div role="alert" class="m-4 rounded-[8px] border border-dashed border-line-soft p-4 text-[13.5px]">

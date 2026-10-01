@@ -13,7 +13,7 @@
         <span aria-hidden="true" class="size-[14px] flex-none rounded-full border-[1.6px] border-muted-2"></span>
         <label for="q" class="sr-only">Search items by name or id</label>
         <input id="q" name="q" type="search" value="{{$d.Query}}" placeholder="Search {{num $d.Span.Total}} items by name or id"
-               class="min-w-0 flex-1 border-0 bg-transparent text-[15px] text-paper placeholder:text-faint focus:outline-none">
+               class="min-w-0 flex-1 border-0 bg-transparent px-[2px] py-[1px] text-[15px] text-paper placeholder:text-faint focus:outline-none">
         <kbd aria-hidden="true" class="js-only flex-none rounded-[4px] border border-line-control px-1.5 py-[3px] font-mono text-[11px] font-medium text-faint max-sm:hidden">⌘K</kbd>
       </div>
       <button type="button" id="copy-link" class="js-only h-[46px] flex-none rounded-[7px] border border-line-control px-4 text-[13px] font-medium text-muted hover:border-link hover:text-paper max-sm:hidden">Copy link ↗</button>
@@ -37,14 +37,14 @@
     {{/* The filter pane (the design's right column, 232px). It collapses to a 34px strip through this
          unnamed checkbox; on a phone it is the sheet. */}}
     <input type="checkbox" id="filters-collapsed" class="sr-only max-lg:hidden" aria-label="Collapse the filters">
-    <label for="filters-collapsed" class="filters-strip w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-pane py-3 hover:bg-ink-strip" title="Show the filters">
+    <label for="filters-collapsed" class="filters-strip w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-pane py-3 hover:bg-ink-pane-hover" title="Show the filters">
       <span class="font-mono text-[12px] font-medium text-link">‹</span>
-      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Filters</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Filters <span id="strip-active">{{template "armory_active" $d}}</span></span>
     </label>
     <aside aria-label="Filters" class="filter-sheet filters-pane relative hidden lg:flex lg:min-w-[186px] lg:flex-[0_1_232px] lg:flex-col lg:border-l lg:border-line lg:bg-ink-pane">
       <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
         <p class="text-[12px] font-semibold uppercase tracking-[0.06em] text-link">Filters</p>
-        <label for="filter-sheet" class="cursor-pointer text-[13px] text-link">Close</label>
+        <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center px-2 text-[13px] text-link">Close</label>
       </div>
       {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the answer
            carries the pane out of band (armory_update). This scroll box is never swapped itself, so the
@@ -63,9 +63,15 @@
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
      - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
-// The sliders' hidden inputs ship disabled, so a script-less submit sends only the number inputs;
-// here, and for every pane htmx swaps in, they are switched on.
-function aocEnable(root) { root.querySelectorAll("[data-js-enable]").forEach(function (i) { i.disabled = false; }); }
+// Each level bound has two inputs: the sliders' hidden one (data-js-enable, shipped disabled) and a
+// number input for a script-less reader (data-js-disable). Here — at load, and for every pane htmx
+// swaps in, whose markup is the server's as for a script-less reader — the first is switched on and
+// the second off, so each bound is sent once (AOC-065 verify round 1: after the first swap the
+// <noscript> inputs this replaced had become live fields, and every bound was sent twice).
+function aocEnable(root) {
+  root.querySelectorAll("[data-js-enable]").forEach(function (i) { i.disabled = false; });
+  root.querySelectorAll("[data-js-disable]").forEach(function (i) { i.disabled = true; });
+}
 aocEnable(document);
 document.addEventListener("htmx:load", function (e) { aocEnable(e.detail.elt); });
 document.addEventListener("htmx:oobAfterSwap", function () { aocEnable(document); });
@@ -91,7 +97,7 @@ document.addEventListener("click", function (e) {
   var b = e.target.closest && e.target.closest("#copy-link");
   if (!b || !navigator.clipboard) return;
   navigator.clipboard.writeText(location.href).then(function () {
-    b.textContent = "Copied ✓";
+    b.textContent = "Link copied";
     setTimeout(function () { b.textContent = "Copy link ↗"; }, 1500);
   });
 });

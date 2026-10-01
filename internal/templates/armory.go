@@ -38,7 +38,7 @@ type ArmoryData struct {
 	// The filter rail (AOC-049). Built by the handler from items.Facets; the template only prints.
 	Rail     Rail
 	Chips    []Chip // the active filters, each with the URL that removes it
-	ClearAll string // URL with every filter removed, the search and sort kept; "" when none is active
+	ClearAll string // URL with every filter and the search removed, the sort kept (the design's "clear all")
 }
 
 // InvalidSearch is what an HTMX request with a malformed filter gets back, in place of the rows: the
@@ -51,9 +51,8 @@ func (d ArmoryData) Active() int { return len(d.Chips) }
 // Rail is the filter form's controls, in the order the rail shows them. Every value and every
 // count comes from items.Facets — the database's vocabularies (reference/content-model.md § 0).
 type Rail struct {
-	Groups  []RailGroup  // one-value-per-group choices, each a radio group led by "Any"
-	Levels  []RailRange  // item level, required level
-	Selects []RailSelect // the long vocabularies: currency (24), set (368)
+	Groups []RailGroup // one-value-per-group choices, each a radio group led by "Any"
+	Levels []RailRange // the item level (the design's two stacked sliders)
 	// Hidden carries what the rail has no control for — the sort, and the /v1 filters the page
 	// accepts but does not offer (region, tier, place …) — so submitting the form keeps them.
 	// Inside the rail on purpose: an HTMX answer re-renders the rail, so these can never go stale.
@@ -89,12 +88,6 @@ type RailRange struct {
 	MinName, MaxName   string
 	MinValue, MaxValue string // what the URL holds, echoed
 	Lo, Hi             string
-}
-
-// RailSelect is a vocabulary too long for a row of choices.
-type RailSelect struct {
-	Name, ID, Label string
-	Options         []RailOption // Options[0] is "Any"
 }
 
 // HiddenInput is a parameter carried through the form unchanged.
@@ -217,9 +210,8 @@ func armoryProbe() ArmoryData {
 				{Legend: "Vendor price", Kind: "sans", Options: []RailOption{anyRarity}},
 				{Legend: "Class restriction", Kind: "class", Options: []RailOption{
 					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1, Multi: true}}}},
-			Levels:  []RailRange{{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: "70", Lo: "1", Hi: "90"}},
-			Selects: []RailSelect{{Name: "currency", ID: "f-currency", Label: "Currency", Options: []RailOption{{Name: "currency", Label: "Any currency", Count: 3, Checked: true}, {Name: "currency", Value: "test-token", Label: "Test Token", Count: 0}}}},
-			Hidden:  []HiddenInput{{Name: "sort", Value: "name"}},
+			Levels: []RailRange{{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: "70", Lo: "1", Hi: "90"}},
+			Hidden: []HiddenInput{{Name: "sort", Value: "name"}},
 		},
 		Chips: []Chip{{Label: "Rarity: Test Epic", URL: "/armory"}},
 		URL:   "/armory?rarity=epic", SortLabel: "Item level ↓", NextSort: "/armory?sort=name", RowsFrom: 1, RowsTo: 3,

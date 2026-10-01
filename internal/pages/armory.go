@@ -24,7 +24,7 @@ const armoryPageSize = 50
 
 // sortLabels is presentation: the words on the sort control for the keys items.Sorts defines, with
 // the direction each one runs (the design's "Item level ↓").
-var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortName: "Name ↑", items.SortID: "Id ↑"}
+var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortName: "Name ↑", items.SortID: "Item id ↑"}
 
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)

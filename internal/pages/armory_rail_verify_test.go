@@ -37,6 +37,11 @@ func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
 			if j := strings.Index(seg, "</fieldset>"); j >= 0 {
 				seg = seg[:j]
 			}
+			// A rarity row keeps its colour at 0 (the design's "name in its colour", AOC-065 verify
+			// round 1); only chips mute.
+			if strings.HasPrefix(id, "f-rarity-") {
+				continue
+			}
 			muted := strings.Contains(seg, "text-faint")
 			if count == "0" && !checked {
 				zeros++
@@ -73,7 +78,7 @@ func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 			t.Errorf("a link on the page carries an empty field: %s", u)
 		}
 	}
-	if !strings.Contains(body, "Rarity: Test Epic") {
+	if !strings.Contains(body, "rarity: Test Epic") {
 		t.Error("the one real filter of the dirty submit is not a chip")
 	}
 	if !strings.Contains(body, `<span id="filter-count"> · 1</span>`) {
@@ -96,7 +101,7 @@ func TestAnUnknownRadioSlugStaysChosenAndNamed(t *testing.T) {
 	if strings.Contains(body, `id="f-rarity-any" name="rarity" value="" checked`) {
 		t.Error("Any is checked while the URL names a rarity")
 	}
-	if !strings.Contains(body, "Rarity: not-a-rarity") {
+	if !strings.Contains(body, "rarity: not-a-rarity") {
 		t.Error("no chip names the unknown rarity")
 	}
 }

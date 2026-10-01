@@ -122,7 +122,7 @@ func TestASelectsFurtherValuesRideAlongAsHiddenInputsAndChips(t *testing.T) {
 	for _, c := range chipRe.FindAllStringSubmatch(body, -1) {
 		labels[html.UnescapeString(c[2])] = true
 	}
-	for _, want := range []string{"Currency: Test Token", "Currency: Test Coin"} {
+	for _, want := range []string{"currency: Test Token", "currency: Test Coin"} {
 		if !labels[want] {
 			t.Errorf("no chip %q (chips: %v)", want, labels)
 		}

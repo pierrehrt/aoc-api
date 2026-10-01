@@ -9,7 +9,6 @@
 <div class="flex min-h-[42px] flex-none flex-wrap items-center gap-x-[14px] gap-y-1 border-b border-line px-4 py-2 lg:flex-nowrap lg:py-0">
   <span class="text-[13px] font-semibold text-paper">{{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</span>
   <span class="font-mono text-[12px] text-faint">of {{num .Span.Total}}</span>
-  {{if .Query}}<span class="min-w-0 truncate font-mono text-[11.5px] text-faint">for “{{.Query}}” · <a href="{{.Clear}}" class="text-link hover:text-link-hover">clear search</a></span>{{end}}
   <span class="flex-1"></span>
   <span class="font-mono text-[11.5px] text-faint">sort</span>
   <a href="{{.NextSort}}" hx-get="{{.NextSort}}" hx-target="#results" hx-push-url="true" title="Change the order" class="whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-[12px] font-medium text-paper hover:border-link">{{.SortLabel}}</a>
@@ -17,27 +16,30 @@
 <div class="relative lg:min-h-0 lg:flex-1 lg:overflow-auto">
 {{if .Result.Items}}
 {{/* From lg the design's fixed grid: Item 1.5fr (≥180px), Slot 108, Type 104, iLvl 52, Class 112, a
-     flexible Source and Price, 12px between, one line per row with an ellipsis (AOC-065). */}}
-<table class="w-full border-collapse lg:min-w-[860px] lg:table-fixed">
+     flexible Source and Price, 12px between, one line per row with an ellipsis (AOC-065).
+     The lines are on the cells, with separate borders: a collapsed table gives half of each line to
+     the next row (a 30.5px header, every row half a pixel off the design's 31/37), and its sticky
+     header's line scrolls away. */}}
+<table class="w-full border-separate border-spacing-0 lg:min-w-[860px] lg:table-fixed">
   <colgroup class="hidden lg:table-column-group">
     <col class="lg:w-[30%]"><col class="lg:w-[120px]"><col class="lg:w-[116px]"><col class="lg:w-[64px]"><col class="lg:w-[124px]"><col><col class="lg:w-[18%]">
   </colgroup>
-  <thead class="sticky top-0 z-[2] bg-ink-pane text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-faint">
-    <tr class="border-b border-line">
+  <thead class="sticky top-0 z-[2] bg-ink-pane text-left font-mono text-[10.5px] font-medium uppercase leading-[14px] tracking-[0.06em] text-faint">
+    <tr>
       {{/* Item and iLvl sort, as in the design. */}}
-      <th scope="col" class="py-2 pl-4 pr-3 font-medium">{{range .Sorts}}{{if eq .Key "name"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>Item</a>{{end}}{{end}}</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Slot</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Type</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">{{range .Sorts}}{{if eq .Key "ilvl"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>iLvl</a>{{end}}{{end}}</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Class</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium lg:table-cell">Source</th>
-      <th scope="col" class="hidden py-2 pr-4 font-medium lg:table-cell">Price</th>
+      <th scope="col" class="border-b border-line py-2 pl-4 pr-3 font-medium">{{range .Sorts}}{{if eq .Key "name"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>Item</a>{{end}}{{end}}</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Slot</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Type</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">{{range .Sorts}}{{if eq .Key "ilvl"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>iLvl</a>{{end}}{{end}}</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Class</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium lg:table-cell">Source</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-4 font-medium lg:table-cell">Price</th>
     </tr>
   </thead>
   <tbody>
   {{range .Result.Items}}
-    <tr data-row class="border-b border-line-row align-top hover:bg-ink-hover lg:align-middle">
-      <td class="py-[9px] pl-4 pr-3 lg:truncate">
+    <tr data-row class="align-top hover:bg-ink-hover lg:align-middle">
+      <td class="border-b border-line-row py-[9px] pl-4 pr-3 text-[13.5px] lg:truncate">
         <a href="/armory/{{.Slug}}" class="text-[13.5px] font-medium text-paper hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
         {{with phoneLine .}}<div data-line="phone" class="mt-0.5 font-mono text-[11.5px] text-muted md:hidden">{{.}}</div>{{end}}
@@ -46,12 +48,12 @@
           {{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}{{if .Price}}{{if or .Place .Places}} · {{end}}<span class="text-link">{{.Price}}</span>{{end}}
         </div>{{end}}
       </td>
-      <td data-col="slot" class="hidden py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_slot" .}}</td>
-      <td data-col="type" class="hidden py-[9px] pr-3 text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_type" .}}</td>
-      <td data-col="ilvl" class="hidden py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell">{{if .ItemLevel}}{{.ItemLevel}}{{else}}<span class="text-faint">—</span>{{end}}</td>
-      <td data-col="class" class="hidden py-[9px] pr-3 font-mono text-[11.5px] font-medium text-muted md:table-cell lg:truncate">{{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}</td>
-      <td data-col="source" class="hidden py-[9px] pr-3 text-[12px] text-muted lg:table-cell lg:truncate">{{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}</td>
-      <td data-col="price" class="hidden py-[9px] pr-4 font-mono text-[12px] lg:table-cell lg:truncate">{{if .Price}}<span class="text-link">{{.Price}}</span>{{else}}<span class="text-faint">—</span>{{end}}</td>
+      <td data-col="slot" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_slot" .}}</td>
+      <td data-col="type" class="hidden border-b border-line-row py-[9px] pr-3 text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_type" .}}</td>
+      <td data-col="ilvl" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell">{{if .ItemLevel}}{{.ItemLevel}}{{else}}<span class="text-faint">—</span>{{end}}</td>
+      <td data-col="class" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[11.5px] font-medium text-muted md:table-cell lg:truncate">{{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}</td>
+      <td data-col="source" class="hidden border-b border-line-row py-[9px] pr-3 text-[12px] text-muted lg:table-cell lg:truncate">{{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}</td>
+      <td data-col="price" class="hidden border-b border-line-row py-[9px] pr-4 font-mono text-[12px] lg:table-cell lg:truncate">{{if .Price}}<span class="text-link">{{.Price}}</span>{{else}}<span class="text-faint">—</span>{{end}}</td>
     </tr>
   {{end}}
   </tbody>

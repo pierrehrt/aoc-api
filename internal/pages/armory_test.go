@@ -75,7 +75,7 @@ func TestArmoryEveryStateIsAURL(t *testing.T) {
 	for path, want := range map[string][]string{
 		"/armory?p=2":               {"rows 51–100 of 120", `href="/armory"`, `href="/armory?p=3"`, `href="https://aoc-codex.app/armory?p=2"`},
 		"/armory?p=1":               {`href="https://aoc-codex.app/armory">`}, // p=1 canonicalises to no p
-		"/armory?q=Item+7":          {"Test Item 7", "Test Item 70", "clear search", `value="Item 7"`},
+		"/armory?q=Item+7":          {"Test Item 7", "Test Item 70", `aria-label="Remove the filter q: Item 7"`, `value="Item 7"`},
 		"/armory?q=7":               {"Test Item 7"}, // an id
 		"/armory?sort=name":         {`href="https://aoc-codex.app/armory?sort=name">`, `aria-current="true"`},
 		"/armory?q=zzz-nothing-zzz": {"No items match", "Item ids run 1–123", "3 ids in that range are absent", "Clear the search"},
