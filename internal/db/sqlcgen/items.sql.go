@@ -603,6 +603,7 @@ type ListItemClassesRow struct {
 	ShortName *string
 }
 
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItemClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemClasses, itemID)
 	if err != nil {
@@ -712,6 +713,7 @@ type ListItemPageClassesRow struct {
 }
 
 // A page's class restrictions in one round trip, with the short names the row shows (AOC-046).
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]ListItemPageClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemPageClasses, itemIds)
 	if err != nil {
@@ -738,7 +740,6 @@ func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]L
 }
 
 const listItemPageCosts = `-- name: ListItemPageCosts :many
-
 SELECT src.item_id, src.id AS item_source_id, cu.name AS currency_name, ic.amount
 FROM item_costs ic
 JOIN item_sources src ON src.id = ic.item_source_id
@@ -754,7 +755,6 @@ type ListItemPageCostsRow struct {
 	Amount       pgtype.Numeric
 }
 
-// one order for classes everywhere (AOC-065)
 // A page's vendor prices in one round trip: every cost of every source, grouped by the caller.
 func (q *Queries) ListItemPageCosts(ctx context.Context, itemIds []int32) ([]ListItemPageCostsRow, error) {
 	rows, err := q.db.Query(ctx, listItemPageCosts, itemIds)
@@ -927,7 +927,6 @@ func (q *Queries) ListItemSlugs(ctx context.Context, arg ListItemSlugsParams) ([
 }
 
 const listItemSources = `-- name: ListItemSources :many
-
 SELECT src.id, src.item_id,
        at.slug AS acquisition_type, at.name AS acquisition_type_name,
        src.place_id, p.name AS place_name, p.slug AS place_slug,
@@ -997,7 +996,6 @@ type ListItemSourcesRow struct {
 	OpenQuestion        *string
 }
 
-// one order for classes everywhere (AOC-065)
 // An item page's "where does this come from". 237 items have more than one place — 8 with two and
 // 229 with three — so this is a list and never a single row.
 // ⚠️ THE PLACE DECIDES, here too. AOC-012 verify round 1 settled that a source's place is the

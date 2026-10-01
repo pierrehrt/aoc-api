@@ -86,7 +86,7 @@ var fragmentProbes = map[string]any{
 	"armory_update":       armoryProbe(),
 	"armory_filter_count": armoryProbe(),
 	"armory_chips":        armoryProbe(),
-	"armory_choice":       RailOption{Name: "probe", ID: "f-probe", Multi: true},
+	"armory_choice":       RailOption{Name: "probe", ID: "f-probe"},
 	"armory_active":       armoryProbe(),
 	"armory_invalid":      InvalidSearch{Reason: "probe"},
 	"armory_slot":         armoryProbe().Result.Items[0],

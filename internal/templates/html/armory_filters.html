@@ -13,10 +13,10 @@
 <span class="flex-1"></span>
 <span class="hidden max-w-[52%] truncate font-mono text-[11.5px] text-faint sm:inline">{{.URL}}</span>
 {{end}}
-{{/* One choice. A checkbox or a radio, hidden; the label is what is drawn — a list row (rarity) or a
+{{/* One choice. A checkbox, hidden; the label is what is drawn — a list row (rarity) or a
      chip (the rest), the selected recipe of the design (gold border, ink-selected, paper). */}}
 {{define "armory_choice"}}
-<input type="{{if .Multi}}checkbox{{else}}radio{{end}}" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} data-count="{{.Count}}" class="peer sr-only">{{end}}
+<input type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} data-count="{{.Count}}" class="peer sr-only">{{end}}
 {{define "armory_facets"}}
 {{range .Rail.Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
 {{end}}<div class="hidden items-baseline gap-2 pt-[14px] lg:flex">

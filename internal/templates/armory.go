@@ -51,7 +51,7 @@ func (d ArmoryData) Active() int { return len(d.Chips) }
 // Rail is the filter form's controls, in the order the rail shows them. Every value and every
 // count comes from items.Facets — the database's vocabularies (reference/content-model.md § 0).
 type Rail struct {
-	Groups []RailGroup // one-value-per-group choices, each a radio group led by "Any"
+	Groups []RailGroup // the checkbox groups: rarity, slot, armour weight, class (AOC-064, AOC-065)
 	Levels []RailRange // the item level (the design's two stacked sliders)
 	// Hidden carries what the rail has no control for — the sort, and the /v1 filters the page
 	// accepts but does not offer (region, tier, place …) — so submitting the form keeps them.
@@ -59,8 +59,7 @@ type Rail struct {
 	Hidden []HiddenInput
 }
 
-// RailGroup is one group of choices: checkboxes (several may be ticked; none ticked is any — AOC-064),
-// or a radio group led by "Any" (vendor price).
+// RailGroup is one group of checkboxes: several may be ticked, none ticked is any (AOC-064).
 type RailGroup struct {
 	Legend  string
 	Kind    string // how the design draws it: "list" (rarity rows), "mono", "sans" or "class" chips
@@ -72,13 +71,12 @@ type RailGroup struct {
 type RailOption struct {
 	Name        string // the parameter — the input's name
 	ID          string // the input's id; stable across renders, so HTMX gives focus back after a swap
-	Value       string // the slug; "" for Any
+	Value       string // the slug
 	Label       string // the full name
 	Short       string // a class's short name, shown in place of Label (which stays, for screen readers); "" otherwise
 	ColourToken string // a rarity's colour token; "" when it has none
 	Count       int64
 	Checked     bool
-	Multi       bool // a checkbox (one of several that may be ticked) rather than a radio
 }
 
 // RailRange is a level range: two number inputs, with the span the other filters leave as
@@ -200,20 +198,20 @@ func armoryProbe() ArmoryData {
 	lvl := int32(80)
 	price := "3 Test Token"
 	typ, typName := "test-type", "Test Type"
-	anyRarity := RailOption{Name: "price", ID: "f-price-any", Label: "Any", Count: 3, Checked: true}
 	return ArmoryData{
 		Query: "probe", Sort: items.SortILvl,
 		Rail: Rail{
 			Groups: []RailGroup{{Legend: "Rarity", Kind: "list", Options: []RailOption{
-				{Name: "rarity", ID: "f-rarity-epic", Value: "epic", Label: "Test Epic", ColourToken: "rarity-epic", Count: 1, Checked: true, Multi: true},
-				{Name: "rarity", ID: "f-rarity-dull", Value: "dull", Label: "Test Dull", Count: 0, Multi: true}}},
-				{Legend: "Vendor price", Kind: "sans", Options: []RailOption{anyRarity}},
+				{Name: "rarity", ID: "f-rarity-epic", Value: "epic", Label: "Test Epic", ColourToken: "rarity-epic", Count: 1, Checked: true},
+				{Name: "rarity", ID: "f-rarity-dull", Value: "dull", Label: "Test Dull", Count: 0}}},
+				{Legend: "Armour weight", Kind: "sans", Options: []RailOption{
+					{Name: "armour_weight", ID: "f-armour_weight-tw", Value: "tw", Label: "Test Weight", Count: 2}}},
 				{Legend: "Class restriction", Kind: "class", Options: []RailOption{
-					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1, Multi: true}}}},
+					{Name: "class", ID: "f-class-tc", Value: "tc", Label: "Test Class", Short: "TC", Count: 1}}}},
 			Levels: []RailRange{{Legend: "Item level", MinName: "ilvl_min", MaxName: "ilvl_max", MinValue: "70", Lo: "1", Hi: "90"}},
 			Hidden: []HiddenInput{{Name: "sort", Value: "name"}},
 		},
-		Chips: []Chip{{Label: "Rarity: Test Epic", URL: "/armory"}},
+		Chips: []Chip{{Label: "rarity: Test Epic", URL: "/armory"}},
 		URL:   "/armory?rarity=epic", SortLabel: "Item level ↓", NextSort: "/armory?sort=name", RowsFrom: 1, RowsTo: 3,
 		ClearAll: "/armory",
 		Sorts:    []SortOption{{Key: items.SortILvl, Label: "Item level", URL: "/armory?sort=ilvl", Current: true}, {Key: items.SortName, Label: "Name", URL: "/armory?sort=name"}},

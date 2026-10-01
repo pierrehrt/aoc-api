@@ -464,6 +464,11 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   are absolutely positioned, and without a positioned ancestor the ones far down a pane counted
   toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
 - **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
+- **Scrollbars are the design's** (9px, `line-control` thumb, `ink-pane` track), drawn with
+  `::-webkit-scrollbar` in `app.css`'s base layer. ⚠️ Chrome ignores those rules on any element whose
+  standard `scrollbar-width`/`scrollbar-color` is set, so the standard pair applies only where
+  `::-webkit-scrollbar` is unsupported (`@supports not selector(…)`, Firefox). A global
+  `scrollbar-width: thin` hid every bar until AOC-065 verify round 2.
 - **The phone sheet's bar is the canvas 1b's** — Cancel and a full-width "Show N items", 46px. Cancel
   is a `type="reset"`: it restores every control as the page drew it, the sheet's own unticked
   checkbox included, so the sheet closes with nothing applied and no script. With scripts each change

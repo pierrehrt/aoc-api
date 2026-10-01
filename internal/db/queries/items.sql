@@ -71,7 +71,8 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.sort_order NULLS LAST, cl.name; -- one order for classes everywhere (AOC-065)
+-- one order for classes everywhere (AOC-065)
+ORDER BY cl.sort_order NULLS LAST, cl.name;
 
 -- name: ListItemSources :many
 -- An item page's "where does this come from". 237 items have more than one place — 8 with two and
@@ -558,7 +559,8 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY(sqlc.arg('item_ids')::integer[])
-ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id; -- one order for classes everywhere (AOC-065)
+-- one order for classes everywhere (AOC-065)
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id;
 
 -- name: ListItemPageCosts :many
 -- A page's vendor prices in one round trip: every cost of every source, grouped by the caller.

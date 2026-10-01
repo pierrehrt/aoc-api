@@ -75,12 +75,12 @@ func checkOptions(rf railFacet, g items.FacetGroup, chosen []string) []templates
 		out = append(out, templates.RailOption{
 			Name: rf.param, ID: "f-" + rf.param + "-" + v.Slug, Value: v.Slug,
 			Label: v.Name, Short: v.ShortName, ColourToken: v.ColourToken,
-			Count: v.Count, Checked: contains(chosen, v.Slug), Multi: true,
+			Count: v.Count, Checked: contains(chosen, v.Slug),
 		})
 	}
 	for i, c := range chosen {
 		if !known[c] {
-			out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown-" + strconv.Itoa(i), Value: c, Label: c, Checked: true, Multi: true})
+			out = append(out, templates.RailOption{Name: rf.param, ID: "f-" + rf.param + "-unknown-" + strconv.Itoa(i), Value: c, Label: c, Checked: true})
 		}
 	}
 	return out

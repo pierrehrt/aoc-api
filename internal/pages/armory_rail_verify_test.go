@@ -12,10 +12,10 @@ import (
 	"testing"
 )
 
-// Criterion "a value with 0 is shown greyed, never hidden": for EVERY radio on the rail, the label
+// Criterion "a value with 0 is shown greyed, never hidden": for EVERY chip on the rail, the label
 // is muted exactly when its count is 0 and it is not the reader's own choice — a non-zero value is
 // never greyed, and a zero is never dropped.
-func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
+func TestEveryChipIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
 	// AOC-065: the choices are drawn as the design's rows and chips; each input carries its count
 	// (data-count), and what follows it up to the next input is how it is drawn. Muted (text-faint)
 	// exactly when the count is 0 and it is not chosen — never hidden.
@@ -86,9 +86,9 @@ func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 	}
 }
 
-// An unknown slug on a RADIO facet (a mistyped link) is not malformed: it stays the chosen value at
+// An unknown slug on a facet (a mistyped link) is not malformed: it stays the chosen value at
 // 0, named by a chip, and the page answers 200 — the rule build decision 3 sets for every facet.
-func TestAnUnknownRadioSlugStaysChosenAndNamed(t *testing.T) {
+func TestAnUnknownSlugStaysChosenAndNamed(t *testing.T) {
 	rr := get(t, router(t), http.MethodGet, "/armory?rarity=not-a-rarity", nil, "")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rr.Code)

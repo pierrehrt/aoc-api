@@ -104,14 +104,18 @@
   }
 }
 
-/* The design's scrollbars: 9px, a line-control thumb on an ink-pane track. In the base layer, so a
-   utility (the phone header's [scrollbar-width:none]) can override it — unlayered, it beat every
-   utility (AOC-065 verify round 1: a visible scrollbar under the header's tabs). */
+/* The design's scrollbars: 9px, a line-control thumb (radius 5) on an ink-pane track, drawn with the
+   ::-webkit-scrollbar rules it uses. ⚠️ Chrome ignores those on any element whose standard
+   scrollbar-width or scrollbar-color is set, so the standard pair is for browsers without them
+   (Firefox) only: set on every element, it hid the design's bars (AOC-065 verify round 2). In the base
+   layer, so a utility — the phone header's [scrollbar-width:none] — still hides a bar. */
 @layer base {
-  * { scrollbar-width: thin; scrollbar-color: var(--color-line-control) var(--color-ink-pane); }
   ::-webkit-scrollbar { width: 9px; height: 9px; }
   ::-webkit-scrollbar-thumb { background: var(--color-line-control); border-radius: 5px; }
   ::-webkit-scrollbar-track { background: var(--color-ink-pane); }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--color-line-control) var(--color-ink-pane); }
+  }
 }
 
 /* The design sets every font with the CSS `font` shorthand, which resets line-height to the font's

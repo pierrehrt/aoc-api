@@ -66,7 +66,7 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 		}
 	}
 	// A 0 is listed, never hidden. A rarity keeps its colour at 0, as the design draws "the name in its
-	// colour" (AOC-065 verify round 1); a chip at 0 is muted (TestEveryRadioIsMutedExactlyWhenItsCountIsZero).
+	// colour" (AOC-065 verify round 1); a chip at 0 is muted (TestEveryChipIsMutedExactlyWhenItsCountIsZero).
 	if !regexp.MustCompile(`(?s)id="f-rarity-test-rarity-dull"[^>]*data-count="0"[^>]*>.*?>Test Rarity Dull</span>\s*<span class="flex-1"></span>\s*<span[^>]*>0</span>`).MatchString(body) {
 		t.Error("the 0-count rarity is not listed with its 0")
 	}
@@ -123,7 +123,7 @@ func TestActiveFiltersAreChipsThatEachRemoveOneFilter(t *testing.T) {
 	if !strings.Contains(body, `<span id="filter-count"> · 4</span>`) {
 		t.Error("the phone's Filters button does not carry the active count")
 	}
-	// The state is in the form: the chosen radio checked, the non-rail filter and the sort hidden.
+	// The state is in the form: the chosen value ticked, the non-rail filter and the sort hidden.
 	for _, want := range []string{
 		`id="f-rarity-epic" name="rarity" value="epic" checked`, `<input type="hidden" name="price" value="true">`,
 		`name="ilvl_min" value="70"`, `<input type="hidden" name="region" value="test-region">`,
