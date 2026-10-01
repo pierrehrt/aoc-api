@@ -94,16 +94,15 @@ func seedFacetFixture(t *testing.T, d *sql.DB) {
 			9100+i, strings.ToLower(strings.ReplaceAll(name, " ", "-")), name, note)
 	}
 	type it struct {
-		id                 int
-		name               string
-		rarity             int // offset in rarities by sort_order
-		weight             any // offset in armour_weights, or nil
-		set                any // sets.id or nil
-		ilvl, req          any
-		pvp                bool
-		slots, classes     []int // offsets by id
-		sources            [][]int
-		sourceCurrencyOffs []int
+		id             int
+		name           string
+		rarity         int // offset in rarities by sort_order
+		weight         any // offset in armour_weights, or nil
+		set            any // sets.id or nil
+		ilvl, req      any
+		pvp            bool
+		slots, classes []int   // offsets by id
+		sources        [][]int // per source, the currency offsets it costs (none = free)
 	}
 	items := []it{
 		{id: 950, name: "Test Facet Alpha", rarity: 0, weight: 0, set: 9100, ilvl: 80, req: 80, slots: []int{0}, classes: []int{0, 1},
