@@ -1003,9 +1003,12 @@ queries estimate ~200,000 (hashed subplans inflate the figure) while running in 
 five filters set the facet query took **66 ms with JIT, 10 ms without**, 62 ms of it compiling.
 Nothing this service runs is the long analytical query JIT pays off on. Set in `db.New`, so it holds
 on any Postgres whatever its default; `TestNewTurnsJITOff` asks the server. ⚠️ It is a **startup
-parameter**: production connects straight to Railway's Postgres today, but a connection pooler put in
-front of it (PgBouncer and the like) must accept `jit` (`ignore_startup_parameters`), or the boot's
-ping fails.
+parameter**: production connects straight to Railway's Postgres today. A connection pooler put in
+front of it (PgBouncer and the like) must **forward** `jit` (PgBouncer: `track_extra_parameters`),
+or the role must carry it instead (`ALTER ROLE … SET jit = off`). An unknown parameter makes the
+pooler refuse the connection (the boot's ping fails, loudly); listing it in
+`ignore_startup_parameters` would **drop** it, and JIT would silently be back on —
+`TestNewTurnsJITOff` connects straight to Postgres and would not see it.
 
 ### Testing
 
