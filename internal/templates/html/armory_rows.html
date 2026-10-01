@@ -4,6 +4,11 @@
 {{define "armory_slot"}}{{with slotNames .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
 {{define "armory_type"}}{{with typeLabel .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
 {{define "armory_rows"}}
+{{if .Chips}}<div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+  <span class="text-xs uppercase tracking-wide text-muted">Filters</span>
+  {{range .Chips}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" aria-label="Remove the filter {{.Label}}" class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-xs text-paper hover:border-link">{{.Label}} <span aria-hidden="true" class="text-muted">×</span></a>
+  {{end}}<a href="{{.ClearAll}}" hx-get="{{.ClearAll}}" hx-target="#results" hx-push-url="true" class="text-xs text-link">clear all</a>
+</div>{{end}}
 <div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm text-muted">
   <p>{{if .Result.Total}}<strong class="text-paper">{{.Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</strong> of {{.Span.Total}}{{else}}<strong class="text-paper">0 items</strong> of {{.Span.Total}}{{end}}{{if .Query}} · for “{{.Query}}” · <a href="{{.Clear}}" class="text-link">clear search</a>{{end}}</p>
   <p class="flex gap-3">sort{{range .Sorts}} <a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Current}} aria-current="true" class="text-paper underline"{{else}} class="text-link"{{end}}>{{.Label}}</a>{{end}}</p>
@@ -54,6 +59,7 @@
   <p class="font-medium text-paper">No items match.</p>
   <p class="mt-2 text-muted">Item ids run {{.Span.MinID}}–{{.Span.MaxID}}; {{.Span.Absent}} ids in that range are absent from the data. If you typed one of those, the item is missing here, not missing from the game.</p>
   {{if .Query}}<p class="mt-2"><a href="{{.Clear}}" class="text-link">Clear the search</a></p>{{end}}
+  {{if .Chips}}<p class="mt-2 text-muted">Remove a filter above, or <a href="{{.ClearAll}}" class="text-link">clear them all</a>.</p>{{end}}
 </div>
 {{end}}
 {{end}}

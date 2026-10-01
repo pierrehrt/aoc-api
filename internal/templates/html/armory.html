@@ -1,13 +1,48 @@
 {{define "content"}}
 <h1 class="sr-only">Armory</h1>
-<form method="get" action="/armory" role="search" class="flex flex-wrap items-center gap-3">
-  <label for="q" class="sr-only">Search items by name or id</label>
-  <input id="q" name="q" type="search" value="{{.Data.Query}}" placeholder="Search {{.Data.Span.Total}} items by name or id"
-         class="min-w-0 flex-1 rounded border border-line bg-ink-2 px-3 py-2 text-paper placeholder:text-muted focus:border-link focus:outline-none">
-  {{if .Data.SortInURL}}<input type="hidden" name="sort" value="{{.Data.Sort}}">{{end}}
-  <button type="submit" class="rounded bg-link px-4 py-2 font-medium text-ink">Search</button>
-</form>
-<div id="results" class="mt-6">
+{{/* ONE form: the search and the filter rail submit together, so a search keeps the filters and a
+     filter keeps the search. Without JavaScript it is a plain GET form (AOC-049). */}}
+<form method="get" action="/armory" class="armory">
+  <div role="search" class="flex flex-wrap items-center gap-3">
+    <label for="q" class="sr-only">Search items by name or id</label>
+    <input id="q" name="q" type="search" value="{{.Data.Query}}" placeholder="Search {{.Data.Span.Total}} items by name or id"
+           class="min-w-0 flex-1 rounded border border-line bg-ink-2 px-3 py-2 text-paper placeholder:text-muted focus:border-link focus:outline-none">
+    <button type="submit" class="rounded bg-link px-4 py-2 font-medium text-ink">Search</button>
+  </div>
+  {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
+       submitted and never in the URL. app.css § The filter sheet. */}}
+  <input type="checkbox" id="filter-sheet" class="peer sr-only lg:hidden">
+  <label for="filter-sheet" class="mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1 rounded border border-line px-3 text-sm text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link lg:hidden">Filters<span id="filter-count">{{template "armory_filter_count" .Data}}</span></label>
+  <div class="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-8">
+    <div id="results" class="min-w-0">
 {{template "armory_rows" .Data}}
-</div>
+    </div>
+    <aside aria-label="Filters" class="filter-sheet hidden lg:block">
+      <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
+        <p class="font-medium text-paper">Filters</p>
+        <label for="filter-sheet" class="cursor-pointer text-sm text-link">Close</label>
+      </div>
+      {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the
+           answer carries the rail out of band (armory_update). Never swapped itself, so the phone
+           sheet's scroll position survives a change. */}}
+      <div class="min-h-0 flex-1 overflow-y-auto px-4 lg:px-0" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true">
+        <div id="armory-facets">
+{{template "armory_facets" .Data}}
+        </div>
+      </div>
+    </aside>
+  </div>
+</form>
+{{/* A change's answer redraws the rail. A number typed, or a choice made, while that request was in
+     flight would be wiped by the redraw (AOC-049 review) — so the control that has focus keeps what
+     the reader put in it, and its own change sends it next. An enhancement only: without it, and
+     without JavaScript, the page works. */}}
+<script>
+document.addEventListener("htmx:oobBeforeSwap", function (e) {
+  var a = document.activeElement, f = e.detail.fragment;
+  if (!a || !a.id || !f || !(a.tagName === "SELECT" || a.type === "number")) return;
+  var n = f.querySelector("#" + CSS.escape(a.id));
+  if (n) n.value = a.value;
+});
+</script>
 {{end}}

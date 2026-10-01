@@ -63,6 +63,25 @@
   --color-rarity-rare: #56aee6;
 }
 
+/* The filter sheet (AOC-049, design 1b). Below lg the rail is hidden (`hidden lg:block` on the
+   <aside>) and opens as a full-screen sheet while the unnamed #filter-sheet checkbox is ticked: CSS
+   only, so it works with JavaScript off, and the sheet's state is never in the URL. Plain CSS rather
+   than a utility because one condition sets six properties, and :has() lets the checkbox sit beside
+   its button (for the focus ring) instead of beside the sheet. Unlayered, so it outranks `hidden`. */
+@media (width < 64rem) {
+  .armory:has(#filter-sheet:checked) .filter-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-ink);
+  }
+  body:has(#filter-sheet:checked) {
+    overflow: hidden;
+  }
+}
+
 /* Respect a reader who has asked for less motion. Non-negotiable, and cheap. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

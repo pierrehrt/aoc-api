@@ -154,6 +154,35 @@ func (f *fakeItems) ListItemPageCosts(_ context.Context, ids []int32) ([]sqlcgen
 	}
 	return nil, nil
 }
+
+// The rail's counts (AOC-049): a fake vocabulary, obviously fake, with a 0 in most groups so the
+// greyed-out state renders. Static on purpose: the page's job is to print what the service returns,
+// and the counts' correctness is pinned against real SQL in internal/db.
+var fakeFacetRows = []sqlcgen.CountItemFacetsRow{
+	{Facet: "armour_weight", Slug: "test-weight-light", Name: "Test Weight Light", Ord: 1, Items: 30},
+	{Facet: "class", Slug: "test-class", Name: "Test Class", ShortName: "TC", Ord: 1, Items: 10},
+	{Facet: "class", Slug: "test-class-two", Name: "Test Class Two", ShortName: "TC2", Ord: 2, Items: 0},
+	{Facet: "currency", Slug: "test-coin", Name: "Test Coin", Ord: 1, Items: 0},
+	{Facet: "currency", Slug: "test-token", Name: "Test Token", Ord: 2, Items: 1},
+	{Facet: "equip_location", Slug: "test-slot-head", Name: "Test Slot Head", Ord: 1, Items: 60},
+	{Facet: "equip_location", Slug: "test-slot-feet", Name: "Test Slot Feet", Ord: 2, Items: 0},
+	{Facet: "rarity", Slug: "epic", Name: "Test Epic", ColourToken: "rarity-epic", Ord: 1, Items: 120},
+	{Facet: "rarity", Slug: "test-rarity-dull", Name: "Test Rarity Dull", Ord: 2, Items: 0},
+	{Facet: "set", Slug: "test-set-omega", Name: "Test Set Omega", Ord: 1, Items: 3},
+}
+
+func (f *fakeItems) CountItemFacets(context.Context, sqlcgen.CountItemFacetsParams) ([]sqlcgen.CountItemFacetsRow, error) {
+	return fakeFacetRows, nil
+}
+
+func (f *fakeItems) ItemFacetTotals(context.Context, sqlcgen.ItemFacetTotalsParams) (sqlcgen.ItemFacetTotalsRow, error) {
+	n := int64(len(f.rows))
+	return sqlcgen.ItemFacetTotalsRow{
+		AnyRarity: n, AnyEquipLocation: n, AnyArmourWeight: n, AnyClass: n, AnyCurrency: n, AnySet: n,
+		AnyPrice: n, Priced: 1, IlvlN: n / 2, IlvlLo: 80, IlvlHi: 80,
+	}, nil
+}
+
 func (f *fakeItems) ItemIDSpan(context.Context) (sqlcgen.ItemIDSpanRow, error) {
 	n := int32(len(f.rows))
 	return sqlcgen.ItemIDSpanRow{MinID: 1, MaxID: n + 3, Total: int64(n)}, nil

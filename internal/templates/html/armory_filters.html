@@ -1,0 +1,66 @@
+{{/* The filter rail (AOC-049). What each control holds is built in internal/pages (buildRail) from
+     items.Facets — the database's vocabularies and the same SQL's counts. The template only prints.
+     A 0 is muted, never hidden: the reader learns why that choice is empty. */}}
+{{define "armory_filter_count"}}{{with .Active}} · {{.}}{{end}}{{end}}
+{{define "armory_facets"}}
+{{range .Rail.Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}<div class="space-y-5 py-4 lg:pt-0">
+{{range .Rail.Groups}}
+  <fieldset>
+    <legend class="text-xs font-medium uppercase tracking-wide text-muted">{{.Legend}}</legend>
+    <div class="mt-2 flex flex-wrap gap-1.5">
+    {{range .Options}}
+      <span>
+        <input type="radio" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} class="peer sr-only">
+        <label for="{{.ID}}"{{if .Short}} title="{{.Label}}"{{end}} class="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-line px-3 text-sm peer-checked:border-link peer-checked:bg-ink-2 peer-focus-visible:ring-2 peer-focus-visible:ring-link{{if or .Count .Checked}} text-paper{{else}} text-muted{{end}}">
+          <span{{if and .ColourToken (or .Count .Checked)}} style="color: var(--color-{{.ColourToken}})"{{end}}>{{if .Short}}<span aria-hidden="true">{{.Short}}</span><span class="sr-only">{{.Label}}</span>{{else}}{{.Label}}{{end}}</span>
+          <span class="font-mono text-xs text-muted">{{.Count}}</span>
+        </label>
+      </span>
+    {{end}}
+    </div>
+  </fieldset>
+{{end}}
+{{range .Rail.Levels}}
+  <fieldset>
+    <legend class="text-xs font-medium uppercase tracking-wide text-muted">{{.Legend}}</legend>
+    <div class="mt-2 flex items-center gap-2">
+      <label for="f-{{.MinName}}" class="sr-only">{{.Legend}} from</label>
+      <input type="number" id="f-{{.MinName}}" name="{{.MinName}}" value="{{.MinValue}}" min="0" step="1" inputmode="numeric"{{with .Lo}} placeholder="{{.}}"{{end}}
+             class="w-20 rounded border border-line bg-ink-2 px-2 py-1.5 font-mono text-sm text-paper placeholder:text-muted focus:border-link focus:outline-none">
+      <span class="text-muted" aria-hidden="true">–</span>
+      <label for="f-{{.MaxName}}" class="sr-only">{{.Legend}} to</label>
+      <input type="number" id="f-{{.MaxName}}" name="{{.MaxName}}" value="{{.MaxValue}}" min="0" step="1" inputmode="numeric"{{with .Hi}} placeholder="{{.}}"{{end}}
+             class="w-20 rounded border border-line bg-ink-2 px-2 py-1.5 font-mono text-sm text-paper placeholder:text-muted focus:border-link focus:outline-none">
+    </div>
+  </fieldset>
+{{end}}
+{{range .Rail.Selects}}
+  <div>
+    <label for="{{.ID}}" class="text-xs font-medium uppercase tracking-wide text-muted">{{.Label}}</label>
+    <select id="{{.ID}}" name="{{.Name}}" class="mt-2 w-full rounded border border-line bg-ink-2 px-2 py-2 text-sm text-paper focus:border-link focus:outline-none">
+    {{range .Options}}<option value="{{.Value}}"{{if .Checked}} selected{{end}}>{{.Label}} ({{.Count}})</option>
+    {{end}}</select>
+  </div>
+{{end}}
+</div>
+{{/* Apply: a plain submit, so it works without JavaScript, and on a phone it closes the sheet. It
+     carries the count, so the reader commits knowing the result (design 1b). */}}
+<div class="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ink px-4 py-3 lg:static lg:mx-0 lg:border-0 lg:px-0">
+  {{if .ClearAll}}<a href="{{.ClearAll}}" class="text-sm text-link">Reset</a>{{end}}
+  <button type="submit" class="ml-auto rounded bg-link px-4 py-2 text-sm font-medium text-ink">Show {{.Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</button>
+</div>
+{{end}}
+{{/* An HTMX answer: the rows into #results, and the rail and the phone button's number out of band —
+     one request, so the counts always describe the rows beside them. */}}
+{{define "armory_update"}}{{template "armory_rows" .}}
+<div hx-swap-oob="innerHTML:#armory-facets">{{template "armory_facets" .}}</div>
+<span hx-swap-oob="innerHTML:#filter-count">{{template "armory_filter_count" .}}</span>
+{{end}}
+{{/* An HTMX change with a malformed filter (AOC-049 review): the reason, in place of the rows. */}}
+{{define "armory_invalid"}}<div role="alert" class="rounded border border-line bg-ink-2 p-4 text-sm">
+  <p class="font-medium text-paper">That search is not valid.</p>
+  <p class="mt-2 font-mono text-xs text-muted">{{.Reason}}</p>
+  <p class="mt-2 text-muted">Correct it in the filters and the list comes back.</p>
+</div>
+{{end}}

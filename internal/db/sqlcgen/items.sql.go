@@ -11,6 +11,234 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countItemFacets = `-- name: CountItemFacets :many
+WITH filtered AS MATERIALIZED (
+  SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
+         pr.priced,
+         -- The filters that have no facet of their own, as ONE flag.
+         coalesce(
+           ($1::varchar IS NULL OR it.slug = $1::varchar)
+           -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+           -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+           -- (escapeLike); this names the escape character so Postgres honours them.
+           -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the
+           -- armory site's ids are what people still quote, and a name search for "2183" would
+           -- otherwise find nothing. id_query is NULL unless q is numeric.
+           AND ($2::varchar IS NULL
+                OR i.name ILIKE '%' || $2::varchar || '%' ESCAPE '\'
+                OR i.item_id = $3::integer)
+           -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+           -- single-value parameter made the caller's second choice unrepresentable -- so the
+           -- service passed NULL and the place predicate silently vanished, returning all 4,646
+           -- items (AOC-012 verify round 1).
+           -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for
+           -- every row. The caller passes nil rather than an empty slice, and derives that from the
+           -- same predicate that decides collapsing, so the two cannot disagree (verify round 2).
+           AND ($4::varchar[] IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND p.slug = ANY($4::varchar[])))
+           -- region and tier live on item_sources, not on the item: an item is "in Kheshatta"
+           -- because something that drops it is. Both are aggregate views, so they collapse.
+           AND ($5::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 -- The PLACE's region wins. 196 item_sources rows disagree with their own place's
+                 -- region (AOC-037), and the place row is the stronger fact: it carries name, map
+                 -- and region together, with an invariant test behind it, while the per-source
+                 -- region is derived and has none. A source with no place falls back to its own.
+                 LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+                 WHERE src.item_id = i.item_id AND r2.slug = $5::varchar))
+           AND ($6::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN tiers t ON t.id = src.tier_id
+                 WHERE src.item_id = i.item_id AND t.slug = $6::varchar))
+           -- ⭐ unchained is true on EITHER the source row or the place it points at (AOC-039: the
+           -- one expression, shared with ListItemSources and ListItemPlaces).
+           AND ($7::boolean IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND (src.unchained OR coalesce(p.unchained, false)) = $7::boolean))
+           -- pvp is three independent facts on the item, and "pvp=true" means any of them.
+           AND ($8::boolean IS NULL
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
+           false) AS in_base,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
+         ($9::varchar IS NULL OR r.slug = $9::varchar) AS in_rarity,
+         -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
+         -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
+         ($10::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_equip_locations iel
+           JOIN equip_locations el ON el.id = iel.equip_location_id
+           WHERE iel.item_id = i.item_id AND el.slug = $10::varchar)) AS in_slot,
+         coalesce($11::varchar IS NULL OR aw.slug = $11::varchar, false) AS in_weight,
+         ($12::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_classes ic
+           JOIN classes cl ON cl.id = ic.class_id
+           WHERE ic.item_id = i.item_id AND cl.slug = $12::varchar)) AS in_class,
+         -- A bound excludes an item with no level: it cannot be shown to be inside the range.
+         coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
+              AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
+         coalesce(($15::integer IS NULL OR i.requires_level >= $15::integer)
+              AND ($16::integer IS NULL OR i.requires_level <= $16::integer), false) AS in_reqlvl,
+         -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
+         -- item free from a boss and sold by a vendor (689 of them) has a price.
+         ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
+         ($18::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_sources src
+           JOIN item_costs ico ON ico.item_source_id = src.id
+           JOIN currencies cu ON cu.id = ico.currency_id
+           WHERE src.item_id = i.item_id AND cu.slug = $18::varchar)) AS in_currency,
+         coalesce($19::varchar IS NULL OR st.slug = $19::varchar, false) AS in_set
+  FROM items i
+  JOIN rarities r ON r.id = i.rarity_id
+  LEFT JOIN item_types it ON it.id = i.item_type_id
+  LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
+  LEFT JOIN sets st ON st.id = i.set_id
+  -- One expression for "has a vendor price", read by in_price and by the price facet. A subquery
+  -- with no FROM is pulled up into its references, so a query that reads neither never runs it.
+  CROSS JOIN LATERAL (SELECT EXISTS (
+    SELECT 1 FROM item_sources src
+    JOIN item_costs ico ON ico.item_source_id = src.id
+    WHERE src.item_id = i.item_id) AS priced) pr
+)
+SELECT 'rarity'::varchar AS facet, r.slug, r.name, ''::varchar AS short_name,
+       coalesce(r.colour_token, '')::varchar AS colour_token,
+       row_number() OVER (ORDER BY r.sort_order DESC) AS ord,
+       count(DISTINCT f.item_id) AS items
+FROM rarities r
+LEFT JOIN filtered f ON f.rarity_id = r.id AND f.in_base AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
+GROUP BY r.id
+UNION ALL
+SELECT 'equip_location', el.slug, el.name, '', '',
+       row_number() OVER (ORDER BY el.id),
+       count(DISTINCT f.item_id)
+FROM equip_locations el
+LEFT JOIN item_equip_locations iel ON iel.equip_location_id = el.id
+LEFT JOIN filtered f ON f.item_id = iel.item_id AND f.in_base AND f.in_rarity AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
+GROUP BY el.id
+UNION ALL
+SELECT 'armour_weight', aw.slug, aw.name, '', '',
+       row_number() OVER (ORDER BY aw.sort_order DESC),
+       count(DISTINCT f.item_id)
+FROM armour_weights aw
+LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
+GROUP BY aw.id
+UNION ALL
+SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
+       row_number() OVER (ORDER BY a.name, cl.name),
+       count(DISTINCT f.item_id)
+FROM classes cl
+JOIN archetypes a ON a.id = cl.archetype_id
+LEFT JOIN item_classes ic ON ic.class_id = cl.id
+LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
+GROUP BY cl.id, a.name
+UNION ALL
+SELECT 'currency', cu.slug, cu.name, '', '',
+       row_number() OVER (ORDER BY cu.name),
+       count(DISTINCT f.item_id)
+FROM currencies cu
+LEFT JOIN item_costs ico ON ico.currency_id = cu.id
+LEFT JOIN item_sources src ON src.id = ico.item_source_id
+LEFT JOIN filtered f ON f.item_id = src.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_set
+GROUP BY cu.id
+UNION ALL
+SELECT 'set', st.slug, st.name, '', '',
+       row_number() OVER (ORDER BY st.name, st.id),
+       count(DISTINCT f.item_id)
+FROM sets st
+LEFT JOIN filtered f ON f.set_id = st.id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency
+GROUP BY st.id
+ORDER BY facet, ord
+`
+
+type CountItemFacetsParams struct {
+	ItemType      *string
+	NameQuery     *string
+	IDQuery       *int32
+	PlaceSlugs    []string
+	Region        *string
+	Tier          *string
+	Unchained     *bool
+	Pvp           *bool
+	Rarity        *string
+	EquipLocation *string
+	ArmourWeight  *string
+	Class         *string
+	IlvlMin       *int32
+	IlvlMax       *int32
+	ReqlvlMin     *int32
+	ReqlvlMax     *int32
+	Price         *bool
+	Currency      *string
+	Set           *string
+}
+
+type CountItemFacetsRow struct {
+	Facet       string
+	Slug        string
+	Name        string
+	ShortName   string
+	ColourToken string
+	Ord         int64
+	Items       int64
+}
+
+// The rail's counts (AOC-049): EVERY value of each facet's vocabulary, with how many items picking
+// it would leave under the other filters -- 0 included, because a value that is hidden teaches
+// nothing and a greyed 0 says why. The values come from their lookup tables, never from Go
+// (reference/content-model.md § 0). count(DISTINCT): an item bought with one currency from two
+// vendors is one item, as it is one row of the list. `ord` is the order the rail shows them in.
+func (q *Queries) CountItemFacets(ctx context.Context, arg CountItemFacetsParams) ([]CountItemFacetsRow, error) {
+	rows, err := q.db.Query(ctx, countItemFacets,
+		arg.ItemType,
+		arg.NameQuery,
+		arg.IDQuery,
+		arg.PlaceSlugs,
+		arg.Region,
+		arg.Tier,
+		arg.Unchained,
+		arg.Pvp,
+		arg.Rarity,
+		arg.EquipLocation,
+		arg.ArmourWeight,
+		arg.Class,
+		arg.IlvlMin,
+		arg.IlvlMax,
+		arg.ReqlvlMin,
+		arg.ReqlvlMax,
+		arg.Price,
+		arg.Currency,
+		arg.Set,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountItemFacetsRow{}
+	for rows.Next() {
+		var i CountItemFacetsRow
+		if err := rows.Scan(
+			&i.Facet,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+			&i.ColourToken,
+			&i.Ord,
+			&i.Items,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getItem = `-- name: GetItem :one
 
 SELECT i.item_id, i.slug, i.name,
@@ -139,6 +367,203 @@ func (q *Queries) GetItemBySlug(ctx context.Context, slug string) (int32, error)
 	var item_id int32
 	err := row.Scan(&item_id)
 	return item_id, err
+}
+
+const itemFacetTotals = `-- name: ItemFacetTotals :one
+WITH filtered AS MATERIALIZED (
+  SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
+         pr.priced,
+         -- The filters that have no facet of their own, as ONE flag.
+         coalesce(
+           ($1::varchar IS NULL OR it.slug = $1::varchar)
+           -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+           -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+           -- (escapeLike); this names the escape character so Postgres honours them.
+           -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the
+           -- armory site's ids are what people still quote, and a name search for "2183" would
+           -- otherwise find nothing. id_query is NULL unless q is numeric.
+           AND ($2::varchar IS NULL
+                OR i.name ILIKE '%' || $2::varchar || '%' ESCAPE '\'
+                OR i.item_id = $3::integer)
+           -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+           -- single-value parameter made the caller's second choice unrepresentable -- so the
+           -- service passed NULL and the place predicate silently vanished, returning all 4,646
+           -- items (AOC-012 verify round 1).
+           -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for
+           -- every row. The caller passes nil rather than an empty slice, and derives that from the
+           -- same predicate that decides collapsing, so the two cannot disagree (verify round 2).
+           AND ($4::varchar[] IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND p.slug = ANY($4::varchar[])))
+           -- region and tier live on item_sources, not on the item: an item is "in Kheshatta"
+           -- because something that drops it is. Both are aggregate views, so they collapse.
+           AND ($5::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 -- The PLACE's region wins. 196 item_sources rows disagree with their own place's
+                 -- region (AOC-037), and the place row is the stronger fact: it carries name, map
+                 -- and region together, with an invariant test behind it, while the per-source
+                 -- region is derived and has none. A source with no place falls back to its own.
+                 LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+                 WHERE src.item_id = i.item_id AND r2.slug = $5::varchar))
+           AND ($6::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN tiers t ON t.id = src.tier_id
+                 WHERE src.item_id = i.item_id AND t.slug = $6::varchar))
+           -- ⭐ unchained is true on EITHER the source row or the place it points at (AOC-039: the
+           -- one expression, shared with ListItemSources and ListItemPlaces).
+           AND ($7::boolean IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND (src.unchained OR coalesce(p.unchained, false)) = $7::boolean))
+           -- pvp is three independent facts on the item, and "pvp=true" means any of them.
+           AND ($8::boolean IS NULL
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
+           false) AS in_base,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
+         ($9::varchar IS NULL OR r.slug = $9::varchar) AS in_rarity,
+         -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
+         -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
+         ($10::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_equip_locations iel
+           JOIN equip_locations el ON el.id = iel.equip_location_id
+           WHERE iel.item_id = i.item_id AND el.slug = $10::varchar)) AS in_slot,
+         coalesce($11::varchar IS NULL OR aw.slug = $11::varchar, false) AS in_weight,
+         ($12::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_classes ic
+           JOIN classes cl ON cl.id = ic.class_id
+           WHERE ic.item_id = i.item_id AND cl.slug = $12::varchar)) AS in_class,
+         -- A bound excludes an item with no level: it cannot be shown to be inside the range.
+         coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
+              AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
+         coalesce(($15::integer IS NULL OR i.requires_level >= $15::integer)
+              AND ($16::integer IS NULL OR i.requires_level <= $16::integer), false) AS in_reqlvl,
+         -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
+         -- item free from a boss and sold by a vendor (689 of them) has a price.
+         ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
+         ($18::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_sources src
+           JOIN item_costs ico ON ico.item_source_id = src.id
+           JOIN currencies cu ON cu.id = ico.currency_id
+           WHERE src.item_id = i.item_id AND cu.slug = $18::varchar)) AS in_currency,
+         coalesce($19::varchar IS NULL OR st.slug = $19::varchar, false) AS in_set
+  FROM items i
+  JOIN rarities r ON r.id = i.rarity_id
+  LEFT JOIN item_types it ON it.id = i.item_type_id
+  LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
+  LEFT JOIN sets st ON st.id = i.set_id
+  -- One expression for "has a vendor price", read by in_price and by the price facet. A subquery
+  -- with no FROM is pulled up into its references, so a query that reads neither never runs it.
+  CROSS JOIN LATERAL (SELECT EXISTS (
+    SELECT 1 FROM item_sources src
+    JOIN item_costs ico ON ico.item_source_id = src.id
+    WHERE src.item_id = i.item_id) AS priced) pr
+)
+SELECT
+  count(*) FILTER (WHERE f.in_base AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set) AS any_rarity,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set) AS any_equip_location,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set) AS any_armour_weight,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set) AS any_class,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_set) AS any_currency,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency) AS any_set,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_currency AND f.in_set) AS any_price,
+  count(*) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_currency AND f.in_set AND f.priced) AS priced,
+  count(f.item_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set) AS ilvl_n,
+  coalesce(min(f.item_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set), 0)::integer AS ilvl_lo,
+  coalesce(max(f.item_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set), 0)::integer AS ilvl_hi,
+  count(f.requires_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_price AND f.in_currency AND f.in_set) AS reqlvl_n,
+  coalesce(min(f.requires_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_price AND f.in_currency AND f.in_set), 0)::integer AS reqlvl_lo,
+  coalesce(max(f.requires_level) FILTER (WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_price AND f.in_currency AND f.in_set), 0)::integer AS reqlvl_hi
+FROM filtered f
+`
+
+type ItemFacetTotalsParams struct {
+	ItemType      *string
+	NameQuery     *string
+	IDQuery       *int32
+	PlaceSlugs    []string
+	Region        *string
+	Tier          *string
+	Unchained     *bool
+	Pvp           *bool
+	Rarity        *string
+	EquipLocation *string
+	ArmourWeight  *string
+	Class         *string
+	IlvlMin       *int32
+	IlvlMax       *int32
+	ReqlvlMin     *int32
+	ReqlvlMax     *int32
+	Price         *bool
+	Currency      *string
+	Set           *string
+}
+
+type ItemFacetTotalsRow struct {
+	AnyRarity        int64
+	AnyEquipLocation int64
+	AnyArmourWeight  int64
+	AnyClass         int64
+	AnyCurrency      int64
+	AnySet           int64
+	AnyPrice         int64
+	Priced           int64
+	IlvlN            int64
+	IlvlLo           int32
+	IlvlHi           int32
+	ReqlvlN          int64
+	ReqlvlLo         int32
+	ReqlvlHi         int32
+}
+
+// The rail's other numbers (AOC-049), from the same flags: each group's "Any" (every flag but the
+// group's own), how many items have a vendor price, and the item-level and required-level spans a
+// range control can usefully ask for. A span means something only when its count (ilvl_n, reqlvl_n)
+// is above 0: sqlc types a cast aggregate as non-null, so an empty span is coalesced to 0 and the
+// count says whether to believe it -- never a sentinel level.
+func (q *Queries) ItemFacetTotals(ctx context.Context, arg ItemFacetTotalsParams) (ItemFacetTotalsRow, error) {
+	row := q.db.QueryRow(ctx, itemFacetTotals,
+		arg.ItemType,
+		arg.NameQuery,
+		arg.IDQuery,
+		arg.PlaceSlugs,
+		arg.Region,
+		arg.Tier,
+		arg.Unchained,
+		arg.Pvp,
+		arg.Rarity,
+		arg.EquipLocation,
+		arg.ArmourWeight,
+		arg.Class,
+		arg.IlvlMin,
+		arg.IlvlMax,
+		arg.ReqlvlMin,
+		arg.ReqlvlMax,
+		arg.Price,
+		arg.Currency,
+		arg.Set,
+	)
+	var i ItemFacetTotalsRow
+	err := row.Scan(
+		&i.AnyRarity,
+		&i.AnyEquipLocation,
+		&i.AnyArmourWeight,
+		&i.AnyClass,
+		&i.AnyCurrency,
+		&i.AnySet,
+		&i.AnyPrice,
+		&i.Priced,
+		&i.IlvlN,
+		&i.IlvlLo,
+		&i.IlvlHi,
+		&i.ReqlvlN,
+		&i.ReqlvlLo,
+		&i.ReqlvlHi,
+	)
+	return i, err
 }
 
 const itemIDSpan = `-- name: ItemIDSpan :one
@@ -726,6 +1151,99 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 }
 
 const listItems = `-- name: ListItems :many
+
+WITH filtered AS (
+  SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
+         pr.priced,
+         -- The filters that have no facet of their own, as ONE flag.
+         coalesce(
+           ($4::varchar IS NULL OR it.slug = $4::varchar)
+           -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+           -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+           -- (escapeLike); this names the escape character so Postgres honours them.
+           -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the
+           -- armory site's ids are what people still quote, and a name search for "2183" would
+           -- otherwise find nothing. id_query is NULL unless q is numeric.
+           AND ($5::varchar IS NULL
+                OR i.name ILIKE '%' || $5::varchar || '%' ESCAPE '\'
+                OR i.item_id = $6::integer)
+           -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+           -- single-value parameter made the caller's second choice unrepresentable -- so the
+           -- service passed NULL and the place predicate silently vanished, returning all 4,646
+           -- items (AOC-012 verify round 1).
+           -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for
+           -- every row. The caller passes nil rather than an empty slice, and derives that from the
+           -- same predicate that decides collapsing, so the two cannot disagree (verify round 2).
+           AND ($7::varchar[] IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND p.slug = ANY($7::varchar[])))
+           -- region and tier live on item_sources, not on the item: an item is "in Kheshatta"
+           -- because something that drops it is. Both are aggregate views, so they collapse.
+           AND ($8::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 -- The PLACE's region wins. 196 item_sources rows disagree with their own place's
+                 -- region (AOC-037), and the place row is the stronger fact: it carries name, map
+                 -- and region together, with an invariant test behind it, while the per-source
+                 -- region is derived and has none. A source with no place falls back to its own.
+                 LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+                 WHERE src.item_id = i.item_id AND r2.slug = $8::varchar))
+           AND ($9::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN tiers t ON t.id = src.tier_id
+                 WHERE src.item_id = i.item_id AND t.slug = $9::varchar))
+           -- ⭐ unchained is true on EITHER the source row or the place it points at (AOC-039: the
+           -- one expression, shared with ListItemSources and ListItemPlaces).
+           AND ($10::boolean IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND (src.unchained OR coalesce(p.unchained, false)) = $10::boolean))
+           -- pvp is three independent facts on the item, and "pvp=true" means any of them.
+           AND ($11::boolean IS NULL
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean),
+           false) AS in_base,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
+         ($12::varchar IS NULL OR r.slug = $12::varchar) AS in_rarity,
+         -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
+         -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
+         ($13::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_equip_locations iel
+           JOIN equip_locations el ON el.id = iel.equip_location_id
+           WHERE iel.item_id = i.item_id AND el.slug = $13::varchar)) AS in_slot,
+         coalesce($14::varchar IS NULL OR aw.slug = $14::varchar, false) AS in_weight,
+         ($15::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_classes ic
+           JOIN classes cl ON cl.id = ic.class_id
+           WHERE ic.item_id = i.item_id AND cl.slug = $15::varchar)) AS in_class,
+         -- A bound excludes an item with no level: it cannot be shown to be inside the range.
+         coalesce(($16::integer IS NULL OR i.item_level >= $16::integer)
+              AND ($17::integer IS NULL OR i.item_level <= $17::integer), false) AS in_ilvl,
+         coalesce(($18::integer IS NULL OR i.requires_level >= $18::integer)
+              AND ($19::integer IS NULL OR i.requires_level <= $19::integer), false) AS in_reqlvl,
+         -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
+         -- item free from a boss and sold by a vendor (689 of them) has a price.
+         ($20::boolean IS NULL OR pr.priced = $20::boolean) AS in_price,
+         ($21::varchar IS NULL OR EXISTS (
+           SELECT 1 FROM item_sources src
+           JOIN item_costs ico ON ico.item_source_id = src.id
+           JOIN currencies cu ON cu.id = ico.currency_id
+           WHERE src.item_id = i.item_id AND cu.slug = $21::varchar)) AS in_currency,
+         coalesce($22::varchar IS NULL OR st.slug = $22::varchar, false) AS in_set
+  FROM items i
+  JOIN rarities r ON r.id = i.rarity_id
+  LEFT JOIN item_types it ON it.id = i.item_type_id
+  LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
+  LEFT JOIN sets st ON st.id = i.set_id
+  -- One expression for "has a vendor price", read by in_price and by the price facet. A subquery
+  -- with no FROM is pulled up into its references, so a query that reads neither never runs it.
+  CROSS JOIN LATERAL (SELECT EXISTS (
+    SELECT 1 FROM item_sources src
+    JOIN item_costs ico ON ico.item_source_id = src.id
+    WHERE src.item_id = i.item_id) AS priced) pr
+)
 SELECT i.item_id, i.slug, i.name,
        r.slug AS rarity, r.sort_order AS rarity_sort, r.colour_token AS rarity_colour_token,
        it.slug AS item_type, it.name AS item_type_name,
@@ -735,96 +1253,44 @@ SELECT i.item_id, i.slug, i.name,
        i.set_id, i.tooltip_image,
        c.slug AS confidence,
        count(*) OVER () AS total_count
-FROM items i
+FROM filtered f
+JOIN items i ON i.item_id = f.item_id
 JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
 JOIN confidence_levels c ON c.id = i.confidence_id
 LEFT JOIN slot_fits sf ON sf.id = i.slot_fit_id
 LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
-WHERE ($1::varchar IS NULL OR r.slug = $1::varchar)
-  AND ($2::varchar IS NULL OR it.slug = $2::varchar)
-  -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
-  -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
-  -- (escapeLike); this names the escape character so Postgres honours them.
-  -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the armory
-  -- site's ids are what people still quote, and a name search for "2183" would otherwise find
-  -- nothing. id_query is NULL unless q is numeric, and NULL never equals anything.
-  AND ($3::varchar IS NULL
-       OR i.name ILIKE '%' || $3::varchar || '%' ESCAPE '\'
-       OR i.item_id = $4::integer)
-  AND ($5::varchar IS NULL OR EXISTS (
-        SELECT 1 FROM item_equip_locations iel
-        JOIN equip_locations el ON el.id = iel.equip_location_id
-        WHERE iel.item_id = i.item_id AND el.slug = $5::varchar))
-  AND ($6::varchar IS NULL OR EXISTS (
-        SELECT 1 FROM item_classes ic
-        JOIN classes cl ON cl.id = ic.class_id
-        WHERE ic.item_id = i.item_id AND cl.slug = $6::varchar))
-  -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
-  -- single-value parameter made the caller's second choice unrepresentable -- so the service
-  -- passed NULL and the place predicate silently vanished, returning all 4,646 items
-  -- (AOC-012 verify round 1).
-  -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for every
-  -- row. The caller passes nil rather than an empty slice, and derives that from the same
-  -- predicate that decides collapsing, so the two cannot disagree (verify round 2).
-  AND ($7::varchar[] IS NULL OR EXISTS (
-        SELECT 1 FROM item_sources src
-        JOIN places p ON p.id = src.place_id
-        WHERE src.item_id = i.item_id
-          AND p.slug = ANY($7::varchar[])))
-  AND ($8::varchar IS NULL OR EXISTS (
-        SELECT 1 FROM armour_weights aw
-        WHERE aw.id = i.armour_weight_id AND aw.slug = $8::varchar))
-  -- region and tier live on item_sources, not on the item: an item is "in Kheshatta" because
-  -- something that drops it is. Both are aggregate views, so they collapse (see ListItemPlaces).
-  AND ($9::varchar IS NULL OR EXISTS (
-        SELECT 1 FROM item_sources src
-        LEFT JOIN places p ON p.id = src.place_id
-        -- The PLACE's region wins. 196 item_sources rows disagree with their own place's region
-        -- (AOC-037), and the place row is the stronger fact: it carries name, map and region
-        -- together, with an invariant test behind it, while the per-source region is derived and
-        -- has none. A source with no place still falls back to its own.
-        LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
-        WHERE src.item_id = i.item_id AND r2.slug = $9::varchar))
-  AND ($10::varchar IS NULL OR EXISTS (
-        SELECT 1 FROM item_sources src
-        JOIN tiers t ON t.id = src.tier_id
-        WHERE src.item_id = i.item_id AND t.slug = $10::varchar))
-  -- ⭐ unchained is true on EITHER the source row or the place it points at. The importer sets it
-  -- on the source when the armory said so, and on the place when the place itself is the Unchained
-  -- version -- so testing one alone silently loses the other half.
-  AND ($11::boolean IS NULL OR EXISTS (
-        SELECT 1 FROM item_sources src
-        LEFT JOIN places p ON p.id = src.place_id
-        WHERE src.item_id = i.item_id
-          AND (src.unchained OR coalesce(p.unchained, false)) = $11::boolean))
-  -- pvp is three independent facts on the item, and "pvp=true" means any of them. Collapsing them
-  -- into one column would lose which one is true, which the item page shows separately.
-  AND ($12::boolean IS NULL
-       OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $12::boolean)
+WHERE f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
 ORDER BY
-  CASE WHEN $13::varchar = 'ilvl' THEN i.item_level END DESC NULLS LAST,
-  CASE WHEN $13::varchar = 'id' THEN i.item_id END ASC,
+  CASE WHEN $1::varchar = 'ilvl' THEN i.item_level END DESC NULLS LAST,
+  CASE WHEN $1::varchar = 'id' THEN i.item_id END ASC,
   i.name, i.item_id
-LIMIT $15::integer OFFSET $14::integer
+LIMIT $3::integer OFFSET $2::integer
 `
 
 type ListItemsParams struct {
-	Rarity        *string
+	SortBy        string
+	PageOffset    int32
+	PageSize      int32
 	ItemType      *string
 	NameQuery     *string
 	IDQuery       *int32
-	EquipLocation *string
-	Class         *string
 	PlaceSlugs    []string
-	ArmourWeight  *string
 	Region        *string
 	Tier          *string
 	Unchained     *bool
 	Pvp           *bool
-	SortBy        string
-	PageOffset    int32
-	PageSize      int32
+	Rarity        *string
+	EquipLocation *string
+	ArmourWeight  *string
+	Class         *string
+	IlvlMin       *int32
+	IlvlMax       *int32
+	ReqlvlMin     *int32
+	ReqlvlMax     *int32
+	Price         *bool
+	Currency      *string
+	Set           *string
 }
 
 type ListItemsRow struct {
@@ -849,6 +1315,17 @@ type ListItemsRow struct {
 	TotalCount        int64
 }
 
+// ⭐ THE FILTER RULES ARE WRITTEN ONCE (AOC-049). Every query that filters the armory list starts with
+// the same `filtered` CTE, byte for byte: one row per item, carrying one boolean per filter -- a
+// flag per facet of the rail, and `in_base` for the filters that have none. The list keeps the
+// items whose flags are all true. A facet counts the items whose flags are all true EXCEPT ITS OWN,
+// which is "how many would this choice leave, under the other filters" -- and since the count and
+// the rows read the same flags, they cannot disagree.
+//
+// ⛔ Edit the CTE in one query and you must edit it in all three: ListItems, CountItemFacets and
+// ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
+// difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
+// Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
 // The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //
@@ -862,21 +1339,28 @@ type ListItemsRow struct {
 // list rather than vanish or lead it; the name and id tie-breakers make every page stable.
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error) {
 	rows, err := q.db.Query(ctx, listItems,
-		arg.Rarity,
+		arg.SortBy,
+		arg.PageOffset,
+		arg.PageSize,
 		arg.ItemType,
 		arg.NameQuery,
 		arg.IDQuery,
-		arg.EquipLocation,
-		arg.Class,
 		arg.PlaceSlugs,
-		arg.ArmourWeight,
 		arg.Region,
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
-		arg.SortBy,
-		arg.PageOffset,
-		arg.PageSize,
+		arg.Rarity,
+		arg.EquipLocation,
+		arg.ArmourWeight,
+		arg.Class,
+		arg.IlvlMin,
+		arg.IlvlMax,
+		arg.ReqlvlMin,
+		arg.ReqlvlMax,
+		arg.Price,
+		arg.Currency,
+		arg.Set,
 	)
 	if err != nil {
 		return nil, err

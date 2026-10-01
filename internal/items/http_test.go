@@ -68,9 +68,25 @@ func TestEveryFilterReachesTheQuery(t *testing.T) {
 		{"pvp=false", func(p sqlcgen.ListItemsParams) bool { return p.Pvp != nil && !*p.Pvp }, "pvp=false"},
 		{"unchained=true", func(p sqlcgen.ListItemsParams) bool { return p.Unchained != nil && *p.Unchained }, "unchained"},
 		{"limit=7&offset=3", func(p sqlcgen.ListItemsParams) bool { return p.PageSize == 7 && p.PageOffset == 3 }, "paging"},
+		// AOC-049: the rail's five filters.
+		{"ilvl_min=70&ilvl_max=80", func(p sqlcgen.ListItemsParams) bool {
+			return p.IlvlMin != nil && *p.IlvlMin == 70 && p.IlvlMax != nil && *p.IlvlMax == 80
+		}, "item level range"},
+		{"reqlvl_min=0&reqlvl_max=50", func(p sqlcgen.ListItemsParams) bool {
+			return p.ReqlvlMin != nil && *p.ReqlvlMin == 0 && p.ReqlvlMax != nil && *p.ReqlvlMax == 50
+		}, "required level range, 0 a value and not an absence"},
+		{"price=1", func(p sqlcgen.ListItemsParams) bool { return p.Price != nil && *p.Price }, "price=1"},
+		{"price=false", func(p sqlcgen.ListItemsParams) bool { return p.Price != nil && !*p.Price }, "price=false"},
+		{"currency=test-token", func(p sqlcgen.ListItemsParams) bool { return p.Currency != nil && *p.Currency == "test-token" }, "currency"},
+		{"set=test-set", func(p sqlcgen.ListItemsParams) bool { return p.Set != nil && *p.Set == "test-set" }, "set"},
+		// An empty field is what a JS-off form submits for a control left alone: no filter.
+		{"ilvl_min=&ilvl_max=&currency=&set=&price=", func(p sqlcgen.ListItemsParams) bool {
+			return p.IlvlMin == nil && p.IlvlMax == nil && p.Currency == nil && p.Set == nil && p.Price == nil
+		}, "empty form fields are no filter"},
 		// Absence must stay absent: a zero value here would filter on the empty string.
 		{"", func(p sqlcgen.ListItemsParams) bool {
-			return p.Rarity == nil && p.Pvp == nil && p.Unchained == nil && p.Region == nil && len(p.PlaceSlugs) == 0
+			return p.Rarity == nil && p.Pvp == nil && p.Unchained == nil && p.Region == nil && len(p.PlaceSlugs) == 0 &&
+				p.IlvlMin == nil && p.ReqlvlMax == nil && p.Price == nil && p.Currency == nil && p.Set == nil
 		}, "no filters at all"},
 	} {
 		t.Run(tc.what, func(t *testing.T) {
@@ -99,7 +115,11 @@ func TestFiltersCombine(t *testing.T) {
 // A malformed parameter is rejected; an unknown VALUE is not. Whether "legendaryy" is a rarity is
 // a database question, and the database answers it with an empty page — which is a 200.
 func TestAMalformedParameterIsRejectedButAnUnknownValueIsNot(t *testing.T) {
-	for _, bad := range []string{"limit=abc", "offset=xyz", "pvp=maybe", "unchained=sometimes", "offset=-1"} {
+	for _, bad := range []string{"limit=abc", "offset=xyz", "pvp=maybe", "unchained=sometimes", "offset=-1",
+		// AOC-049: a level that is not a whole number from 0, or cannot be represented, and a range
+		// that is empty by construction.
+		"ilvl_min=abc", "ilvl_max=7.5", "reqlvl_min=-1", "ilvl_min=2147483648", "price=maybe", "facets=maybe",
+		"ilvl_min=80&ilvl_max=70", "reqlvl_min=51&reqlvl_max=50"} {
 		rec, body := get(t, sharedItem(), "/v1/items?"+bad)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s -> %d, want 400", bad, rec.Code)
@@ -108,9 +128,17 @@ func TestAMalformedParameterIsRejectedButAnUnknownValueIsNot(t *testing.T) {
 			t.Errorf("%s -> no JSON error body", bad)
 		}
 	}
-	rec, _ := get(t, sharedItem(), "/v1/items?rarity=not-a-real-rarity")
-	if rec.Code != http.StatusOK {
-		t.Errorf("an unknown filter VALUE must be answered by the database, got %d", rec.Code)
+	// The new vocabularies follow the same rule (AOC-049 build decision 3): an unknown currency or
+	// set is a database question, answered with an empty page.
+	for _, unknown := range []string{"rarity=not-a-real-rarity", "currency=not-a-currency", "set=not-a-set"} {
+		rec, _ := get(t, sharedItem(), "/v1/items?"+unknown)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: an unknown filter VALUE must be answered by the database, got %d", unknown, rec.Code)
+		}
+	}
+	// Equal bounds are a range of one, not an error.
+	if rec, _ := get(t, sharedItem(), "/v1/items?ilvl_min=80&ilvl_max=80"); rec.Code != http.StatusOK {
+		t.Errorf("ilvl_min = ilvl_max must be accepted, got %d", rec.Code)
 	}
 }
 

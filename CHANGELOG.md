@@ -8,6 +8,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
+The Armory list gets its filter rail, and beside every choice is the number of items it would
+leave, so a reader sees an empty result coming before clicking into it.
+
+### Added
+
+- The Armory's filter rail: rarity, slot, armour weight, class restriction, vendor price, item level,
+  required level, currency and set. Each choice shows how many items it would leave under the other
+  filters; a choice with none stays listed, greyed (or marked "(0)" in the currency and set lists),
+  never hidden; the two level ranges show the lowest and highest level the other filters leave.
+  Active filters show as chips that each remove one filter, with "clear all". One form
+  works without JavaScript; with JavaScript a change re-renders the rows and the counts in one
+  request. On a phone the rail opens as a full-screen sheet (AOC-049)
+- `/v1/items` takes `ilvl_min`, `ilvl_max`, `reqlvl_min`, `reqlvl_max`, `price`, `currency` and `set`.
+  On `facets=1` it adds a `facets` object with the counts the page shows; without it the response
+  is unchanged (AOC-049)
+
+### Changed
+
+- Every link on the Armory list (pager, sort, chips, canonical) carries the whole filter state. A
+  filtered list's pager used to drop every filter but the search (AOC-049)
+- The service's database connections run with JIT off: the facet queries ran more than six times
+  slower with it (66 ms against 10 ms on the dev corpus, five filters set), almost all of it
+  compiling (AOC-049)
+- A rejected Armory search (a malformed level, a range whose minimum is above its maximum, a bad
+  sort) now says why, on the page and in place of the rows when the filters change live (AOC-049)
+
+### Fixed
+
+- Pressing Back to an Armory state the browser kept no copy of brings back the whole page; it used
+  to leave the bare rows, with no header, search or filters (AOC-063)
+- The Armory's meta description for a one-item search reads "1 item", not "1 items" (AOC-049)
+
 ## [0.3.0] - 2026-09-30
 
 Every item gets its own page, the list gains separate Slot and Type columns, and the site becomes

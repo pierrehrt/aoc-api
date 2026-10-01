@@ -58,7 +58,9 @@ Filters, all optional and all combinable. Every one takes a **slug the taxonomy 
 never a free-text value a client invented — except `q`, which is a name search.
 
 `rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
-`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset`
+`place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset` ·
+since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `price` (bool) ·
+`currency` · `set` · `facets` (bool)
 
 - **`q`** matches the name (case-insensitive substring) — **and, when it is a whole number, the
   item's id exactly** (AOC-047): `q=2183` finds item 2183 as well as any item whose name contains
@@ -66,6 +68,41 @@ never a free-text value a client invented — except `q`, which is a name search
 - **`sort`** is `name` (the default, unchanged since 0.1.0), `ilvl` (item level, highest first,
   items with no level last) or `id` (ascending). Any other value is a 400. The keys are code, not a
   game concept.
+- **`ilvl_min` / `ilvl_max`** and **`reqlvl_min` / `reqlvl_max`** (AOC-049) bound the item level and
+  the required level, both ends inclusive. Two ranges, because the two differ on 234 items. A bound
+  **excludes an item with no level of that kind**: it cannot be shown to be inside the range.
+- **`price`** (AOC-049): `true` keeps items a vendor sells on **any** of their sources, `false`
+  items no source has a price for. "Any", because the list shows items, not occurrences: an item
+  free from a boss and sold by a vendor (689 in the corpus) has a price. `price=1` reads as `true`.
+- **`currency`** (a currency slug) keeps items bought with that currency from at least one source;
+  **`set`** (a set slug) keeps the items of that set.
+- **`facets=1`** (AOC-049) adds **`facets`** to the envelope: the counts the Armory's filter rail
+  shows. Absent unless asked for, so a caller that does not ask sees the 0.1.0 envelope. Each count
+  is **how many items choosing that value would leave under the other filters**: the filter set
+  minus the facet's own. It is exactly the `total` this endpoint returns with that value chosen, and
+  the same SQL computes both (`docs/architecture.md` § Filtering and facet counts). Every key is the
+  parameter it sets:
+
+  ```json
+  "facets": {
+    "rarity":         { "any": 4646, "values": [ { "slug": "legendary", "name": "Legendary", "colour_token": "rarity-legendary", "count": 0 }, … ] },
+    "equip_location": { "any": 4646, "values": [ … ] },
+    "armour_weight":  { "any": 4646, "values": [ … ] },
+    "class":          { "any": 4646, "values": [ { "slug": "…", "name": "…", "short_name": "…", "count": 0 }, … ] },
+    "currency":       { "any": 4646, "values": [ … ] },
+    "set":            { "any": 4646, "values": [ … ] },
+    "price":          { "any": 4646, "count": 2067 },
+    "ilvl":           { "min": 1, "max": 90 },
+    "reqlvl":         { "min": 1, "max": 80 }
+  }
+  ```
+
+  (Counts illustrative.) A group lists **every** value of its vocabulary, read from the lookup
+  table, **0 counts included**, in display order: rarities best first, slots head to necklace,
+  armour weights heaviest first, classes by archetype, currencies and sets by name. `any` is the
+  count with that facet unset. `price.count` is items with a vendor price, `any − count` those with
+  none. `ilvl` / `reqlvl` are the lowest and highest level among the items the other filters leave,
+  and are **absent** when none of them has that level.
 - Each row also carries, additively since AOC-047: **`item_type_name`** (AOC-062 — the item type's
   display name, "Crossbow", beside `item_type`, its slug; absent when the item has no type; the
   list's Type column prints the name, never the slug), `rarity_colour_token` (AOC-046),
@@ -134,14 +171,20 @@ is an answer, not a missing resource.
 
 **Rejections.** A *malformed* parameter is a 400 — `limit=abc`, `pvp=maybe`, `offset=-1`, and an
 `offset` above 2,147,483,647 (the query's `OFFSET` is a 32-bit integer, and a value that cannot be
-represented is refused rather than wrapped). An *unknown value* is not rejected: whether
-`legendaryy` is a rarity is a database question, and the database answers it with an empty page.
+represented is refused rather than wrapped). Since AOC-049 also: a level bound that is not a whole
+number from 0 to 2,147,483,647 (`ilvl_min=7.5`, `reqlvl_max=-1`), a range whose minimum is above its
+maximum (`ilvl_min=80&ilvl_max=70`, which can match nothing by construction), and `price` or
+`facets` that is not a boolean. An *unknown value* is not rejected: whether `legendaryy` is a
+rarity, or `not-a-set` a set, is a database question, and the database answers it with an empty
+page. The same holds for `currency` and `set` (AOC-049).
 
 ⚠️ **Only `place` may be repeated.** `?place=a&place=b` is one selection of two dungeons, and
 `?place=a,b` means the same. Every other filter takes a single value: `?rarity=epic&rarity=rare`
 uses the **first** and ignores the rest. That is worth knowing precisely because `place` repeats —
 the rest are single-valued because no page needs them otherwise, and making each one a list would
-be more surface to keep correct for a filter nobody asked to combine.
+be more surface to keep correct for a filter nobody asked to combine. The Armory's filter rail
+(AOC-049) keeps it that way on purpose: with one value per facet, the count beside a value is
+exactly the `total` that choosing it gives (`DECISIONS.md`).
 
 ### `GET /v1/items/{slug}`
 
@@ -229,7 +272,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
-| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows). Same parser and service as `/v1/items`. `HX-Request: true` gets the rows fragment; both send `Vary: HX-Request`. `p` past the end is 404; a bad `p` or `sort` is 400 — both as dependency-free HTML (`httpx.RejectHTML`). The canonical never carries `p=1` |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049 — the rail offers rarity, slot, armour weight, class, both level ranges, vendor price, currency and set; the rest ride along as hidden inputs and chips). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the rail and the phone's filter count out of band — with `HX-Push-Url` set to the state's canonical URL; both answers send `Vary: HX-Request`. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
 | GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |
 | GET | `/sitemap.xml` | **AOC-025.** A sitemap **index** (sitemaps.org 0.9) listing every chunk, absolute URLs on `PUBLIC_BASE_URL` |
