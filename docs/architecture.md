@@ -480,6 +480,12 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   of the rows, with `HX-Push-Url: false` and **no rail redraw**, so the bad value stays where the
   reader can fix it. `templates.Engine.FragmentStatus` is a fragment with a status. Without
   JavaScript the same reason is on the `RejectHTML` page.
+- **Back always gets the whole page** (AOC-063). htmx keeps snapshots of the last ten pages; on a
+  miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and every
+  handler answers that with its fragment, so Back left bare rows (live since 0.2.0 through the pager,
+  and reachable from every filter change once the rail pushed URLs). The same `htmx-config` tag sets
+  `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
+  than a full-page branch for `HX-History-Restore-Request` in every handler.
 - **The focused control keeps what the reader typed.** A redraw that answers an earlier change used
   to wipe a number typed while that request was in flight. A six-line inline script on
   `htmx:oobBeforeSwap` copies the focused number input's or select's value into the incoming rail.

@@ -342,7 +342,8 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 		t.Fatal("no htmx-config meta")
 	}
 	var cfg struct {
-		ResponseHandling []struct {
+		RefreshOnHistoryMiss bool `json:"refreshOnHistoryMiss"`
+		ResponseHandling     []struct {
 			Code  string `json:"code"`
 			Swap  bool   `json:"swap"`
 			Error bool   `json:"error"`
@@ -350,6 +351,11 @@ func TestHTMXIsToldToSwapA400(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(html.UnescapeString(m[1])), &cfg); err != nil {
 		t.Fatalf("htmx-config is not JSON: %v", err)
+	}
+	// AOC-063: Back to a state htmx has no snapshot of must reload the page, not re-request it as an
+	// HTMX request — every handler answers that with a fragment, and htmx put it in <body>.
+	if !cfg.RefreshOnHistoryMiss {
+		t.Error("htmx-config does not set refreshOnHistoryMiss — Back after a history miss leaves bare rows")
 	}
 	// First match wins in htmx: walk the list as htmx does.
 	swaps := func(status string) bool {
