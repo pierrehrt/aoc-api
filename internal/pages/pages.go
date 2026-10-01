@@ -62,10 +62,18 @@ func (h *Handler) view(title, description, path string) templates.View {
 	return v
 }
 
-// siteNav is the header's section links (AOC-046). ⛔ Only routes that EXIST go here — a link to a
-// 404 is a bug, and TestEveryNavLinkIsARegisteredRoute walks it against the real router. The
-// Armory entry arrives with AOC-047, the Locations/Sets/Currencies entries with their pages.
-var siteNav = []templates.NavItem{{Label: "Armory", Path: "/armory"}}
+// siteNav is the header's section links (AOC-046). ⛔ Every one leads to a route that EXISTS — a link
+// to a 404 is a bug, and TestEveryNavLinkIsARegisteredRoute walks it against the real router. The
+// design's AA's / Feats / DJ-Raids / More tabs are shown before their sections exist (Pierre,
+// 2026-10-01): Soon gives each a "Coming Soon" page (noindex, kept out of the sitemap). A section that
+// ships drops Soon and takes over its URL — or 301s it, if it moves (CLAUDE.md 5c).
+var siteNav = []templates.NavItem{
+	{Label: "Armory", Path: "/armory"},
+	{Label: "AA's", Path: "/aa", Soon: true},
+	{Label: "Feats", Path: "/feats", Soon: true},
+	{Label: "DJ/Raids", Path: "/dj-raids", Soon: true},
+	{Label: "More", Path: "/more", Soon: true, Menu: true},
+}
 
 // ogImageAsset is the social-card image. Kept as a constant so a missing one is a single
 // obvious edit rather than a string repeated across handlers.
@@ -76,6 +84,11 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/", h.home)
 	r.Get("/armory", h.armory)
 	r.Get("/armory/{slug}", h.item)
+	for _, n := range siteNav {
+		if n.Soon {
+			r.Get(n.Path, h.soon(n.Label))
+		}
+	}
 	r.Get("/robots.txt", h.robots)
 	r.Get("/sitemap.xml", h.sitemap)
 	r.Get("/sitemaps/{n}.xml", h.sitemapChunk)
@@ -90,6 +103,16 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 		"/",
 	)
 	h.render(w, r, "home", v, nil)
+}
+
+// soon answers a section the header names but that is not built: a Coming Soon page, noindex
+// (thin content must not be indexed) and absent from the sitemap (sitemapStatic skips Soon).
+func (h *Handler) soon(section string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		v := h.view(section+" — coming soon", "The "+section+" section of AoC Codex is not built yet.", r.URL.Path)
+		v.NoIndex = true
+		h.render(w, r, "soon", v, templates.SoonData{Section: section})
+	}
 }
 
 // smokeData is what the proving page shows. It has no meaning beyond proving the

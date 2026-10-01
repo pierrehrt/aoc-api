@@ -471,8 +471,12 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   `.no-js-only` or sits in `<noscript>`. The sliders' hidden inputs ship `disabled` and the page's
   script enables them, so a script-less submit sends only the `<noscript>` number inputs — never a
   bound twice (`TestTheLevelSlidersNeverDoubleABound`).
-- **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051), other
-  sections and account (EP-06) are absent until they ship; the nav lists only routes that exist.
+- **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051) and
+  account (EP-06) are absent until they ship. **The exception is the header's tabs** (Pierre,
+  2026-10-01): AA's, Feats, DJ/Raids and More are shown, and each leads to a "Coming Soon" page.
+  `pages.siteNav` marks them `Soon`; that gives each a route, `noindex`, and keeps it out of
+  `sitemapStatic`. So every nav link still answers 200 (`TestEveryNavLinkIsARegisteredRoute`), and
+  no thin page is offered for indexing (`TestTheHeaderTabsLeadToComingSoonPages`).
 
 **The filter rail** (AOC-049) is the pattern for any page with filters:
 
@@ -577,7 +581,7 @@ point: it should not be possible to add a page whose data nobody declared.
 ### Being found: robots.txt, the sitemap, one indexed host (AOC-025)
 
 `internal/pages/seo.go`. **The sitemap is built from the database and the nav, never from a list**:
-`/`, every `siteNav` section (which lists only routes that exist), then every item slug in item-id
+`/`, every built `siteNav` section (it lists only routes that exist; a Coming Soon tab is skipped), then every item slug in item-id
 order (`items.Service.Slugs`, paged by the chunk) — so an import that adds items adds their URLs,
 and a new section is in the sitemap the day it enters the nav. `/sitemap.xml` is an index; chunks
 hold at most the protocol's **50,000** URLs (`sitemapMaxURLs`, boundary-tested; a full chunk of the

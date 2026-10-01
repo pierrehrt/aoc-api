@@ -78,7 +78,14 @@ type NavItem struct {
 	Label   string
 	Path    string
 	Current bool // the section this page belongs to: the design's filled pill (AOC-065)
+	// Soon marks a section that is not built: its tab leads to a "Coming Soon" page, which is noindex
+	// and kept out of the sitemap (Pierre, 2026-10-01; DECISIONS.md).
+	Soon bool
+	Menu bool // drawn with the design's ▾ (More)
 }
+
+// SoonData is what a Coming Soon page shows: the section's name, nothing else.
+type SoonData struct{ Section string }
 
 var (
 	ErrNoTitle       = errors.New("view has no title")

@@ -42,6 +42,7 @@ var pageTemplates = map[string]string{
 	"smoke":  "html/smoke.html",
 	"armory": "html/armory.html",
 	"item":   "html/item.html",
+	"soon":   "html/soon.html",
 }
 
 // fragmentsIn lists the HTMX partials: every html/*.html that is neither base.html nor a page.
@@ -75,6 +76,7 @@ func fragmentsIn(fsys fs.FS, pageMap map[string]string) ([]string, error) {
 var pageProbes = map[string]any{
 	"armory": armoryProbe(),
 	"item":   itemProbe(),
+	"soon":   SoonData{Section: "Probe"},
 }
 
 // fragmentProbes likewise, by fragment name.

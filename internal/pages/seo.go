@@ -45,12 +45,15 @@ func (h *Handler) robots(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// sitemapStatic is the pages that are not items: the home page, then every section in the nav —
-// which by rule lists only routes that exist (TestEveryNavLinkIsARegisteredRoute).
+// sitemapStatic is the pages that are not items: the home page, then every BUILT section in the nav —
+// which by rule lists only routes that exist (TestEveryNavLinkIsARegisteredRoute). A Coming Soon
+// section is noindex and stays out (Pierre's tabs, 2026-10-01).
 func sitemapStatic() []string {
 	out := []string{"/"}
 	for _, n := range siteNav {
-		out = append(out, n.Path)
+		if !n.Soon {
+			out = append(out, n.Path)
+		}
 	}
 	return out
 }
