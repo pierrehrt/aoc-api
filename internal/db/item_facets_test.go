@@ -115,7 +115,7 @@ func seedFacetFixture(t *testing.T, d *sql.DB) {
 			sources: [][]int{{0, 1}}}, // two currencies at one source
 		{id: 954, name: "Test Facet Epsilon", rarity: 3, weight: 4, ilvl: 90, req: 80, slots: []int{0},
 			sources: [][]int{{0}, {0}}}, // one currency from two sources: one item
-		{id: 955, name: "Test Facet Zeta", rarity: 0, ilvl: 10, req: 10, pvp: true, slots: []int{11, 12},
+		{id: 955, name: "Test Facet Zeta", rarity: 0, ilvl: 10, req: 10, pvp: true, slots: []int{11, 12}, classes: []int{2},
 			sources: [][]int{{1}}},
 		// No level at all, and a value of every facet no other item has: picking any of them leaves
 		// only level-less items, so both spans must vanish — the case that tells a span computed
@@ -125,7 +125,10 @@ func seedFacetFixture(t *testing.T, d *sql.DB) {
 			sources: [][]int{{2}}},
 		// A required level and no item level — and Delta has the reverse — so each range can leave
 		// only items the OTHER span knows nothing about.
-		{id: 957, name: "Test Facet Theta", rarity: 0, req: 33, sources: [][]int{{1}}},
+		{id: 957, name: "Test Facet Theta", rarity: 0, set: 9101, req: 33, sources: [][]int{{1}}},
+		// Unpriced, with low levels: "no price" then moves both ends of both spans (the second sweep's
+		// survivors — a span's min or max that ignored the price filter matched every combination).
+		{id: 958, name: "Test Facet Iota", rarity: 0, ilvl: 20, req: 20},
 	}
 	for _, x := range items {
 		exec(`INSERT INTO items (item_id, slug, name, rarity_id, armour_weight_id, set_id, item_level, requires_level,
@@ -348,9 +351,33 @@ func TestFacetCountsAreTheRowsTheyPromise(t *testing.T) {
 		"only Eta's name":         {Query: "Facet Eta"},
 		"only Theta's req level":  {ReqLvlMin: i32(30), ReqLvlMax: i32(40)},
 		"only Delta's item level": {ILvlMin: i32(45), ILvlMax: i32(55)},
+		// Ranges that move the OTHER span's ends, and a pair that leaves only a level-less item.
+		"required level from 60":      {ReqLvlMin: i32(60)},
+		"required level up to 30":     {ReqLvlMax: i32(30)},
+		"item level up to 30":         {ILvlMax: i32(30)},
+		"no price, the top rarity":    {Price: &no, Rarity: topRarity},
+		"a pvp item with a level cap": {PvP: &yes, ILvlMax: i32(50)},
 	} {
 		if n := assertFacetsAreTheirRows(t, s, f, label); n == 0 {
 			t.Errorf("%s: nothing was checked", label)
+		}
+	}
+
+	// And one combination per value of every facet that has items: each moves some count or some
+	// span end, so a condition that ignores that facet's flag shows somewhere (the mutant sweep).
+	all, err := s.List(context.Background(), items.Filters{WithFacets: true, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []struct {
+		param string
+		group items.FacetGroup
+	}{{"rarity", all.Facets.Rarity}, {"equip_location", all.Facets.EquipLocation}, {"armour_weight", all.Facets.ArmourWeight},
+		{"class", all.Facets.Class}, {"currency", all.Facets.Currency}, {"set", all.Facets.Set}} {
+		for _, v := range g.group.Values {
+			if v.Count > 0 {
+				assertFacetsAreTheirRows(t, s, withFacet(t, items.Filters{}, g.param, v.Slug), g.param+"="+v.Slug)
+			}
 		}
 	}
 }
@@ -380,8 +407,8 @@ func TestAZeroIsListedAndPriceMeansAnySource(t *testing.T) {
 	if zeros == 0 {
 		t.Error("no currency counted 0 — the fixture uses two, so the rest must be listed at 0")
 	}
-	if res.Facets.Price.Count != 7 || res.Facets.Price.Any != 8 {
-		t.Errorf("price = %d of %d, want 7 of 8 (Alpha priced at one source of two; only Gamma has none)", res.Facets.Price.Count, res.Facets.Price.Any)
+	if res.Facets.Price.Count != 7 || res.Facets.Price.Any != 9 {
+		t.Errorf("price = %d of %d, want 7 of 9 (Alpha priced at one source of two; Gamma and Iota have none)", res.Facets.Price.Count, res.Facets.Price.Any)
 	}
 	first := facetSlug(t, d, "currencies", "id", 0)
 	for _, v := range res.Facets.Currency.Values {
