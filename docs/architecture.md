@@ -481,8 +481,8 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   reader can fix it. `templates.Engine.FragmentStatus` is a fragment with a status. Without
   JavaScript the same reason is on the `RejectHTML` page.
 - **Back always gets the whole page** (AOC-063). htmx keeps snapshots of the last ten pages; on a
-  miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and every
-  handler answers that with its fragment, so Back left bare rows (live since 0.2.0 through the pager,
+  miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and a
+  handler that serves fragments (today the armory's) answers that with one, so Back left bare rows (live since 0.2.0 through the pager,
   and reachable from every filter change once the rail pushed URLs). The same `htmx-config` tag sets
   `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
   than a full-page branch for `HX-History-Restore-Request` in every handler.
@@ -1002,7 +1002,10 @@ compiles a plan to machine code once its estimated cost passes `jit_above_cost`,
 queries estimate ~200,000 (hashed subplans inflate the figure) while running in under 16 ms: with
 five filters set the facet query took **66 ms with JIT, 10 ms without**, 62 ms of it compiling.
 Nothing this service runs is the long analytical query JIT pays off on. Set in `db.New`, so it holds
-on any Postgres whatever its default; `TestNewTurnsJITOff` asks the server.
+on any Postgres whatever its default; `TestNewTurnsJITOff` asks the server. ⚠️ It is a **startup
+parameter**: production connects straight to Railway's Postgres today, but a connection pooler put in
+front of it (PgBouncer and the like) must accept `jit` (`ignore_startup_parameters`), or the boot's
+ping fails.
 
 ### Testing
 

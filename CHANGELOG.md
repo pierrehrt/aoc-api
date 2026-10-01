@@ -11,16 +11,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 ## [0.4.0] - 2026-10-01
 
 The Armory list gets its filter rail, and beside every choice is the number of items it would
-leave, so a reader never clicks into an empty list.
+leave, so a reader sees an empty result coming before clicking into it.
 
 ### Added
 
 - The Armory's filter rail: rarity, slot, armour weight, class restriction, vendor price, item level,
   required level, currency and set. Each choice shows how many items it would leave under the other
-  filters, and a choice with none is shown greyed, never hidden. Active filters show as chips that
-  each remove one filter, with "clear all". One form works without JavaScript; with JavaScript a
-  change re-renders the rows and the counts in one request. On a phone the rail opens as a
-  full-screen sheet (AOC-049)
+  filters; a choice with none stays listed, greyed (or marked "(0)" in the currency and set lists),
+  never hidden. Active filters show as chips that each remove one filter, with "clear all". One form
+  works without JavaScript; with JavaScript a change re-renders the rows and the counts in one
+  request. On a phone the rail opens as a full-screen sheet (AOC-049)
 - `/v1/items` takes `ilvl_min`, `ilvl_max`, `reqlvl_min`, `reqlvl_max`, `price`, `currency` and `set`.
   On `facets=1` it adds a `facets` object with the counts the page shows; without it the response
   is unchanged (AOC-049)
@@ -29,12 +29,14 @@ leave, so a reader never clicks into an empty list.
 
 - Every link on the Armory list (pager, sort, chips, canonical) carries the whole filter state. A
   filtered list's pager used to drop every filter but the search (AOC-049)
-- The service's database connections run with JIT off: compiling the facet queries cost more than
-  six times running them (AOC-049)
+- The service's database connections run with JIT off: the facet queries ran more than six times
+  slower with it (66 ms against 10 ms on the dev corpus), almost all of it compiling (AOC-049)
 
 ### Fixed
 
-- The Armory's description for a one-item search reads "1 item", not "1 items" (AOC-049)
+- Pressing Back to an Armory state the browser kept no copy of brings back the whole page; it used
+  to leave the bare rows, with no header, search or filters (AOC-063)
+- The Armory's meta description for a one-item search reads "1 item", not "1 items" (AOC-049)
 
 ## [0.3.0] - 2026-09-30
 
