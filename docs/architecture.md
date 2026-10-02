@@ -594,6 +594,9 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   - **AA:** a row under the pointer sits on `ink-tree-hover` (#1a1816, the design's). There `faint`
     is 4.34:1, so the caret and count turn `muted-2` (4.85:1). The theme test measures every pair
     written on it.
+  - **The selected-source box** shows the picked branch's path and the list's count. It adds
+    "· map (x,y)" when the branch is one point: every row of it has the same coordinates
+    (`TreeNode.Coords`; Pierre, 2026-10-02). It shows nothing otherwise.
   - **An unknown `tab` is a 404**: it names no panel, like a page past the end.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
