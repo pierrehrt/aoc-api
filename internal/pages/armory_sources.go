@@ -40,7 +40,6 @@ func buildSources(f items.Filters, tabs []items.SourceTab, tree items.Tree, here
 	// pick is the state with branch src (and half group) picked, in this tab.
 	pick := func(src, group string) string {
 		g := f
-		g.Tab = f.Tab
 		node, _ := items.ParseSource(src) // the tree wrote it; it parses
 		node.Group = group
 		g.Source = node
