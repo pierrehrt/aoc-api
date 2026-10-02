@@ -60,6 +60,18 @@ func (f *fakeItems) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItem
 	return nil, nil
 }
 
+func (f *fakeItems) ListSourceTabs(context.Context) ([]sqlcgen.ListSourceTabsRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ListSourceTreeRows(context.Context, sqlcgen.ListSourceTreeRowsParams) ([]sqlcgen.ListSourceTreeRowsRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ListAcquisitionGroups(context.Context) ([]sqlcgen.ListAcquisitionGroupsRow, error) {
+	return nil, nil
+}
+
 func (f *fakeItems) ExpandPlaces(context.Context, []string) ([]sqlcgen.ExpandPlacesRow, error) {
 	return nil, nil
 }

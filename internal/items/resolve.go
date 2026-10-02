@@ -40,6 +40,7 @@ type Lookups struct {
 	Classes          map[string]int32
 	AcquisitionTypes map[string]int32
 	Tiers            map[string]int32
+	Sections         map[string]int32 // AoC>TV's section name, verbatim -> sections.id (AOC-050)
 	Currencies       map[string]int32
 	Regions          map[string]int32
 	Maps             map[string]int32
@@ -133,6 +134,7 @@ func LoadLookups(ctx context.Context, q pgx.Tx) (*Lookups, error) {
 		{"classes", &l.Classes}, {"acquisition_types", &l.AcquisitionTypes},
 		{"tiers", &l.Tiers}, {"currencies", &l.Currencies}, {"regions", &l.Regions},
 		{"maps", &l.Maps}, {"containers", &l.Containers}, {"bosses", &l.Bosses},
+		{"sections", &l.Sections},
 	}
 	for _, t := range byName {
 		m, err := scanNameMap(ctx, q, "SELECT name, id FROM "+t.table) // #nosec G202 -- literals above
@@ -277,6 +279,13 @@ func CheckResolvable(its []Item, l *Lookups) (unknown []Unresolved, staleDecisio
 		for _, s := range it.LiveSources() {
 			check("acquisition_type", s.AcquisitionType, l.AcquisitionTypes)
 			check("tier", s.Tier, l.Tiers)
+			// ⭐ Every source row belongs to a section (item_sources.section_id is NOT NULL, AOC-050):
+			// a missing one stops the import like an unknown one, rather than failing on the insert.
+			if s.SectionRaw == nil || *s.SectionRaw == "" {
+				note("section", "(none)")
+			} else {
+				check("section", s.SectionRaw, l.Sections)
+			}
 			check("region", s.Region, l.Regions)
 			check("container", s.Container, l.Containers)
 			check("map", s.Map, l.Maps)

@@ -23,6 +23,12 @@ type fakeQ struct {
 	// inside is the place hierarchy ExpandPlaces answers from: a named place -> the places in it
 	// (AOC-038). A place not listed contains nothing.
 	inside map[string][]string
+
+	// The source panel's answers (AOC-050): the tabs, the tree's rows and the acquisition groups.
+	tabs      []sqlcgen.ListSourceTabsRow
+	treeRows  []sqlcgen.ListSourceTreeRowsRow
+	acqGroups []sqlcgen.ListAcquisitionGroupsRow
+	treeArgs  []sqlcgen.ListSourceTreeRowsParams
 	// args records EVERY call, not the last: an empty page makes a second "total probe" call, and
 	// keeping only the last one recorded the probe's parameters instead of the request's.
 	args  []sqlcgen.ListItemsParams
@@ -63,6 +69,19 @@ func (f *fakeQ) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]sqlcg
 
 func (f *fakeQ) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItemPlacesRow, error) {
 	return f.places, nil
+}
+
+func (f *fakeQ) ListSourceTabs(context.Context) ([]sqlcgen.ListSourceTabsRow, error) {
+	return f.tabs, nil
+}
+
+func (f *fakeQ) ListSourceTreeRows(_ context.Context, a sqlcgen.ListSourceTreeRowsParams) ([]sqlcgen.ListSourceTreeRowsRow, error) {
+	f.treeArgs = append(f.treeArgs, a)
+	return f.treeRows, nil
+}
+
+func (f *fakeQ) ListAcquisitionGroups(context.Context) ([]sqlcgen.ListAcquisitionGroupsRow, error) {
+	return f.acqGroups, nil
 }
 
 func (f *fakeQ) ExpandPlaces(_ context.Context, slugs []string) ([]sqlcgen.ExpandPlacesRow, error) {

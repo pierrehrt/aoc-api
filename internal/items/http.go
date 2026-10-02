@@ -40,6 +40,30 @@ func (h *Handler) TaxonomyRoutes() chi.Router {
 	return r
 }
 
+// SourceRoutes is mounted at /v1/sources (AOC-050): the Armory's source panel, one tab at a time.
+// Not under /items, for the same reason as the taxonomies: a tree of sources is not an item.
+func (h *Handler) SourceRoutes() chi.Router {
+	r := chi.NewRouter()
+	r.Get("/tree", h.tree)
+	return r
+}
+
+// tree answers /v1/sources/tree?tab=<slug>&<any list filter>: the tab's branches, each counted under
+// every other filter. A `source` on the request is not applied to the counts (Service.Tree).
+func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
+	f, err := parseFilters(r)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	t, err := h.svc.Tree(r.Context(), f)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	httpx.Respond(w, r, http.StatusOK, t)
+}
+
 // Cache-Control is not set here. httpx.Cache gives every /v1 GET the one /v1 window (AOC-026,
 // docs/architecture.md § Caching), and nothing but internal/httpx/cache.go may name the header.
 // This package used to set its own — five minutes for items, an hour for taxonomies — and those
@@ -113,7 +137,21 @@ func parseFilters(r *http.Request) (Filters, error) {
 	// where a shared item must appear under each.
 	f.Places = list(q, "place")
 
-	var err error
+	// The source panel (AOC-050): the tab, the node and the half of a location. Malformed is a 400;
+	// a slug no row has matches nothing, like any other unknown value.
+	f.Tab = strings.TrimSpace(q.Get("tab"))
+	if f.Tab != "" && !slugRe.MatchString(f.Tab) {
+		return Filters{}, fmt.Errorf("%w: tab must be a tab slug, got %q", httpx.ErrInvalid, f.Tab)
+	}
+	src, err := ParseSource(q.Get("source"))
+	if err != nil {
+		return Filters{}, err
+	}
+	if src.Group, err = parseGroup(q.Get("get")); err != nil {
+		return Filters{}, err
+	}
+	f.Source = src
+
 	if f.PvP, err = optionalBool(q, "pvp"); err != nil {
 		return Filters{}, err
 	}
@@ -200,6 +238,9 @@ func (f Filters) Values() url.Values {
 	many("set", f.Sets)
 	str("sort", f.Sort)
 	many("place", f.Places)
+	str("tab", f.Tab)
+	str("source", f.Source.String())
+	str("get", f.Source.Group)
 	boolean("pvp", f.PvP)
 	boolean("unchained", f.Unchained)
 	boolean("price", f.Price)

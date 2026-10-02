@@ -50,6 +50,8 @@ func fillDistinct(t *testing.T, v any, skip ...string) {
 				t.Fatalf("fillDistinct: no value for *%s (field %s)", p.Elem().Kind(), name)
 			}
 			f.Set(p)
+		case reflect.Struct: // a nested filter, e.g. the picked source node (AOC-050): every field too
+			fillDistinct(t, f.Addr().Interface())
 		default:
 			t.Fatalf("fillDistinct: no value for %s (field %s) — teach this helper the new kind", f.Kind(), name)
 		}

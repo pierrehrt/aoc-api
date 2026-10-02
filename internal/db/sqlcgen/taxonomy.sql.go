@@ -13,15 +13,21 @@ const listAcquisitionTypes = `-- name: ListAcquisitionTypes :many
 SELECT id, slug, name FROM acquisition_types ORDER BY name
 `
 
-func (q *Queries) ListAcquisitionTypes(ctx context.Context) ([]AcquisitionType, error) {
+type ListAcquisitionTypesRow struct {
+	ID   int32
+	Slug string
+	Name string
+}
+
+func (q *Queries) ListAcquisitionTypes(ctx context.Context) ([]ListAcquisitionTypesRow, error) {
 	rows, err := q.db.Query(ctx, listAcquisitionTypes)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AcquisitionType{}
+	items := []ListAcquisitionTypesRow{}
 	for rows.Next() {
-		var i AcquisitionType
+		var i ListAcquisitionTypesRow
 		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
 			return nil, err
 		}

@@ -63,36 +63,67 @@ WITH filtered AS MATERIALIZED (
                    AND (src.unchained OR coalesce(p.unchained, false)) = $7::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND ($8::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND ($9::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = $9::varchar
+                   AND ($10::varchar IS NULL OR sc.slug = $10::varchar)
+                   AND ($11::varchar IS NULL OR sr.slug = $11::varchar)
+                   AND ($12::varchar IS NULL OR sm.slug = $12::varchar)
+                   -- The place and every place inside it (AOC-038), expanded by the service.
+                   AND ($13::varchar[] IS NULL OR p.slug = ANY($13::varchar[]))
+                   AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
+                   AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
+                   AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
+                   AND ($17::varchar IS NULL OR sct.slug = $17::varchar)
+                   AND ($18::varchar IS NULL OR sag.slug = $18::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
-         ($9::varchar[] IS NULL OR r.slug = ANY($9::varchar[])) AS in_rarity,
+         ($19::varchar[] IS NULL OR r.slug = ANY($19::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($10::varchar[] IS NULL OR EXISTS (
+         ($20::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = ANY($10::varchar[]))) AS in_slot,
-         coalesce($11::varchar[] IS NULL OR aw.slug = ANY($11::varchar[]), false) AS in_weight,
-         ($12::varchar[] IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($20::varchar[]))) AS in_slot,
+         coalesce($21::varchar[] IS NULL OR aw.slug = ANY($21::varchar[]), false) AS in_weight,
+         ($22::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = ANY($12::varchar[]))) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($22::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
-         coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
-              AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
-         coalesce(($15::integer IS NULL OR i.requires_level >= $15::integer)
-              AND ($16::integer IS NULL OR i.requires_level <= $16::integer), false) AS in_reqlvl,
+         coalesce(($23::integer IS NULL OR i.item_level >= $23::integer)
+              AND ($24::integer IS NULL OR i.item_level <= $24::integer), false) AS in_ilvl,
+         coalesce(($25::integer IS NULL OR i.requires_level >= $25::integer)
+              AND ($26::integer IS NULL OR i.requires_level <= $26::integer), false) AS in_reqlvl,
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
-         ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
-         ($18::varchar[] IS NULL OR EXISTS (
+         ($27::boolean IS NULL OR pr.priced = $27::boolean) AS in_price,
+         ($28::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = ANY($18::varchar[]))) AS in_currency,
-         coalesce($19::varchar[] IS NULL OR st.slug = ANY($19::varchar[]), false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($28::varchar[]))) AS in_currency,
+         coalesce($29::varchar[] IS NULL OR st.slug = ANY($29::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -155,25 +186,35 @@ ORDER BY facet, ord
 `
 
 type CountItemFacetsParams struct {
-	ItemType       *string
-	NameQuery      *string
-	IDQuery        *int32
-	PlaceSlugs     []string
-	Region         *string
-	Tier           *string
-	Unchained      *bool
-	Pvp            *bool
-	Rarities       []string
-	EquipLocations []string
-	ArmourWeights  []string
-	Classes        []string
-	IlvlMin        *int32
-	IlvlMax        *int32
-	ReqlvlMin      *int32
-	ReqlvlMax      *int32
-	Price          *bool
-	Currencies     []string
-	Sets           []string
+	ItemType        *string
+	NameQuery       *string
+	IDQuery         *int32
+	PlaceSlugs      []string
+	Region          *string
+	Tier            *string
+	Unchained       *bool
+	Pvp             *bool
+	SourceTab       *string
+	SourceSection   *string
+	SourceRegion    *string
+	SourceMap       *string
+	SourcePlaces    []string
+	SourceBoss      *string
+	SourceVendor    *string
+	SourceQuest     *string
+	SourceContainer *string
+	SourceGroup     *string
+	Rarities        []string
+	EquipLocations  []string
+	ArmourWeights   []string
+	Classes         []string
+	IlvlMin         *int32
+	IlvlMax         *int32
+	ReqlvlMin       *int32
+	ReqlvlMax       *int32
+	Price           *bool
+	Currencies      []string
+	Sets            []string
 }
 
 type CountItemFacetsRow struct {
@@ -201,6 +242,16 @@ func (q *Queries) CountItemFacets(ctx context.Context, arg CountItemFacetsParams
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
+		arg.SourceTab,
+		arg.SourceSection,
+		arg.SourceRegion,
+		arg.SourceMap,
+		arg.SourcePlaces,
+		arg.SourceBoss,
+		arg.SourceVendor,
+		arg.SourceQuest,
+		arg.SourceContainer,
+		arg.SourceGroup,
 		arg.Rarities,
 		arg.EquipLocations,
 		arg.ArmourWeights,
@@ -466,36 +517,67 @@ WITH filtered AS MATERIALIZED (
                    AND (src.unchained OR coalesce(p.unchained, false)) = $7::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND ($8::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND ($9::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = $9::varchar
+                   AND ($10::varchar IS NULL OR sc.slug = $10::varchar)
+                   AND ($11::varchar IS NULL OR sr.slug = $11::varchar)
+                   AND ($12::varchar IS NULL OR sm.slug = $12::varchar)
+                   -- The place and every place inside it (AOC-038), expanded by the service.
+                   AND ($13::varchar[] IS NULL OR p.slug = ANY($13::varchar[]))
+                   AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
+                   AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
+                   AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
+                   AND ($17::varchar IS NULL OR sct.slug = $17::varchar)
+                   AND ($18::varchar IS NULL OR sag.slug = $18::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
-         ($9::varchar[] IS NULL OR r.slug = ANY($9::varchar[])) AS in_rarity,
+         ($19::varchar[] IS NULL OR r.slug = ANY($19::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($10::varchar[] IS NULL OR EXISTS (
+         ($20::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = ANY($10::varchar[]))) AS in_slot,
-         coalesce($11::varchar[] IS NULL OR aw.slug = ANY($11::varchar[]), false) AS in_weight,
-         ($12::varchar[] IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($20::varchar[]))) AS in_slot,
+         coalesce($21::varchar[] IS NULL OR aw.slug = ANY($21::varchar[]), false) AS in_weight,
+         ($22::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = ANY($12::varchar[]))) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($22::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
-         coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
-              AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
-         coalesce(($15::integer IS NULL OR i.requires_level >= $15::integer)
-              AND ($16::integer IS NULL OR i.requires_level <= $16::integer), false) AS in_reqlvl,
+         coalesce(($23::integer IS NULL OR i.item_level >= $23::integer)
+              AND ($24::integer IS NULL OR i.item_level <= $24::integer), false) AS in_ilvl,
+         coalesce(($25::integer IS NULL OR i.requires_level >= $25::integer)
+              AND ($26::integer IS NULL OR i.requires_level <= $26::integer), false) AS in_reqlvl,
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
-         ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
-         ($18::varchar[] IS NULL OR EXISTS (
+         ($27::boolean IS NULL OR pr.priced = $27::boolean) AS in_price,
+         ($28::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = ANY($18::varchar[]))) AS in_currency,
-         coalesce($19::varchar[] IS NULL OR st.slug = ANY($19::varchar[]), false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($28::varchar[]))) AS in_currency,
+         coalesce($29::varchar[] IS NULL OR st.slug = ANY($29::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -527,25 +609,35 @@ FROM filtered f
 `
 
 type ItemFacetTotalsParams struct {
-	ItemType       *string
-	NameQuery      *string
-	IDQuery        *int32
-	PlaceSlugs     []string
-	Region         *string
-	Tier           *string
-	Unchained      *bool
-	Pvp            *bool
-	Rarities       []string
-	EquipLocations []string
-	ArmourWeights  []string
-	Classes        []string
-	IlvlMin        *int32
-	IlvlMax        *int32
-	ReqlvlMin      *int32
-	ReqlvlMax      *int32
-	Price          *bool
-	Currencies     []string
-	Sets           []string
+	ItemType        *string
+	NameQuery       *string
+	IDQuery         *int32
+	PlaceSlugs      []string
+	Region          *string
+	Tier            *string
+	Unchained       *bool
+	Pvp             *bool
+	SourceTab       *string
+	SourceSection   *string
+	SourceRegion    *string
+	SourceMap       *string
+	SourcePlaces    []string
+	SourceBoss      *string
+	SourceVendor    *string
+	SourceQuest     *string
+	SourceContainer *string
+	SourceGroup     *string
+	Rarities        []string
+	EquipLocations  []string
+	ArmourWeights   []string
+	Classes         []string
+	IlvlMin         *int32
+	IlvlMax         *int32
+	ReqlvlMin       *int32
+	ReqlvlMax       *int32
+	Price           *bool
+	Currencies      []string
+	Sets            []string
 }
 
 type ItemFacetTotalsRow struct {
@@ -580,6 +672,16 @@ func (q *Queries) ItemFacetTotals(ctx context.Context, arg ItemFacetTotalsParams
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
+		arg.SourceTab,
+		arg.SourceSection,
+		arg.SourceRegion,
+		arg.SourceMap,
+		arg.SourcePlaces,
+		arg.SourceBoss,
+		arg.SourceVendor,
+		arg.SourceQuest,
+		arg.SourceContainer,
+		arg.SourceGroup,
 		arg.Rarities,
 		arg.EquipLocations,
 		arg.ArmourWeights,
@@ -631,6 +733,36 @@ func (q *Queries) ItemIDSpan(ctx context.Context) (ItemIDSpanRow, error) {
 	var i ItemIDSpanRow
 	err := row.Scan(&i.MinID, &i.MaxID, &i.Total)
 	return i, err
+}
+
+const listAcquisitionGroups = `-- name: ListAcquisitionGroups :many
+SELECT slug, name FROM acquisition_groups ORDER BY sort_order
+`
+
+type ListAcquisitionGroupsRow struct {
+	Slug string
+	Name string
+}
+
+// The design's two halves of a location, "loot / drops" and "quest / vendor" (AOC-050), in order.
+func (q *Queries) ListAcquisitionGroups(ctx context.Context) ([]ListAcquisitionGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listAcquisitionGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAcquisitionGroupsRow{}
+	for rows.Next() {
+		var i ListAcquisitionGroupsRow
+		if err := rows.Scan(&i.Slug, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listItemClasses = `-- name: ListItemClasses :many
@@ -1250,36 +1382,67 @@ WITH filtered AS (
                    AND (src.unchained OR coalesce(p.unchained, false)) = $10::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND ($11::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND ($12::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = $12::varchar
+                   AND ($13::varchar IS NULL OR sc.slug = $13::varchar)
+                   AND ($14::varchar IS NULL OR sr.slug = $14::varchar)
+                   AND ($15::varchar IS NULL OR sm.slug = $15::varchar)
+                   -- The place and every place inside it (AOC-038), expanded by the service.
+                   AND ($16::varchar[] IS NULL OR p.slug = ANY($16::varchar[]))
+                   AND ($17::varchar IS NULL OR sb.slug = $17::varchar)
+                   AND ($18::varchar IS NULL OR sv.slug = $18::varchar)
+                   AND ($19::varchar IS NULL OR sq.slug = $19::varchar)
+                   AND ($20::varchar IS NULL OR sct.slug = $20::varchar)
+                   AND ($21::varchar IS NULL OR sag.slug = $21::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
-         ($12::varchar[] IS NULL OR r.slug = ANY($12::varchar[])) AS in_rarity,
+         ($22::varchar[] IS NULL OR r.slug = ANY($22::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($13::varchar[] IS NULL OR EXISTS (
+         ($23::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = ANY($13::varchar[]))) AS in_slot,
-         coalesce($14::varchar[] IS NULL OR aw.slug = ANY($14::varchar[]), false) AS in_weight,
-         ($15::varchar[] IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($23::varchar[]))) AS in_slot,
+         coalesce($24::varchar[] IS NULL OR aw.slug = ANY($24::varchar[]), false) AS in_weight,
+         ($25::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = ANY($15::varchar[]))) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($25::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
-         coalesce(($16::integer IS NULL OR i.item_level >= $16::integer)
-              AND ($17::integer IS NULL OR i.item_level <= $17::integer), false) AS in_ilvl,
-         coalesce(($18::integer IS NULL OR i.requires_level >= $18::integer)
-              AND ($19::integer IS NULL OR i.requires_level <= $19::integer), false) AS in_reqlvl,
+         coalesce(($26::integer IS NULL OR i.item_level >= $26::integer)
+              AND ($27::integer IS NULL OR i.item_level <= $27::integer), false) AS in_ilvl,
+         coalesce(($28::integer IS NULL OR i.requires_level >= $28::integer)
+              AND ($29::integer IS NULL OR i.requires_level <= $29::integer), false) AS in_reqlvl,
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
-         ($20::boolean IS NULL OR pr.priced = $20::boolean) AS in_price,
-         ($21::varchar[] IS NULL OR EXISTS (
+         ($30::boolean IS NULL OR pr.priced = $30::boolean) AS in_price,
+         ($31::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = ANY($21::varchar[]))) AS in_currency,
-         coalesce($22::varchar[] IS NULL OR st.slug = ANY($22::varchar[]), false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($31::varchar[]))) AS in_currency,
+         coalesce($32::varchar[] IS NULL OR st.slug = ANY($32::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -1317,28 +1480,38 @@ LIMIT $3::integer OFFSET $2::integer
 `
 
 type ListItemsParams struct {
-	SortBy         string
-	PageOffset     int32
-	PageSize       int32
-	ItemType       *string
-	NameQuery      *string
-	IDQuery        *int32
-	PlaceSlugs     []string
-	Region         *string
-	Tier           *string
-	Unchained      *bool
-	Pvp            *bool
-	Rarities       []string
-	EquipLocations []string
-	ArmourWeights  []string
-	Classes        []string
-	IlvlMin        *int32
-	IlvlMax        *int32
-	ReqlvlMin      *int32
-	ReqlvlMax      *int32
-	Price          *bool
-	Currencies     []string
-	Sets           []string
+	SortBy          string
+	PageOffset      int32
+	PageSize        int32
+	ItemType        *string
+	NameQuery       *string
+	IDQuery         *int32
+	PlaceSlugs      []string
+	Region          *string
+	Tier            *string
+	Unchained       *bool
+	Pvp             *bool
+	SourceTab       *string
+	SourceSection   *string
+	SourceRegion    *string
+	SourceMap       *string
+	SourcePlaces    []string
+	SourceBoss      *string
+	SourceVendor    *string
+	SourceQuest     *string
+	SourceContainer *string
+	SourceGroup     *string
+	Rarities        []string
+	EquipLocations  []string
+	ArmourWeights   []string
+	Classes         []string
+	IlvlMin         *int32
+	IlvlMax         *int32
+	ReqlvlMin       *int32
+	ReqlvlMax       *int32
+	Price           *bool
+	Currencies      []string
+	Sets            []string
 }
 
 type ListItemsRow struct {
@@ -1399,6 +1572,16 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
+		arg.SourceTab,
+		arg.SourceSection,
+		arg.SourceRegion,
+		arg.SourceMap,
+		arg.SourcePlaces,
+		arg.SourceBoss,
+		arg.SourceVendor,
+		arg.SourceQuest,
+		arg.SourceContainer,
+		arg.SourceGroup,
 		arg.Rarities,
 		arg.EquipLocations,
 		arg.ArmourWeights,
@@ -1600,6 +1783,39 @@ func (q *Queries) ListOpenItemQuestions(ctx context.Context) ([]ListOpenItemQues
 	return items, nil
 }
 
+const listSectionTabs = `-- name: ListSectionTabs :many
+SELECT sc.slug, sc.name, t.slug AS tab_slug
+FROM sections sc JOIN source_tabs t ON t.id = sc.tab_id
+ORDER BY t.sort_order, sc.sort_order
+`
+
+type ListSectionTabsRow struct {
+	Slug    string
+	Name    string
+	TabSlug string
+}
+
+// Every section and its tab: what a source path's section must belong to.
+func (q *Queries) ListSectionTabs(ctx context.Context) ([]ListSectionTabsRow, error) {
+	rows, err := q.db.Query(ctx, listSectionTabs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSectionTabsRow{}
+	for rows.Next() {
+		var i ListSectionTabsRow
+		if err := rows.Scan(&i.Slug, &i.Name, &i.TabSlug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSetPieces = `-- name: ListSetPieces :many
 SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token
 FROM items i
@@ -1688,6 +1904,344 @@ func (q *Queries) ListSets(ctx context.Context) ([]ListSetsRow, error) {
 			&i.OpenQuestion,
 			&i.DeclaredPieceCount,
 			&i.PiecesHeld,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSourceTabs = `-- name: ListSourceTabs :many
+SELECT slug, name, sort_order, levels_note, groups::varchar[] AS groups
+FROM source_tabs
+ORDER BY sort_order
+`
+
+type ListSourceTabsRow struct {
+	Slug       string
+	Name       string
+	SortOrder  int32
+	LevelsNote string
+	Groups     []string
+}
+
+// The tabs in Pierre's order, with the levels each draws above the location (AOC-050).
+func (q *Queries) ListSourceTabs(ctx context.Context) ([]ListSourceTabsRow, error) {
+	rows, err := q.db.Query(ctx, listSourceTabs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSourceTabsRow{}
+	for rows.Next() {
+		var i ListSourceTabsRow
+		if err := rows.Scan(
+			&i.Slug,
+			&i.Name,
+			&i.SortOrder,
+			&i.LevelsNote,
+			&i.Groups,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSourceTreeRows = `-- name: ListSourceTreeRows :many
+WITH filtered AS (
+  SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
+         pr.priced,
+         -- The filters that have no facet of their own, as ONE flag.
+         coalesce(
+           ($2::varchar IS NULL OR it.slug = $2::varchar)
+           -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+           -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+           -- (escapeLike); this names the escape character so Postgres honours them.
+           -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the
+           -- armory site's ids are what people still quote, and a name search for "2183" would
+           -- otherwise find nothing. id_query is NULL unless q is numeric.
+           AND ($3::varchar IS NULL
+                OR i.name ILIKE '%' || $3::varchar || '%' ESCAPE '\'
+                OR i.item_id = $4::integer)
+           -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+           -- single-value parameter made the caller's second choice unrepresentable -- so the
+           -- service passed NULL and the place predicate silently vanished, returning all 4,646
+           -- items (AOC-012 verify round 1).
+           -- ⚠️ NULL means "no filter"; an EMPTY array does not -- ` + "`" + `p.slug = ANY('{}')` + "`" + ` is false for
+           -- every row. The caller passes nil rather than an empty slice, and derives that from the
+           -- same predicate that decides collapsing, so the two cannot disagree (verify round 2).
+           AND ($5::varchar[] IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND p.slug = ANY($5::varchar[])))
+           -- region and tier live on item_sources, not on the item: an item is "in Kheshatta"
+           -- because something that drops it is. Both are aggregate views, so they collapse.
+           AND ($6::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 -- The PLACE's region wins. 196 item_sources rows disagree with their own place's
+                 -- region (AOC-037), and the place row is the stronger fact: it carries name, map
+                 -- and region together, with an invariant test behind it, while the per-source
+                 -- region is derived and has none. A source with no place falls back to its own.
+                 LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+                 WHERE src.item_id = i.item_id AND r2.slug = $6::varchar))
+           AND ($7::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN tiers t ON t.id = src.tier_id
+                 WHERE src.item_id = i.item_id AND t.slug = $7::varchar))
+           -- ⭐ unchained is true on EITHER the source row or the place it points at (AOC-039: the
+           -- one expression, shared with ListItemSources and ListItemPlaces).
+           AND ($8::boolean IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND (src.unchained OR coalesce(p.unchained, false)) = $8::boolean))
+           -- pvp is three independent facts on the item, and "pvp=true" means any of them.
+           AND ($9::boolean IS NULL
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $9::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND ($10::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = $10::varchar
+                   AND ($11::varchar IS NULL OR sc.slug = $11::varchar)
+                   AND ($12::varchar IS NULL OR sr.slug = $12::varchar)
+                   AND ($13::varchar IS NULL OR sm.slug = $13::varchar)
+                   -- The place and every place inside it (AOC-038), expanded by the service.
+                   AND ($14::varchar[] IS NULL OR p.slug = ANY($14::varchar[]))
+                   AND ($15::varchar IS NULL OR sb.slug = $15::varchar)
+                   AND ($16::varchar IS NULL OR sv.slug = $16::varchar)
+                   AND ($17::varchar IS NULL OR sq.slug = $17::varchar)
+                   AND ($18::varchar IS NULL OR sct.slug = $18::varchar)
+                   AND ($19::varchar IS NULL OR sag.slug = $19::varchar))),
+           false) AS in_base,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
+         ($20::varchar[] IS NULL OR r.slug = ANY($20::varchar[])) AS in_rarity,
+         -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
+         -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
+         ($21::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_equip_locations iel
+           JOIN equip_locations el ON el.id = iel.equip_location_id
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($21::varchar[]))) AS in_slot,
+         coalesce($22::varchar[] IS NULL OR aw.slug = ANY($22::varchar[]), false) AS in_weight,
+         ($23::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_classes ic
+           JOIN classes cl ON cl.id = ic.class_id
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($23::varchar[]))) AS in_class,
+         -- A bound excludes an item with no level: it cannot be shown to be inside the range.
+         coalesce(($24::integer IS NULL OR i.item_level >= $24::integer)
+              AND ($25::integer IS NULL OR i.item_level <= $25::integer), false) AS in_ilvl,
+         coalesce(($26::integer IS NULL OR i.requires_level >= $26::integer)
+              AND ($27::integer IS NULL OR i.requires_level <= $27::integer), false) AS in_reqlvl,
+         -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
+         -- item free from a boss and sold by a vendor (689 of them) has a price.
+         ($28::boolean IS NULL OR pr.priced = $28::boolean) AS in_price,
+         ($29::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_sources src
+           JOIN item_costs ico ON ico.item_source_id = src.id
+           JOIN currencies cu ON cu.id = ico.currency_id
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($29::varchar[]))) AS in_currency,
+         coalesce($30::varchar[] IS NULL OR st.slug = ANY($30::varchar[]), false) AS in_set
+  FROM items i
+  JOIN rarities r ON r.id = i.rarity_id
+  LEFT JOIN item_types it ON it.id = i.item_type_id
+  LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
+  LEFT JOIN sets st ON st.id = i.set_id
+  -- One expression for "has a vendor price", read by in_price and by the price facet. A subquery
+  -- with no FROM is pulled up into its references, so a query that reads neither never runs it.
+  CROSS JOIN LATERAL (SELECT EXISTS (
+    SELECT 1 FROM item_sources src
+    JOIN item_costs ico ON ico.item_source_id = src.id
+    WHERE src.item_id = i.item_id) AS priced) pr
+)
+SELECT DISTINCT src.item_id,
+       sc.slug AS section_slug, sc.name AS section_name, sc.sort_order AS section_sort,
+       coalesce(sr.slug, '')::varchar AS region_slug, coalesce(sr.name, '')::varchar AS region_name,
+       coalesce(sr.sort_order, 0)::integer AS region_sort,
+       coalesce(sm.slug, '')::varchar AS map_slug, coalesce(sm.name, '')::varchar AS map_name,
+       coalesce(pp.slug, p.slug, '')::varchar AS place_slug, coalesce(pp.name, p.name, '')::varchar AS place_name,
+       (CASE WHEN pp.id IS NOT NULL THEN p.slug ELSE '' END)::varchar AS wing_slug,
+       (CASE WHEN pp.id IS NOT NULL THEN p.name ELSE '' END)::varchar AS wing_name,
+       coalesce(sb.slug, '')::varchar AS boss_slug, coalesce(sb.name, '')::varchar AS boss_name,
+       coalesce(sv.slug, '')::varchar AS vendor_slug, coalesce(sv.name, '')::varchar AS vendor_name,
+       -- quests.name is deliberately NULL (the real name is unknown); the armory's label is what it said.
+       coalesce(sq.slug, '')::varchar AS quest_slug, coalesce(sq.name, sq.armory_label, '')::varchar AS quest_name,
+       coalesce(sct.slug, '')::varchar AS container_slug, coalesce(sct.name, '')::varchar AS container_name,
+       coalesce(sag.slug, '')::varchar AS group_slug
+FROM filtered f
+JOIN item_sources src ON src.item_id = f.item_id
+JOIN sections sc ON sc.id = src.section_id
+JOIN source_tabs stb ON stb.id = sc.tab_id
+LEFT JOIN places p ON p.id = src.place_id
+LEFT JOIN places pp ON pp.id = p.parent_place_id
+LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+LEFT JOIN bosses sb ON sb.id = src.boss_id
+LEFT JOIN vendors sv ON sv.id = src.vendor_id
+LEFT JOIN quests sq ON sq.id = src.quest_id
+LEFT JOIN containers sct ON sct.id = src.container_id
+LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+WHERE stb.slug = $1::varchar
+  AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
+ORDER BY src.item_id
+`
+
+type ListSourceTreeRowsParams struct {
+	Tab             string
+	ItemType        *string
+	NameQuery       *string
+	IDQuery         *int32
+	PlaceSlugs      []string
+	Region          *string
+	Tier            *string
+	Unchained       *bool
+	Pvp             *bool
+	SourceTab       *string
+	SourceSection   *string
+	SourceRegion    *string
+	SourceMap       *string
+	SourcePlaces    []string
+	SourceBoss      *string
+	SourceVendor    *string
+	SourceQuest     *string
+	SourceContainer *string
+	SourceGroup     *string
+	Rarities        []string
+	EquipLocations  []string
+	ArmourWeights   []string
+	Classes         []string
+	IlvlMin         *int32
+	IlvlMax         *int32
+	ReqlvlMin       *int32
+	ReqlvlMax       *int32
+	Price           *bool
+	Currencies      []string
+	Sets            []string
+}
+
+type ListSourceTreeRowsRow struct {
+	ItemID        int32
+	SectionSlug   string
+	SectionName   string
+	SectionSort   int32
+	RegionSlug    string
+	RegionName    string
+	RegionSort    int32
+	MapSlug       string
+	MapName       string
+	PlaceSlug     string
+	PlaceName     string
+	WingSlug      string
+	WingName      string
+	BossSlug      string
+	BossName      string
+	VendorSlug    string
+	VendorName    string
+	QuestSlug     string
+	QuestName     string
+	ContainerSlug string
+	ContainerName string
+	GroupSlug     string
+}
+
+// The source panel's raw material (AOC-050): one row per (item, the levels of ONE of its source rows)
+// in a tab, for the items every OTHER filter leaves. The service builds the tab's tree from these and
+// counts distinct items per node, so a node's count is what choosing it would leave -- the rail's
+// rule (AOC-049) -- and the tree's own selection is left out by calling this with no source_*
+// arguments. Levels are columns of our own tables; which of them a tab draws is source_tabs.groups.
+// ” is "this row has no such level" (sqlc types a coalesced column as non-null).
+// A place's PARENT is the location and the place itself its wing (House of Crom › The Vile Nativity).
+func (q *Queries) ListSourceTreeRows(ctx context.Context, arg ListSourceTreeRowsParams) ([]ListSourceTreeRowsRow, error) {
+	rows, err := q.db.Query(ctx, listSourceTreeRows,
+		arg.Tab,
+		arg.ItemType,
+		arg.NameQuery,
+		arg.IDQuery,
+		arg.PlaceSlugs,
+		arg.Region,
+		arg.Tier,
+		arg.Unchained,
+		arg.Pvp,
+		arg.SourceTab,
+		arg.SourceSection,
+		arg.SourceRegion,
+		arg.SourceMap,
+		arg.SourcePlaces,
+		arg.SourceBoss,
+		arg.SourceVendor,
+		arg.SourceQuest,
+		arg.SourceContainer,
+		arg.SourceGroup,
+		arg.Rarities,
+		arg.EquipLocations,
+		arg.ArmourWeights,
+		arg.Classes,
+		arg.IlvlMin,
+		arg.IlvlMax,
+		arg.ReqlvlMin,
+		arg.ReqlvlMax,
+		arg.Price,
+		arg.Currencies,
+		arg.Sets,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSourceTreeRowsRow{}
+	for rows.Next() {
+		var i ListSourceTreeRowsRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.SectionSlug,
+			&i.SectionName,
+			&i.SectionSort,
+			&i.RegionSlug,
+			&i.RegionName,
+			&i.RegionSort,
+			&i.MapSlug,
+			&i.MapName,
+			&i.PlaceSlug,
+			&i.PlaceName,
+			&i.WingSlug,
+			&i.WingName,
+			&i.BossSlug,
+			&i.BossName,
+			&i.VendorSlug,
+			&i.VendorName,
+			&i.QuestSlug,
+			&i.QuestName,
+			&i.ContainerSlug,
+			&i.ContainerName,
+			&i.GroupSlug,
 		); err != nil {
 			return nil, err
 		}
