@@ -274,8 +274,9 @@ Its shape (counts inside a branch shown as 0 here, not measured values):
 - `source` is the value `/v1/items?tab=<tab>&source=…` takes to list exactly `count` items.
 - `coords` (AOC-068) is where on its map the branch is, AoC>TV's `x,y`, **only when every row of the
   branch has the same coordinates** (Pierre, 2026-10-02). A branch with no coordinates, a row
-  without any, or two different points (a tier, a region, the Gilding Vendor's four cities) has
-  none. The key is then absent.
+  without any, or two different points (a region, a raid whose wings lie apart, the Gilding
+  Vendor's four cities) has none, and the key is absent. A tier whose rows all lie at one stronghold
+  is one point, and has it.
 - Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
 
 ### `GET /v1/items/{slug}`
