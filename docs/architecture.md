@@ -1215,7 +1215,8 @@ Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
   lookup: a row with no section is in no tab.
 - **A tab's levels.** `groups` is the levels drawn above the location (`section`, `region`, `map`;
   a CHECK holds the vocabulary). Then every tab draws the location: the row's place under every place above it,
-  then the boss, or else its vendor, quest giver, container or boss. `items.rowPath` is that rule,
+  then its boss, vendor, quest giver or container, the first of those it has (with no place, that
+  one is the location). `items.rowPath` is that rule,
   and the only code that knows level names, which are our own columns, like the sort keys.
   - **Every level is in the path, `-` where the row has none** (verify round 1, F1). A branch
     under a skipped level would otherwise list the rows that do have it too. The panel draws no
