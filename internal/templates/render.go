@@ -90,6 +90,8 @@ var fragmentProbes = map[string]any{
 	"armory_active":       armoryProbe(),
 	// The sources panel (AOC-068).
 	"armory_tabs":             armoryProbe(),
+	"armory_tabs_sheet":       armoryProbe(),
+	"armory_tab_class":        armoryProbe().Sources.Tabs[0],
 	"armory_sources_count":    armoryProbe(),
 	"armory_sources_head":     armoryProbe(),
 	"armory_sources_tree":     armoryProbe(),

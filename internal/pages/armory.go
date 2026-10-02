@@ -89,6 +89,10 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own canonical).
+	if len(tabs) > 0 && f.Tab == tabs[0].Slug {
+		f.Tab = ""
+	}
 	var sources templates.Sources
 	sourceLabel := ""
 	if len(tabs) > 0 {

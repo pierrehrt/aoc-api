@@ -31,7 +31,7 @@ func buildSources(f items.Filters, tabs []items.SourceTab, tree items.Tree, here
 		if i == 0 {
 			g.Tab = ""
 		}
-		out.Tabs = append(out.Tabs, templates.SourceTabLink{Label: t.Name, URL: here(g), Current: t.Slug == tree.Tab.Slug})
+		out.Tabs = append(out.Tabs, templates.SourceTabLink{Slug: t.Slug, Label: t.Name, URL: here(g), Current: t.Slug == tree.Tab.Slug})
 	}
 
 	picked := f.Source
@@ -74,7 +74,7 @@ func buildSources(f items.Filters, tabs []items.SourceTab, tree items.Tree, here
 	walk = func(ns []*items.TreeNode, depth int, parent string) {
 		for _, n := range ns {
 			open := isOpen(n) && len(n.Children) > 0
-			row := templates.TreeRow{Label: n.Name, Count: n.Count, Pad: pad(depth), Open: open,
+			row := templates.TreeRow{ID: rowID(n.Source, ""), Label: n.Name, Count: n.Count, Pad: pad(depth), Open: open,
 				Selected: n.Source == path && f.Source.Group == "", URL: pick(n.Source, "")}
 			switch {
 			case open:
@@ -152,7 +152,7 @@ func halves(ns []*items.TreeNode, order []items.Term, depth int, pad func(int) i
 		for _, n := range ns {
 			for _, ng := range n.Groups {
 				if ng.Slug == g.Slug {
-					*rows = append(*rows, templates.TreeRow{Label: n.Name, Count: ng.Count, Pad: pad(depth + 1),
+					*rows = append(*rows, templates.TreeRow{ID: rowID(n.Source, g.Slug), Label: n.Name, Count: ng.Count, Pad: pad(depth + 1),
 						URL: pick(n.Source, g.Slug), Selected: n.Source == path && group == g.Slug})
 				}
 			}
@@ -160,7 +160,7 @@ func halves(ns []*items.TreeNode, order []items.Term, depth int, pad func(int) i
 	}
 	for _, n := range ns {
 		if len(n.Groups) == 0 {
-			*rows = append(*rows, templates.TreeRow{Label: n.Name, Count: n.Count, Pad: pad(depth),
+			*rows = append(*rows, templates.TreeRow{ID: rowID(n.Source, ""), Label: n.Name, Count: n.Count, Pad: pad(depth),
 				URL: pick(n.Source, ""), Selected: n.Source == path && group == ""})
 		}
 	}
@@ -174,4 +174,16 @@ func groupName(tree items.Tree, slug string) string {
 		}
 	}
 	return slug
+}
+
+// rowID is a tree link's id: the branch's source path (and its half), spelled with what an id and a
+// CSS selector take without escaping. Slugs hold no "_", so ":" → "_" and "." → "__" stay one-to-one.
+// The same branch has the same id in every answer, so htmx gives focus back to the row the reader
+// used (AOC-068 verify round 1, F3).
+func rowID(source, group string) string {
+	id := "src-" + strings.ReplaceAll(strings.ReplaceAll(source, ".", "__"), ":", "_")
+	if group != "" {
+		id += "--" + group
+	}
+	return id
 }

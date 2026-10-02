@@ -60,13 +60,14 @@ type Sources struct {
 
 // SourceTabLink is one main category: a link to it, its tree replacing the panel's.
 type SourceTabLink struct {
-	Label, URL string
-	Current    bool
+	Slug, Label, URL string // Slug names the link's id, so focus comes back to it after a swap
+	Current          bool
 }
 
 // TreeRow is one row of the tree: a branch (a link that picks it) or a half's header (the design's
 // "loot / drops", not a link). Pad is the indent in px, 8 + 15 per level, as the design draws it.
 type TreeRow struct {
+	ID       string // stable across answers, so htmx gives focus back to the row used (verify F3)
 	Label    string
 	Count    int64
 	URL      string
@@ -269,12 +270,12 @@ func armoryProbe() ArmoryData {
 		Clear: "/armory",
 		// The sources panel (AOC-068): a tab of each state, a branch of each kind of row.
 		Sources: Sources{
-			Tabs:  []SourceTabLink{{Label: "Test Tab", URL: "/armory", Current: true}, {Label: "Test Other", URL: "/armory?tab=test-other"}},
+			Tabs:  []SourceTabLink{{Slug: "test-tab", Label: "Test Tab", URL: "/armory", Current: true}, {Slug: "test-other", Label: "Test Other", URL: "/armory?tab=test-other"}},
 			Title: "Source · Test Tab", LevelsNote: "test › levels", EndPoints: 2,
 			Rows: []TreeRow{
-				{Label: "Test Section", Count: 3, URL: "/armory?source=s:test-section", Pad: 8, Caret: "▾", Open: true},
+				{ID: "src-s_test-section", Label: "Test Section", Count: 3, URL: "/armory?source=s:test-section", Pad: 8, Caret: "▾", Open: true},
 				{Label: "test drops", Pad: 23, Header: true},
-				{Label: "Test Place", Count: 2, URL: "/armory?source=s:test-section.p:test-place&get=drop", Pad: 38, Selected: true},
+				{ID: "src-s_test-section__p_test-place--drop", Label: "Test Place", Count: 2, URL: "/armory?source=s:test-section.p:test-place&get=drop", Pad: 38, Selected: true},
 			},
 			Selected: "Test Section › Test Place", Picked: true, Coords: "1,2",
 		},

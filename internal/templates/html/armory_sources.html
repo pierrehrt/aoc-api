@@ -7,10 +7,21 @@
 {{/* The main categories, under the search: one active at a time. */}}
 {{define "armory_tabs"}}
 <div class="flex flex-wrap gap-1.5">
-{{range .Sources.Tabs}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Current}} aria-current="true"{{end}} class="flex h-8 items-center rounded-[6px] border px-[15px] text-[12.5px] font-semibold tracking-[0.03em] hover:border-link {{if .Current}}border-link bg-ink-selected text-paper{{else}}border-line-control text-muted-2{{end}}">{{.Label}}</a>
+{{range .Sources.Tabs}}<a id="tab-{{.Slug}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Current}} aria-current="true"{{end}} class="{{template "armory_tab_class" .}}">{{.Label}}</a>
 {{end}}</div>
 <span class="font-mono text-[11.5px] text-faint">{{.Sources.LevelsNote}} · {{.Sources.EndPoints}} end points</span>
 {{end}}
+
+{{/* The same tabs inside the phone's Sources sheet, which covers the search block (verify round 1,
+     F2). Their own ids: an id is one element. */}}
+{{define "armory_tabs_sheet"}}
+<div class="flex flex-wrap gap-1.5">
+{{range .Sources.Tabs}}<a id="sheet-tab-{{.Slug}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Current}} aria-current="true"{{end}} class="{{template "armory_tab_class" .}}">{{.Label}}</a>
+{{end}}</div>
+{{end}}
+
+{{/* A tab: the design's 32px, 36px on a phone (the touch minimum, design 1b). */}}
+{{define "armory_tab_class"}}flex h-8 items-center rounded-[6px] border px-[15px] text-[12.5px] font-semibold tracking-[0.03em] hover:border-link max-lg:h-9 {{if .Current}}border-link bg-ink-selected text-paper{{else}}border-line-control text-muted-2{{end}}{{end}}
 
 {{/* The phone button's "· 1" while a branch is picked, swapped out of band like the Filters count. */}}
 {{define "armory_sources_count"}}{{if .Sources.Picked}} · 1{{end}}{{end}}
@@ -31,9 +42,14 @@
 {{define "armory_sources_tree"}}
 <ul class="flex flex-col gap-px text-[13px]">
 {{range .Sources.Rows}}{{if .Header}}
-  <li aria-hidden="true" class="py-1.5 pr-2 font-mono text-[10.5px] font-medium text-muted-2" style="padding-left: {{.Pad}}px">{{.Label}}</li>
+  {{/* A half's header is drawn as a row, as the prototype draws it: the left border, an empty caret
+       and the gap, so its text lines up with the design's (verify round 1, F1). */}}
+  <li aria-hidden="true"><div class="flex items-center gap-2 border-l-2 border-transparent py-1.5 pr-2" style="padding-left: {{.Pad}}px">
+    <span class="w-[9px] flex-none"></span>
+    <span class="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium text-muted-2">{{.Label}}</span>
+  </div></li>
 {{else}}
-  <li><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Selected}} aria-current="true"{{end}}{{if .Caret}} aria-expanded="{{.Open}}"{{end}} class="group flex items-center gap-2 rounded-[5px] border-l-2 py-1.5 pr-2 hover:bg-ink-tree-hover max-lg:min-h-9 {{if .Selected}}border-link bg-ink-selected text-paper{{else if .Open}}border-transparent text-paper{{else}}border-transparent text-muted{{end}}" style="padding-left: {{.Pad}}px">
+  <li><a id="{{.ID}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Selected}} aria-current="true"{{end}}{{if .Caret}} aria-expanded="{{.Open}}"{{end}} class="group flex items-center gap-2 rounded-[5px] border-l-2 py-1.5 pr-2 hover:bg-ink-tree-hover max-lg:min-h-9 {{if .Selected}}border-link bg-ink-selected text-paper{{else if .Open}}border-transparent text-paper{{else}}border-transparent text-muted{{end}}" style="padding-left: {{.Pad}}px">
     <span aria-hidden="true" class="w-[9px] flex-none {{if .Open}}text-link{{else}}text-faint group-hover:text-muted-2{{end}}">{{.Caret}}</span>
     <span class="min-w-0 flex-1 truncate">{{.Label}}</span>
     <span class="flex-none font-mono text-[11px] {{if .Selected}}text-link{{else}}text-faint group-hover:text-muted-2{{end}}">{{num .Count}}</span>

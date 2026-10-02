@@ -57,6 +57,10 @@
       <div id="armory-sources-head" class="flex flex-none flex-col gap-[3px] px-4 pb-[10px] pt-[14px]">
 {{template "armory_sources_head" $d}}
       </div>
+      {{/* On a phone the sheet covers the search block, so it carries the tabs too (verify round 1, F2). */}}
+      <nav aria-label="Sources (sheet)" id="armory-tabs-sheet" class="flex-none px-4 pb-3 lg:hidden">
+{{template "armory_tabs_sheet" $d}}
+      </nav>
       <div class="min-h-0 flex-1 overflow-y-auto px-[10px] pb-[10px]">
         <div id="armory-sources-tree">
 {{template "armory_sources_tree" $d}}
