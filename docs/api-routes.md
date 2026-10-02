@@ -60,7 +60,7 @@ never a free-text value a client invented — except `q`, which is a name search
 `rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
 `place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset` ·
 since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `price` (bool) ·
-`currency` · `set` · `facets` (bool)
+`currency` · `set` · `facets` (bool) · since AOC-050: `tab` · `source` · `get`
 
 - **`q`** matches the name (case-insensitive substring) — **and, when it is a whole number, the
   item's id exactly** (AOC-047): `q=2183` finds item 2183 as well as any item whose name contains
@@ -201,6 +201,65 @@ filters". For a facet that holds one value per item (rarity, armour weight, set)
 several ticked values is exactly the sum of their counts. For slot, class and currency it is
 their union.
 
+**The source panel's filter (AOC-050), additive.** Without `tab`, `source` or `get` every answer is
+byte-identical to 0.5.0's.
+
+- **`source`** picks a node of the Armory's source panel: **typed levels joined by `.`**, in tree
+  order. The kinds are `s:` section, `r:` region, `m:` map, `p:` place (a place may be followed by
+  its wing, `p:house-of-crom.p:the-vile-nativity`), `b:` boss, `v:` vendor, `q:` quest giver,
+  `c:` container, each followed by a slug: `source=s:pve-tier-3.p:<raid>.b:<boss>`. Each kind
+  appears once (a place twice at most). **A node is ONE source row**: an item is listed when one of
+  its source rows has every level named, together. That differs from `tier=` plus `place=`, which
+  may each match a different row of the same item and keep their meaning. A place node includes
+  every place inside it (AOC-038). The values to send come from `/v1/sources/tree`.
+- **`tab`** is the panel's tab (`/v1/taxonomies` → `source_tabs`). On its own it filters
+  **nothing**: the tab changes what the panel shows, not the list (Pierre, 2026-10-02). With a
+  `source`, the node is matched among the rows of that tab's sections. With no `tab`, the first tab
+  is used.
+- **`get`** picks one half of a node, as an acquisition group's slug: `drop` (the design's
+  "loot / drops") or `vendor` ("quest / vendor"). Which acquisition types fall in each is data
+  (`acquisition_types.group_id`).
+- A **malformed** `source`, `tab` or `get` is a 400 that says why (an unknown kind, a segment that
+  is not `kind:slug`, a level twice, a value that is not a slug). An unknown **slug** is not
+  malformed: it matches nothing, like an unknown rarity.
+
+### `GET /v1/sources/tree`
+
+The Armory's source panel for one tab (AOC-050): `?tab=<slug>` (absent = the first tab), plus **any
+`/v1/items` filter**. Every branch is counted under those filters. **A `source` on the request is
+not applied to the counts**, so each branch says what picking it would leave (the rail's rule,
+AOC-049). An unknown tab is a **404**.
+
+Its shape (counts inside a branch shown as 0 here, not measured values):
+
+```json
+{
+  "tab": {"slug": "pve", "name": "PVE", "levels_note": "tier › raid › boss", "groups": ["section"]},
+  "total": 965,
+  "end_points": 26,
+  "nodes": [
+    {"kind": "section", "slug": "pve-tier-3", "name": "PvE Tier 3", "source": "s:pve-tier-3",
+     "count": 183, "groups": [{"slug": "drop", "name": "loot / drops", "count": 0}],
+     "children": [{"kind": "place", "slug": "…", "name": "…", "source": "s:pve-tier-3.p:…",
+                   "count": 0, "children": [{"kind": "boss", "…": "…"}]}]}
+  ]
+}
+```
+
+- **The levels are data.** A tab draws its `groups` (from `section`, `region`, `map`), then the
+  location: the row's place and the place's wing, then its boss. A row with no place has its
+  vendor, quest giver, container or boss as the location instead. A level a row does not have is
+  skipped, never shown as "Unknown". The tabs, the sections in each and their order are rows
+  (`source_tabs`, `sections`), seeded with Pierre's assignment of AoC>TV's 39 sections
+  (2026-10-02).
+- **A branch the filters empty is listed with `count: 0`**, never dropped. The tree's shape is every
+  source row of the tab, whatever the filters.
+- `count` is distinct items. `groups` is the same count per acquisition group, listing only the
+  groups the branch has. `total` is the distinct items in the tab under the filters. `end_points`
+  is how many branches have no branch under them (structural, not filtered).
+- `source` is the value `/v1/items?tab=<tab>&source=…` takes to list exactly `count` items.
+- Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
+
 ### `GET /v1/items/{slug}`
 
 One item with everything its page shows, in one response: stats, every source (place, boss, region,
@@ -256,6 +315,10 @@ Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
   part of the contract; only its contents are;
 - rarities: `"colour_token"` — the name of the CSS custom property that paints it
   (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
+
+**`source_tabs`** (AOC-050, a new key, additive): the source panel's tabs in Pierre's order, each
+`{"slug", "name", "levels_note", "groups"}`: PVE, PVP, Region, Faction, Onslaught, Other.
+`levels_note` is the panel's wording for the tab's levels.
 
 ### Attribution
 

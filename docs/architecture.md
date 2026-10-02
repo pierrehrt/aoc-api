@@ -1127,9 +1127,9 @@ the other filters**. That number is only worth showing if it is the total the li
 the filter rules exist **once**, as per-item flags, and both the rows and the counts read them.
 
 ```
-WITH filtered AS (             -- byte-identical in ListItems, CountItemFacets, ItemFacetTotals
+WITH filtered AS (             -- byte-identical in ListItems, CountItemFacets, ItemFacetTotals, ListSourceTreeRows
   SELECT i.item_id, …,          -- what the facets group by: rarity_id, set_id, levels, priced
-         <q, item_type, place, region, tier, unchained, pvp> AS in_base,   -- no facet of their own
+         <q, item_type, place, region, tier, unchained, pvp, source> AS in_base,   -- no facet of their own
          <rarity rule>   AS in_rarity,   <slot rule> AS in_slot,   <weight rule> AS in_weight,
          <class rule>    AS in_class,    <ilvl range> AS in_ilvl,  <reqlvl range> AS in_reqlvl,
          <price rule>    AS in_price,    <currency rule> AS in_currency,   <set rule> AS in_set
@@ -1139,7 +1139,7 @@ a facet value:    count(DISTINCT item) WHERE every flag EXCEPT the facet's own  
 a group's "Any":  count(*) FILTER (WHERE every flag except its own)
 ```
 
-- **The three copies are one definition by test.** sqlc cannot share a fragment between queries, so
+- **The four copies are one definition by test** (the fourth is the source tree's, AOC-050). sqlc cannot share a fragment between queries, so
   `TestTheFilterCTEIsOneDefinition` reads `items.sql` and fails on any difference between the CTE
   bodies. Only the header differs, deliberately: the facet queries say **`MATERIALIZED`** (they read
   the flags 6–14 times; inlined, Postgres re-ran every flag's subquery inside each `FILTER` — the
@@ -1171,6 +1171,44 @@ a group's "Any":  count(*) FILTER (WHERE every flag except its own)
   single-value design (`DECISIONS.md`).
 
 Measured on the dev corpus, without JIT: list 2–4 ms, facets 9–16 ms, totals 4–6 ms.
+
+### The source tree (AOC-050)
+
+The Armory's source panel: main categories under the search (PVE, PVP, Region, Faction, Onslaught,
+Other, Pierre 2026-10-02), one active at a time, and a tree of sources for the active one. **It is
+Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
+
+- **`source_tabs`** (the tabs, their order, `levels_note` and `groups`), **`sections`** (AoC>TV's
+  section names verbatim, each with its tab) and **`acquisition_groups`** (the design's
+  "loot / drops" and "quest / vendor", with `acquisition_types.group_id`).
+  `item_sources.section_id` is backfilled from `section_raw` by name; the importer resolves it the
+  same way and stops on a name it was never told about. Both new FKs are nullable like every
+  lookup: a row with no section is in no tab.
+- **A tab's levels.** `groups` is the levels drawn above the location (`section`, `region`, `map`;
+  a CHECK holds the vocabulary). Then every tab draws the location: the row's place and its wing,
+  then the boss, or else its vendor, quest giver, container or boss. `items.rowPath` is that rule,
+  and the only code that knows level names, which are our own columns, like the sort keys.
+- **A node matches ONE source row** (`Filters.Source`, `items.SourceNode`). Its levels go into the
+  shared CTE's `in_base` as one `EXISTS` over `item_sources`, every level on the same row. The
+  older `tier=` and `place=` are separate `EXISTS` and may match different rows of one item. That
+  is right for them and wrong for a node, where a tier's raid would count an item that is in the
+  tier only elsewhere. A place node is expanded to its descendants (AOC-038's `expandPlaces`).
+  **The tab alone filters nothing**: `source_tab` is set only when a node is picked.
+- **Counts: one query, shape from every row.** `ListSourceTreeRows` (the fourth copy of the CTE)
+  returns every source row of the tab with its levels and a `matches` flag: every other filter, the
+  source excluded, because the service calls it with no `source_*` argument (`items.treeParams`;
+  `TestTheTreeTakesEveryListFilterButTheSource`). `items.buildTree` builds the tree from all rows
+  and counts the distinct matching items per node, so a branch the filters empty is still listed
+  at 0. Not `GROUPING SETS`: each tab draws different levels, and one row query plus a Go walk over
+  a few thousand rows is simpler and measured fast enough.
+- **The URL.** `source` is typed segments (`s:`, `r:`, `m:`, `p:`, `b:`, `v:`, `q:`, `c:`) joined
+  by `.`, so a level a row lacks cannot shift the others; `tab` and `get` ride beside it. All three
+  go through `Filters.Values`, so every link the page prints carries them
+  (`TestFiltersRoundTripThroughValues`).
+- **Proved on the corpus:** every branch of every tab, unfiltered and under two filtered states,
+  counts exactly what `List` gives for its `source`, and each half what `get` gives
+  (`TestEveryBranchCountsWhatPickingItLists`). Each tab has the same branches under every filter.
+  `TestEverySectionIsInPierresTab` reads the assignment back from the database.
 
 ### The pool
 

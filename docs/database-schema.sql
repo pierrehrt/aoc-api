@@ -50,13 +50,46 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: acquisition_groups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.acquisition_groups (
+    id integer NOT NULL,
+    slug character varying(32) NOT NULL,
+    name character varying(32) NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: acquisition_groups_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.acquisition_groups_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: acquisition_groups_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.acquisition_groups_id_seq OWNED BY public.acquisition_groups.id;
+
+
+--
 -- Name: acquisition_types; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.acquisition_types (
     id integer NOT NULL,
     slug character varying(64) NOT NULL,
-    name character varying(64) NOT NULL
+    name character varying(64) NOT NULL,
+    group_id integer
 );
 
 
@@ -505,6 +538,7 @@ CREATE TABLE public.item_sources (
     confidence_id integer NOT NULL,
     source_note character varying(300) NOT NULL,
     open_question character varying(300),
+    section_id integer,
     CONSTRAINT item_sources_boss_and_vendor_not_both CHECK (((boss_id IS NULL) OR (vendor_id IS NULL)))
 );
 
@@ -860,6 +894,39 @@ CREATE TABLE public.schema_probe (
 
 
 --
+-- Name: sections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sections (
+    id integer NOT NULL,
+    slug character varying(64) NOT NULL,
+    name character varying(64) NOT NULL,
+    tab_id integer NOT NULL,
+    sort_order integer NOT NULL
+);
+
+
+--
+-- Name: sections_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.sections_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: sections_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.sections_id_seq OWNED BY public.sections.id;
+
+
+--
 -- Name: sets; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -929,6 +996,41 @@ ALTER SEQUENCE public.slot_fits_id_seq OWNED BY public.slot_fits.id;
 
 
 --
+-- Name: source_tabs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_tabs (
+    id integer NOT NULL,
+    slug character varying(32) NOT NULL,
+    name character varying(32) NOT NULL,
+    sort_order integer NOT NULL,
+    levels_note character varying(64) NOT NULL,
+    groups character varying(16)[] NOT NULL,
+    CONSTRAINT source_tabs_groups_known CHECK ((groups <@ ARRAY['section'::character varying, 'region'::character varying, 'map'::character varying]))
+);
+
+
+--
+-- Name: source_tabs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.source_tabs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: source_tabs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.source_tabs_id_seq OWNED BY public.source_tabs.id;
+
+
+--
 -- Name: tiers; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -993,6 +1095,13 @@ CREATE SEQUENCE public.vendors_id_seq
 --
 
 ALTER SEQUENCE public.vendors_id_seq OWNED BY public.vendors.id;
+
+
+--
+-- Name: acquisition_groups id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_groups ALTER COLUMN id SET DEFAULT nextval('public.acquisition_groups_id_seq'::regclass);
 
 
 --
@@ -1143,6 +1252,13 @@ ALTER TABLE ONLY public.regions ALTER COLUMN id SET DEFAULT nextval('public.regi
 
 
 --
+-- Name: sections id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sections ALTER COLUMN id SET DEFAULT nextval('public.sections_id_seq'::regclass);
+
+
+--
 -- Name: sets id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1157,6 +1273,13 @@ ALTER TABLE ONLY public.slot_fits ALTER COLUMN id SET DEFAULT nextval('public.sl
 
 
 --
+-- Name: source_tabs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_tabs ALTER COLUMN id SET DEFAULT nextval('public.source_tabs_id_seq'::regclass);
+
+
+--
 -- Name: tiers id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1168,6 +1291,22 @@ ALTER TABLE ONLY public.tiers ALTER COLUMN id SET DEFAULT nextval('public.tiers_
 --
 
 ALTER TABLE ONLY public.vendors ALTER COLUMN id SET DEFAULT nextval('public.vendors_id_seq'::regclass);
+
+
+--
+-- Name: acquisition_groups acquisition_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_groups
+    ADD CONSTRAINT acquisition_groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: acquisition_groups acquisition_groups_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_groups
+    ADD CONSTRAINT acquisition_groups_slug_key UNIQUE (slug);
 
 
 --
@@ -1651,6 +1790,30 @@ ALTER TABLE ONLY public.schema_probe
 
 
 --
+-- Name: sections sections_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sections
+    ADD CONSTRAINT sections_name_key UNIQUE (name);
+
+
+--
+-- Name: sections sections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sections
+    ADD CONSTRAINT sections_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sections sections_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sections
+    ADD CONSTRAINT sections_slug_key UNIQUE (slug);
+
+
+--
 -- Name: sets sets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1688,6 +1851,22 @@ ALTER TABLE ONLY public.slot_fits
 
 ALTER TABLE ONLY public.slot_fits
     ADD CONSTRAINT slot_fits_slug_key UNIQUE (slug);
+
+
+--
+-- Name: source_tabs source_tabs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_tabs
+    ADD CONSTRAINT source_tabs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source_tabs source_tabs_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_tabs
+    ADD CONSTRAINT source_tabs_slug_key UNIQUE (slug);
 
 
 --
@@ -1780,6 +1959,13 @@ CREATE INDEX item_sources_place_id_idx ON public.item_sources USING btree (place
 
 
 --
+-- Name: item_sources_section_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX item_sources_section_id_idx ON public.item_sources USING btree (section_id);
+
+
+--
 -- Name: item_spell_effects_item_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1861,6 +2047,21 @@ CREATE INDEX places_parent_place_id_idx ON public.places USING btree (parent_pla
 --
 
 CREATE INDEX places_region_id_idx ON public.places USING btree (region_id);
+
+
+--
+-- Name: sections_tab_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sections_tab_id_idx ON public.sections USING btree (tab_id);
+
+
+--
+-- Name: acquisition_types acquisition_types_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acquisition_types
+    ADD CONSTRAINT acquisition_types_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.acquisition_groups(id);
 
 
 --
@@ -2037,6 +2238,14 @@ ALTER TABLE ONLY public.item_sources
 
 ALTER TABLE ONLY public.item_sources
     ADD CONSTRAINT item_sources_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
+-- Name: item_sources item_sources_section_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_sources
+    ADD CONSTRAINT item_sources_section_id_fkey FOREIGN KEY (section_id) REFERENCES public.sections(id);
 
 
 --
@@ -2221,6 +2430,14 @@ ALTER TABLE ONLY public.quests
 
 ALTER TABLE ONLY public.regions
     ADD CONSTRAINT regions_confidence_id_fkey FOREIGN KEY (confidence_id) REFERENCES public.confidence_levels(id);
+
+
+--
+-- Name: sections sections_tab_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sections
+    ADD CONSTRAINT sections_tab_id_fkey FOREIGN KEY (tab_id) REFERENCES public.source_tabs(id);
 
 
 --
