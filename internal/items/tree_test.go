@@ -309,7 +309,11 @@ func TestABranchTheFiltersEmptyIsListedWithZero(t *testing.T) {
 	if emptied == nil {
 		t.Fatalf("the emptied section is hidden: %v", names(tr.Nodes))
 	}
-	if emptied.Count != 0 || len(emptied.Children) != 1 || emptied.Children[0].Count != 0 || len(emptied.Children[0].Groups) != 0 {
-		t.Errorf("the emptied branch reads %+v; want 0, its raid listed at 0, no halves", emptied)
+	if emptied.Count != 0 || len(emptied.Children) != 1 || emptied.Children[0].Count != 0 {
+		t.Errorf("the emptied branch reads %+v; want 0, its raid listed at 0", emptied)
+	}
+	// Its half is listed too, at 0 (AOC-068): the panel draws a location under each half it has.
+	if want := []GroupCount{{"drop", "test drops", 0}}; !reflect.DeepEqual(emptied.Children[0].Groups, want) {
+		t.Errorf("the emptied raid's halves = %v, want %v", emptied.Children[0].Groups, want)
 	}
 }

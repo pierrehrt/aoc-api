@@ -254,10 +254,12 @@ Its shape (counts inside a branch shown as 0 here, not measured values):
   (2026-10-02).
 - **A branch the filters empty is listed with `count: 0`**, never dropped. The tree's shape is every
   source row of the tab, whatever the filters.
-- `count` is distinct items. `groups` is the same count per acquisition group, listing only the
-  groups the branch has. `total` is the distinct items in the tab under the filters. `end_points`
+- `count` is distinct items. `groups` is the same count per acquisition group, for every group the
+  branch's rows have, **0 included** when the filters empty it (AOC-068). `total` is the distinct items in the tab under the filters. `end_points`
   is how many branches have no branch under them (structural, not filtered).
 - `source` is the value `/v1/items?tab=<tab>&source=…` takes to list exactly `count` items.
+- `halves` (AOC-068) is every acquisition group, `{"slug", "name"}`, in its order: the order a
+  location's halves are drawn in.
 - Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
 
 ### `GET /v1/items/{slug}`

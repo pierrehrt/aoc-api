@@ -25,7 +25,8 @@ type SourceTab struct {
 }
 
 // GroupCount is how many of a node's items come from one half of it ("loot / drops", "quest /
-// vendor"): the design's split of a location.
+// vendor"): the design's split of a location. Every half the branch's rows have is listed, 0
+// included when the filters empty it.
 type GroupCount struct {
 	Slug  string `json:"slug"`
 	Name  string `json:"name"`
@@ -45,7 +46,8 @@ type TreeNode struct {
 
 	sort  int32
 	items map[int32]struct{}
-	by    map[string]map[int32]struct{} // group slug -> items
+	by    map[string]map[int32]struct{} // group slug -> matching items
+	has   map[string]bool               // the groups any of the branch's rows has, filters aside
 	index map[string]*TreeNode          // child by "kind:slug"
 }
 
@@ -57,6 +59,9 @@ type Tree struct {
 	// EndPoints is how many branches have no branch under them — the design's "N end points".
 	EndPoints int         `json:"end_points"`
 	Nodes     []*TreeNode `json:"nodes"`
+	// Halves is every acquisition group in its order (AOC-068): the order a panel draws a location's
+	// halves in, whichever of them a branch has.
+	Halves []Term `json:"halves"`
 }
 
 // Tabs lists the main categories in Pierre's order.
@@ -247,11 +252,16 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 					src = n.Source + "." + src
 				}
 				c = &TreeNode{Kind: l.kind, Slug: l.slug, Name: l.name, Source: src, sort: l.sort,
-					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, index: map[string]*TreeNode{}}
+					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, has: map[string]bool{}, index: map[string]*TreeNode{}}
 				n.index[key] = c
 				n.Children = append(n.Children, c)
 			}
-			// Every row makes the branch exist; only a matching one counts in it (a 0 is listed).
+			// Every row makes the branch and its halves exist; only a matching one counts in them, so a
+			// half the filters empty is listed at 0, like a branch (AOC-068: the panel draws a
+			// location under each half it has).
+			if r.GroupSlug != "" {
+				c.has[r.GroupSlug] = true
+			}
 			if !r.Matches {
 				n = c
 				continue
@@ -266,7 +276,10 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 			n = c
 		}
 	}
-	out := Tree{Tab: t, Total: int64(len(all)), Nodes: root.Children}
+	out := Tree{Tab: t, Total: int64(len(all)), Nodes: root.Children, Halves: make([]Term, 0, len(groups))}
+	for _, g := range groups {
+		out.Halves = append(out.Halves, Term{Slug: g.Slug, Name: g.Name})
+	}
 	if out.Nodes == nil {
 		out.Nodes = []*TreeNode{}
 	}
@@ -286,8 +299,8 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 		for _, n := range ns {
 			n.Count = int64(len(n.items))
 			for _, g := range groups {
-				if c := len(n.by[g.Slug]); c > 0 {
-					n.Groups = append(n.Groups, GroupCount{Slug: g.Slug, Name: g.Name, Count: int64(c)})
+				if n.has[g.Slug] {
+					n.Groups = append(n.Groups, GroupCount{Slug: g.Slug, Name: g.Name, Count: int64(len(n.by[g.Slug]))})
 				}
 			}
 			if len(n.Children) == 0 {

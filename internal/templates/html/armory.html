@@ -21,11 +21,23 @@
       </div>
       <button type="button" id="copy-link" class="js-only h-[46px] flex-none rounded-[7px] border border-line-control px-4 text-[13px] font-medium text-muted hover:border-link hover:text-paper max-sm:hidden">Copy link ↗</button>
     </div>
+    {{/* The main categories (AOC-068): one active at a time, each changing the panel on the left. */}}
+    {{if .Data.Sources.Tabs}}<nav aria-label="Sources" id="armory-tabs" class="flex flex-wrap items-center gap-[10px]">
+{{template "armory_tabs" $d}}
+    </nav>{{end}}
     {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
          submitted and never in the URL. app.css § The filter sheet. */}}
     <div class="flex items-center gap-3 lg:hidden">
-      <input type="checkbox" id="filter-sheet" class="peer sr-only">
-      <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Filters<span id="filter-count">{{template "armory_filter_count" $d}}</span></label>
+      {{/* The phone's two sheets (the design's mobile rule: only filters and the source tree are behind a
+           sheet), each opened by its own unnamed checkbox — CSS only, never in the URL. */}}
+      {{if .Data.Sources.Tabs}}<span class="inline-flex">
+        <input type="checkbox" id="sources-sheet" class="peer sr-only">
+        <label for="sources-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Sources<span id="sources-count">{{template "armory_sources_count" $d}}</span></label>
+      </span>{{end}}
+      <span class="inline-flex">
+        <input type="checkbox" id="filter-sheet" class="peer sr-only">
+        <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Filters<span id="filter-count">{{template "armory_filter_count" $d}}</span></label>
+      </span>
     </div>
     <div id="armory-chips" class="flex flex-wrap items-center gap-2">
 {{template "armory_chips" $d}}
@@ -33,6 +45,32 @@
   </div>
 
   <div class="lg:flex lg:min-h-0 lg:flex-1">
+    {{if .Data.Sources.Tabs}}
+    {{/* The sources pane (AOC-068, the design's left column, 288px). It folds to a 34px strip through
+         this unnamed checkbox, as the filter pane does; on a phone it is the Sources sheet. */}}
+    <input type="checkbox" id="sources-collapsed" class="sr-only max-lg:hidden" aria-label="Collapse the sources">
+    <label for="sources-collapsed" class="sources-strip w-[34px] flex-none cursor-pointer max-lg:hidden flex-col items-center gap-3 border-r border-line bg-ink-pane py-3 hover:bg-ink-pane-hover" title="Show the sources">
+      <span class="font-mono text-[12px] font-medium text-link">›</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Sources</span>
+    </label>
+    <aside aria-label="Sources" class="sources-sheet sources-pane hidden lg:flex lg:min-w-[212px] lg:flex-[0_1_288px] lg:flex-col lg:border-r lg:border-line lg:bg-ink-pane">
+      <div id="armory-sources-head" class="flex flex-none flex-col gap-[3px] px-4 pb-[10px] pt-[14px]">
+{{template "armory_sources_head" $d}}
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto px-[10px] pb-[10px]">
+        <div id="armory-sources-tree">
+{{template "armory_sources_tree" $d}}
+        </div>
+      </div>
+      <div id="armory-sources-selected" class="mx-4 mb-[14px] mt-[2px] flex flex-none flex-col gap-1 rounded-[6px] border border-dashed border-line-soft px-3 py-[10px]">
+{{template "armory_sources_selected" $d}}
+      </div>
+      {{/* The phone sheet's way out: every pick has applied already (a link); this closes the sheet. */}}
+      <div class="flex flex-none items-center border-t border-line bg-ink-header px-4 pb-5 pt-3 lg:hidden">
+        <label for="sources-sheet" id="sources-show" class="flex h-[46px] flex-1 cursor-pointer items-center justify-center rounded-[8px] bg-link text-[13.5px] font-semibold text-ink hover:bg-link-hover">{{template "armory_sources_show" $d}}</label>
+      </div>
+    </aside>
+    {{end}}
     <div id="results" class="flex min-w-0 flex-col lg:min-h-0 lg:min-w-[380px] lg:flex-1">
 {{template "armory_rows" $d}}
     </div>

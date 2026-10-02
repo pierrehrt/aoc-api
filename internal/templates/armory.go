@@ -38,7 +38,42 @@ type ArmoryData struct {
 	// The filter rail (AOC-049). Built by the handler from items.Facets; the template only prints.
 	Rail     Rail
 	Chips    []Chip // the active filters, each with the URL that removes it
-	ClearAll string // URL with every filter and the search removed, the sort kept (the design's "clear all")
+	ClearAll string // URL with every filter and the search removed, the sort and tab kept (the design's "clear all")
+
+	// The sources panel (AOC-068), built by the handler from items.Tree; the template only prints.
+	Sources Sources
+}
+
+// Sources is the panel on the left: the main categories under the search, and the active one's tree.
+// Every label and count is the service's (source_tabs, sections and the places, bosses and vendors
+// under them); nothing here names a tab or a section.
+type Sources struct {
+	Tabs       []SourceTabLink // the main categories in their order, one Current
+	Title      string          // "Source · PVE" (drawn uppercase)
+	LevelsNote string          // the tab's levels, "tier › raid › boss"
+	EndPoints  int             // the tab's branches with nothing under them (the design's "N end points")
+	Rows       []TreeRow       // the tree as the panel draws it: open branches' children, group headers
+	Selected   string          // the picked branch's path, "A › B › C", or "" for none
+	Picked     bool            // a branch is picked (the phone button's "· 1")
+}
+
+// SourceTabLink is one main category: a link to it, its tree replacing the panel's.
+type SourceTabLink struct {
+	Label, URL string
+	Current    bool
+}
+
+// TreeRow is one row of the tree: a branch (a link that picks it) or a half's header (the design's
+// "loot / drops", not a link). Pad is the indent in px, 8 + 15 per level, as the design draws it.
+type TreeRow struct {
+	Label    string
+	Count    int64
+	URL      string
+	Pad      int
+	Caret    string // "▸" closed, "▾" open, "" nothing under it
+	Open     bool
+	Selected bool
+	Header   bool
 }
 
 // InvalidSearch is what an HTMX request with a malformed filter gets back, in place of the rows: the
@@ -231,5 +266,16 @@ func armoryProbe() ArmoryData {
 		Pages: 1,
 		Pager: []PageLink{{N: 1, URL: "/armory", Current: true}},
 		Clear: "/armory",
+		// The sources panel (AOC-068): a tab of each state, a branch of each kind of row.
+		Sources: Sources{
+			Tabs:  []SourceTabLink{{Label: "Test Tab", URL: "/armory", Current: true}, {Label: "Test Other", URL: "/armory?tab=test-other"}},
+			Title: "Source · Test Tab", LevelsNote: "test › levels", EndPoints: 2,
+			Rows: []TreeRow{
+				{Label: "Test Section", Count: 3, URL: "/armory?source=s:test-section", Pad: 8, Caret: "▾", Open: true},
+				{Label: "test drops", Pad: 23, Header: true},
+				{Label: "Test Place", Count: 2, URL: "/armory?source=s:test-section.p:test-place&get=drop", Pad: 38, Selected: true},
+			},
+			Selected: "Test Section › Test Place", Picked: true,
+		},
 	}
 }

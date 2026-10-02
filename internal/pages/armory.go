@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -89,7 +90,28 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	here := func(g items.Filters) string { return armoryURL(g, 1) }
 	withoutQuery := f
 	withoutQuery.Query = ""
-	rail, chips, clearAll := buildRail(f, res.Facets, here)
+	// The sources panel (AOC-068): the tabs and the active one's tree, counted under every other
+	// filter. A tab no tab has names nothing: 404, like a page past the end.
+	tabs, err := h.items.Tabs(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	var sources templates.Sources
+	sourceLabel := ""
+	if len(tabs) > 0 {
+		tree, err := h.items.Tree(r.Context(), f)
+		if errors.Is(err, items.ErrNoSuchTab) {
+			httpx.RejectHTML(w, r, http.StatusNotFound, "There is no such source tab")
+			return
+		}
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		sources, sourceLabel = buildSources(f, tabs, tree, here)
+	}
+	rail, chips, clearAll := buildRail(f, res.Facets, here, sourceLabel)
 	d := templates.ArmoryData{
 		Query:    f.Query,
 		Sort:     f.Sort,
@@ -101,6 +123,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		Rail:     rail,
 		Chips:    chips,
 		ClearAll: clearAll,
+		Sources:  sources,
 	}
 	for i, k := range items.Sorts {
 		g := f
@@ -223,7 +246,9 @@ func armoryURL(f items.Filters, page int) string {
 	if len(v) == 0 {
 		return "/armory"
 	}
-	return "/armory?" + v.Encode()
+	// A source path's ':' is printed as itself, not %3A (AOC-068): ':' is legal in a query, and the URL
+	// is shown in the search block, where "source=s:pve-tier-3" reads and "s%3Apve-tier-3" does not.
+	return "/armory?" + strings.ReplaceAll(v.Encode(), "%3A", ":")
 }
 
 // pagerWindow is the numbered links to show: five consecutive pages around the current one, as the

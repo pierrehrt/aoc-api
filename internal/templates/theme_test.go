@@ -36,7 +36,7 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	// Text tokens: everything that is not a surface or a border. A new surface token must be
 	// added here on purpose, so that a text colour cannot be excused by being misnamed.
 	surfaces := map[string]bool{"ink": true, "ink-header": true, "ink-pane": true, "ink-strip": true, "ink-hover": true,
-		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true, "ink-pane-hover": true,
+		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true, "ink-pane-hover": true, "ink-tree-hover": true,
 		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true}
 	// AOC-065: text sits on every pane of the full-window layout, not only on the page colour — each
 	// pair is measured. (On ink-selected, only paper is ever written; it is measured below.)
@@ -60,7 +60,11 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	}
 	// The few surfaces that carry only particular text: selected things and the active nav pill carry
 	// paper; a nav pill under the pointer carries muted-2 or paper.
-	for _, pair := range [][2]string{{"paper", "ink-selected"}, {"paper", "ink-nav"}, {"paper", "ink-pill"}, {"paper", "ink-nav-hover"}, {"muted-2", "ink-nav-hover"}} {
+	// A source tree row under the pointer (AOC-068) carries its label (muted, or paper when open), and
+	// its caret and count in muted-2 — never faint, which is 4.34:1 there. A selected row carries
+	// paper and link on ink-selected.
+	for _, pair := range [][2]string{{"paper", "ink-selected"}, {"paper", "ink-nav"}, {"paper", "ink-pill"}, {"paper", "ink-nav-hover"}, {"muted-2", "ink-nav-hover"},
+		{"muted", "ink-tree-hover"}, {"muted-2", "ink-tree-hover"}, {"paper", "ink-tree-hover"}, {"link", "ink-tree-hover"}, {"link", "ink-selected"}} {
 		if r := contrast(tokens[pair[0]], tokens[pair[1]]); r < 4.5 {
 			t.Errorf("%s on %s is %.2f:1 — below AA's 4.5:1", pair[0], pair[1], r)
 		}
