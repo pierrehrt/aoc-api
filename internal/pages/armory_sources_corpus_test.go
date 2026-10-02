@@ -30,7 +30,7 @@ var (
 func getPage(t *testing.T, h http.Handler, target string) (int, string) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil))
 	b, _ := io.ReadAll(rec.Result().Body)
 	return rec.Code, string(b)
 }
