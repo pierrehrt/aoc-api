@@ -36,9 +36,14 @@ one list.
   level, currency and set have no control there any more; they still apply from a link and show as
   pills (AOC-065)
 - Classes are listed Soldier, Rogue, Priest, Mage, in the design's order within each, on the list,
-  the item page and in `/v1/taxonomies` (AOC-065)
-- ⚠️ `/v1/items`: a repeated value of those six filters used to take the first and ignore the rest;
-  it now means any of them. The response shape is unchanged (AOC-064)
+  the item page and in `/v1`: `/v1/taxonomies`, the class facet of `/v1/items?facets=1` and an item's
+  `classes` in `/v1/items/{slug}` (AOC-065)
+- On the Armory list the search shows as a pill like the filters, and "clear all" clears it too (it
+  used to keep the search); one sort button steps through the orders, and the Item and iLvl headers
+  sort; Back and Forward reload the state from the server (AOC-065)
+- ⚠️ `/v1/items`: a repeated value of those six filters used to take the first and ignore the rest,
+  and a comma in a value matched nothing; both now mean any of the values. The response shape is
+  unchanged (AOC-064)
 - Every request has a 10-second deadline: a database that hangs gives an error and an ERROR log line,
   where a page used to wait until the reader or Cloudflare gave up. A request the reader abandons,
   including an Armory update a newer change replaced, is logged as 499 at Info, not as a server error
@@ -46,7 +51,7 @@ one list.
 
 ### Fixed
 
-- A filter changed while the Armory list was still updating, such as a second box ticked on a slow
+- A filter changed while the Armory list was still updating, such as a second choice made on a slow
   connection, is no longer lost (AOC-065)
 - A filter changed while a link's update was in flight (a pill's ×, a sort, "clear all") no longer
   drops the link (AOC-065)
