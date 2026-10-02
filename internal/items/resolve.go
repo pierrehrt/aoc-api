@@ -279,13 +279,9 @@ func CheckResolvable(its []Item, l *Lookups) (unknown []Unresolved, staleDecisio
 		for _, s := range it.LiveSources() {
 			check("acquisition_type", s.AcquisitionType, l.AcquisitionTypes)
 			check("tier", s.Tier, l.Tiers)
-			// ⭐ Every source row belongs to a section (item_sources.section_id is NOT NULL, AOC-050):
-			// a missing one stops the import like an unknown one, rather than failing on the insert.
-			if s.SectionRaw == nil || *s.SectionRaw == "" {
-				note("section", "(none)")
-			} else {
-				check("section", s.SectionRaw, l.Sections)
-			}
+			// The row's AoC>TV section (AOC-050): the source panel's tab and first level. A name the
+			// database was never told about stops the import; a row with none is in no tab.
+			check("section", s.SectionRaw, l.Sections)
 			check("region", s.Region, l.Regions)
 			check("container", s.Container, l.Containers)
 			check("map", s.Map, l.Maps)

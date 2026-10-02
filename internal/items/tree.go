@@ -234,7 +234,9 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 	root := &TreeNode{index: map[string]*TreeNode{}}
 	all := map[int32]struct{}{}
 	for _, r := range rows {
-		all[r.ItemID] = struct{}{}
+		if r.Matches {
+			all[r.ItemID] = struct{}{}
+		}
 		n := root
 		for _, l := range rowPath(t.Groups, r) {
 			key := l.kind + ":" + l.slug
@@ -248,6 +250,11 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, index: map[string]*TreeNode{}}
 				n.index[key] = c
 				n.Children = append(n.Children, c)
+			}
+			// Every row makes the branch exist; only a matching one counts in it (a 0 is listed).
+			if !r.Matches {
+				n = c
+				continue
 			}
 			c.items[r.ItemID] = struct{}{}
 			if r.GroupSlug != "" {

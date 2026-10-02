@@ -25,7 +25,8 @@ INSERT INTO source_tabs (slug, name, sort_order, levels_note, groups) VALUES
     ('region',    'Region',    30, 'region › zone › location',     '{region,map}'),
     ('faction',   'Faction',   40, 'faction › map › instance',     '{section,map}'),
     ('onslaught', 'Onslaught', 50, 'category › region › location', '{section,region}'),
-    ('other',     'Other',     60, 'category › region › vendor',   '{section,region}');
+    ('other',     'Other',     60, 'category › region › vendor',   '{section,region}')
+ON CONFLICT (slug) DO NOTHING;
 
 -- AoC>TV's sections, `name` VERBATIM as the snapshot spells them (item_sources.section_raw), each in
 -- the tab Pierre gave it on 2026-10-02. Order within a tab: the tiers by number, the rest by name.
@@ -85,10 +86,13 @@ FROM (VALUES
     ('unsorted-items',        'Unsorted Items',        'other',     70),
     ('world-boss',            'World Boss',            'other',     80)
 ) AS v(slug, name, tab, sort_order)
-JOIN source_tabs t ON t.slug = v.tab;
+JOIN source_tabs t ON t.slug = v.tab
+ON CONFLICT (slug) DO NOTHING;
 
 -- The design's two halves of a location: "loot / drops" and "quest / vendor". Which acquisition type
--- falls in which is a grouping of lookup rows, so it is data too.
+-- falls in which is a grouping of lookup rows, so it is data too. Nullable, like every lookup here
+-- (TestNothingIsNotNullByAccident): a type added later with no group falls in neither half, as the 17
+-- source rows with no acquisition type do. The three that exist are checked below.
 CREATE TABLE acquisition_groups (
     id         serial      PRIMARY KEY,
     slug       varchar(32) NOT NULL UNIQUE,
@@ -97,7 +101,8 @@ CREATE TABLE acquisition_groups (
 );
 INSERT INTO acquisition_groups (slug, name, sort_order) VALUES
     ('drop',   'loot / drops',   10),
-    ('vendor', 'quest / vendor', 20);
+    ('vendor', 'quest / vendor', 20)
+ON CONFLICT (slug) DO NOTHING;
 
 ALTER TABLE acquisition_types ADD COLUMN group_id integer NULL REFERENCES acquisition_groups(id);
 UPDATE acquisition_types a SET group_id = g.id
@@ -113,10 +118,11 @@ BEGIN
     END IF;
 END $$;
 -- +goose StatementEnd
-ALTER TABLE acquisition_types ALTER COLUMN group_id SET NOT NULL;
 
 -- Every source row points at its section. Backfilled BY NAME from the row's own section_raw; a row
--- whose section is not one of the 39 stops the migration rather than being left without one.
+-- whose section is not one of the 39 stops the migration rather than being left without one. The
+-- column is nullable like every lookup (TestNothingIsNotNullByAccident): a row with no section is in
+-- no tab. The importer refuses a section name it was never told about (resolve.go).
 ALTER TABLE item_sources ADD COLUMN section_id integer NULL REFERENCES sections(id);
 UPDATE item_sources s SET section_id = sc.id FROM sections sc WHERE sc.name = s.section_raw;
 -- +goose StatementBegin
@@ -129,7 +135,6 @@ BEGIN
     END IF;
 END $$;
 -- +goose StatementEnd
-ALTER TABLE item_sources ALTER COLUMN section_id SET NOT NULL;
 CREATE INDEX item_sources_section_id_idx ON item_sources (section_id);
 
 -- +goose Down

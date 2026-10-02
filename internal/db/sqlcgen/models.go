@@ -19,7 +19,7 @@ type AcquisitionType struct {
 	ID      int32
 	Slug    string
 	Name    string
-	GroupID int32
+	GroupID *int32
 }
 
 type Archetype struct {
@@ -162,7 +162,7 @@ type ItemSource struct {
 	ConfidenceID      int32
 	SourceNote        string
 	OpenQuestion      *string
-	SectionID         int32
+	SectionID         *int32
 }
 
 type ItemSpellEffect struct {

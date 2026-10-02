@@ -48,7 +48,7 @@ func TestTheFilterCTEIsOneDefinition(t *testing.T) {
 		name := regexp.MustCompile(`-- name: (\w+)`).FindAllStringSubmatch(src[:l[0]], -1)
 		bodies[name[len(name)-1][1]] = rest[:end]
 	}
-	for _, q := range []string{"ListItems", "CountItemFacets", "ItemFacetTotals"} {
+	for _, q := range []string{"ListItems", "CountItemFacets", "ItemFacetTotals", "ListSourceTreeRows"} {
 		if _, ok := bodies[q]; !ok {
 			t.Errorf("%s does not start with the filtered CTE", q)
 		}

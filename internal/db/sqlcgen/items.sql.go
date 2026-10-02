@@ -2094,7 +2094,11 @@ SELECT DISTINCT src.item_id,
        -- quests.name is deliberately NULL (the real name is unknown); the armory's label is what it said.
        coalesce(sq.slug, '')::varchar AS quest_slug, coalesce(sq.name, sq.armory_label, '')::varchar AS quest_name,
        coalesce(sct.slug, '')::varchar AS container_slug, coalesce(sct.name, '')::varchar AS container_name,
-       coalesce(sag.slug, '')::varchar AS group_slug
+       coalesce(sag.slug, '')::varchar AS group_slug,
+       -- Whether the item passes every other filter. The tree's SHAPE is every row of the tab, so a
+       -- branch the filters empty is still listed with its 0, never hidden (the rail's rule); only
+       -- the rows that match are counted.
+       (f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set)::boolean AS matches
 FROM filtered f
 JOIN item_sources src ON src.item_id = f.item_id
 JOIN sections sc ON sc.id = src.section_id
@@ -2110,7 +2114,6 @@ LEFT JOIN containers sct ON sct.id = src.container_id
 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
 WHERE stb.slug = $1::varchar
-  AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
 ORDER BY src.item_id
 `
 
@@ -2170,10 +2173,11 @@ type ListSourceTreeRowsRow struct {
 	ContainerSlug string
 	ContainerName string
 	GroupSlug     string
+	Matches       bool
 }
 
 // The source panel's raw material (AOC-050): one row per (item, the levels of ONE of its source rows)
-// in a tab, for the items every OTHER filter leaves. The service builds the tab's tree from these and
+// in a tab, with whether the item passes every OTHER filter. The service builds the tab's tree from these and
 // counts distinct items per node, so a node's count is what choosing it would leave -- the rail's
 // rule (AOC-049) -- and the tree's own selection is left out by calling this with no source_*
 // arguments. Levels are columns of our own tables; which of them a tab draws is source_tabs.groups.
@@ -2242,6 +2246,7 @@ func (q *Queries) ListSourceTreeRows(ctx context.Context, arg ListSourceTreeRows
 			&i.ContainerSlug,
 			&i.ContainerName,
 			&i.GroupSlug,
+			&i.Matches,
 		); err != nil {
 			return nil, err
 		}
