@@ -1200,7 +1200,7 @@ Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
   `TestTheTreeTakesEveryListFilterButTheSource`). `items.buildTree` builds the tree from all rows
   and counts the distinct matching items per node, so a branch the filters empty is still listed
   at 0. Not `GROUPING SETS`: each tab draws different levels, and one row query plus a Go walk over
-  a few thousand rows is simpler and measured fast enough.
+  a few thousand rows is simpler. Measured on the corpus: 4–13 ms per tab, filtered or not, and the list unchanged against 0.5.0 (6.6 ms against 7.2 unfiltered, 26.1 against 25.8 with facets).
 - **The URL.** `source` is typed segments (`s:`, `r:`, `m:`, `p:`, `b:`, `v:`, `q:`, `c:`) joined
   by `.`, so a level a row lacks cannot shift the others; `tab` and `get` ride beside it. All three
   go through `Filters.Values`, so every link the page prints carries them
