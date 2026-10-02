@@ -212,10 +212,13 @@ byte-identical to 0.5.0's.
     named, together. That differs from `tier=` plus `place=`, which may each match a different row
     of the same item and keep their meaning.
   - **Each kind appears once, except places,** which form a chain, each the parent of the next
-    (`p:house-of-crom.p:the-vile-nativity`), at most eight. A chain whose places are not each
+    (`p:house-of-crom.p:the-vile-nativity`), at most 32 (the tree draws no deeper). A chain whose places are not each
     other's parents names nothing. The last place is the one matched. It is matched with every
     place inside it when the path ends there (AOC-038), and alone when a boss, vendor, quest giver
     or container follows.
+  - **A row's location is its first kind, in the order boss, vendor, quest giver, container.** A
+    `v:`, `q:` or `c:` matches only a row with no earlier kind, because that is where the tree
+    draws it (a row with a quest giver and a container is under the quest giver).
   - **`-` is a level the row does not have:** `r:-` and `m:-` for no region or map, and `p:-` (only
     on its own) for no place before a boss, vendor, quest giver or container.
     `/v1/sources/tree` writes them wherever a row lacks a level, so a branch's `source` lists
@@ -229,8 +232,8 @@ byte-identical to 0.5.0's.
   "loot / drops") or `vendor` ("quest / vendor"). Which acquisition types fall in each is data
   (`acquisition_types.group_id`). **`get` needs a `source`**: alone it is a 400.
 - **A malformed `source`, `tab` or `get` is a 400.** That covers an unknown kind, a segment that is
-  not `kind:slug`, a level twice, more than eight places, `-` where it cannot stand, a value that is
-  not a slug, or `get` without a `source`. The body is the central mapping's
+  not `kind:slug`, a level twice, more than 32 places, `-` where it cannot stand, a value that is
+  not a slug, or `get` without a `source`. `/armory` answers each with its own 400 page. The body is the central mapping's
   `{"error":"invalid request"}`, as for a bad `sort`; the reason is logged. An unknown **slug** is
   not malformed: it matches nothing, like an unknown rarity.
 
@@ -258,8 +261,8 @@ Its shape (counts inside a branch shown as 0 here, not measured values):
 ```
 
 - **The levels are data.** A tab draws its `groups` (from `section`, `region`, `map`), then the
-  location: the row's place under every place above it, then its boss, vendor, quest giver or
-  container. A row with no place has one of those as its location instead. A level a row does not
+  location: the row's place under every place above it (32 at most), then its boss, vendor, quest
+  giver or container, the first of those the row has. A row with no place has one of those as its location instead. A level a row does not
   have is never shown as "Unknown": no branch is drawn for it, and its branches hang from the one
   above. Their `source` still names it as `-`. The tabs, the sections in each and their order are rows
   (`source_tabs`, `sections`), seeded with Pierre's assignment of AoC>TV's 39 sections
