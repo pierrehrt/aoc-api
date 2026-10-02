@@ -3,6 +3,8 @@ package pages
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,8 +23,9 @@ import (
 
 const armoryPageSize = 50
 
-// sortLabels is presentation: the words on the sort control for the keys items.Sorts defines.
-var sortLabels = map[string]string{items.SortILvl: "Item level", items.SortName: "Name", items.SortID: "Id"}
+// sortLabels is presentation: the words on the sort control for the keys items.Sorts defines, with
+// the direction each one runs (the design's "Item level ↓").
+var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortName: "Name ↑", items.SortID: "Item id ↑"}
 
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)
@@ -99,10 +102,24 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		Chips:    chips,
 		ClearAll: clearAll,
 	}
-	for _, k := range items.Sorts {
+	for i, k := range items.Sorts {
 		g := f
 		g.Sort = k
 		d.Sorts = append(d.Sorts, templates.SortOption{Key: k, Label: sortLabels[k], URL: here(g), Current: k == f.Sort})
+		if k == f.Sort {
+			// The design's one sort button: it shows this order and leads to the next one.
+			next := f
+			next.Sort = items.Sorts[(i+1)%len(items.Sorts)]
+			d.SortLabel, d.NextSort = sortLabels[k], here(next)
+		}
+	}
+	d.URL = armoryURL(f, page)
+	if n := int64(len(res.Items)); n > 0 {
+		d.RowsFrom = int64(f.Offset) + 1
+		d.RowsTo = int64(f.Offset) + int64(armoryPageSize)
+		if d.RowsTo > res.Total {
+			d.RowsTo = res.Total
+		}
 	}
 	if page > 1 {
 		d.Prev = armoryURL(f, page-1)
@@ -117,8 +134,16 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	if templates.IsHTMX(r) {
 		// The rows, plus the rail out of band: one request re-renders both, so the counts always
 		// describe the rows beside them. HX-Push-Url is this state's own URL, not the form's raw
-		// query string with its empty fields — one URL per state (AOC-049).
-		w.Header().Set("HX-Push-Url", armoryURL(f, page))
+		// query string with its empty fields — one URL per state (AOC-049). A new history entry only
+		// for a new state: an answer for the URL the reader is already on (a Cancel back to it, say)
+		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
+		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
+		canon := armoryURL(f, page)
+		if canonicalOf(r, r.Header.Get("HX-Current-URL")) == canon {
+			w.Header().Set("HX-Replace-Url", canon)
+		} else {
+			w.Header().Set("HX-Push-Url", canon)
+		}
 		// Fragment adds Vary: HX-Request itself.
 		if err := h.tpl.Fragment(w, "armory_update", d); err != nil {
 			h.fail(w, r, err)
@@ -138,6 +163,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	}
 	// The canonical is this state without a redundant p=1, so the first page has one URL.
 	v := h.view(title, desc, armoryURL(f, page))
+	v.App = true // the validated design's full-window app, from lg up (AOC-065)
 	h.render(w, r, "armory", v, d)
 }
 
@@ -149,11 +175,45 @@ func itemCount(n int64) string {
 	return strconv.FormatInt(n, 10) + " items"
 }
 
+// canonicalOf is the canonical URL of the armory state an address names, read by the same parser
+// and defaults as a request, or "" when it names none (another page, a query the parser rejects).
+// Two addresses of one state compare equal: after the search's Enter or the phone's Apply the address
+// bar holds the form's raw query (?q=&rarity=epic&ilvl_min=&ilvl_max=), and a string comparison
+// took an answer for that same state for a new one (AOC-065 delta verify 6).
+func canonicalOf(r *http.Request, address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Path != "/armory" {
+		return ""
+	}
+	cr := r.Clone(r.Context())
+	cr.URL = u
+	f, err := items.ParseFilters(cr)
+	if err != nil {
+		return ""
+	}
+	page := 1
+	if p := u.Query().Get("p"); p != "" {
+		if page, err = strconv.Atoi(p); err != nil || page < 1 {
+			return ""
+		}
+	}
+	if f.Sort == "" {
+		f.Sort = items.SortILvl
+	}
+	f.Limit, f.Offset, f.WithFacets = armoryPageSize, (page-1)*armoryPageSize, true
+	return armoryURL(f, page)
+}
+
 // armoryURL builds the list's own URLs from the whole state: only what differs from the default is
 // in the query string, so the same state always has the same URL (and the canonical never carries
 // p=1 or the page's default sort).
 func armoryURL(f items.Filters, page int) string {
 	v := f.Values()
+	// A list means any of its values, in any order, so one state has ONE URL: each list sorted
+	// (AOC-064 verify F4 — ?rarity=rare&rarity=epic and ?rarity=epic&rarity=rare were two canonicals).
+	for _, k := range []string{"rarity", "equip_location", "armour_weight", "class", "currency", "set", "place"} {
+		sort.Strings(v[k])
+	}
 	if v.Get("sort") == items.SortILvl {
 		v.Del("sort")
 	}
@@ -166,14 +226,23 @@ func armoryURL(f items.Filters, page int) string {
 	return "/armory?" + v.Encode()
 }
 
-// pagerWindow is the numbered links to show: the first, the last, and two either side of the
-// current page — 93 pages of 50 must not become 93 links.
+// pagerWindow is the numbered links to show: five consecutive pages around the current one, as the
+// design draws them (‹ Prev 1 2 3 4 5 Next ›) — 93 pages of 50 must not become 93 links.
 func pagerWindow(page, pages int) []int {
+	from := page - 2
+	if from > pages-4 {
+		from = pages - 4
+	}
+	if from < 1 {
+		from = 1
+	}
+	to := from + 4
+	if to > pages {
+		to = pages
+	}
 	var out []int
-	for n := 1; n <= pages; n++ {
-		if n == 1 || n == pages || (n >= page-2 && n <= page+2) {
-			out = append(out, n)
-		}
+	for n := from; n <= to; n++ {
+		out = append(out, n)
 	}
 	return out
 }

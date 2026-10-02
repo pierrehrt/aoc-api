@@ -129,13 +129,12 @@ LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity
 GROUP BY aw.id
 UNION ALL
 SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
-       row_number() OVER (ORDER BY a.name, cl.name),
+       row_number() OVER (ORDER BY cl.sort_order NULLS LAST, cl.name),
        count(DISTINCT f.item_id)
 FROM classes cl
-JOIN archetypes a ON a.id = cl.archetype_id
 LEFT JOIN item_classes ic ON ic.class_id = cl.id
 LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
-GROUP BY cl.id, a.name
+GROUP BY cl.id
 UNION ALL
 SELECT 'currency', cu.slug, cu.name, '', '',
        row_number() OVER (ORDER BY cu.name),
@@ -594,7 +593,7 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.name
+ORDER BY cl.sort_order NULLS LAST, cl.name
 `
 
 type ListItemClassesRow struct {
@@ -604,6 +603,7 @@ type ListItemClassesRow struct {
 	ShortName *string
 }
 
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItemClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemClasses, itemID)
 	if err != nil {
@@ -702,7 +702,7 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY($1::integer[])
-ORDER BY ic.item_id, cl.id
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id
 `
 
 type ListItemPageClassesRow struct {
@@ -713,6 +713,7 @@ type ListItemPageClassesRow struct {
 }
 
 // A page's class restrictions in one round trip, with the short names the row shows (AOC-046).
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]ListItemPageClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemPageClasses, itemIds)
 	if err != nil {
@@ -1153,7 +1154,6 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 }
 
 const listItems = `-- name: ListItems :many
-
 WITH filtered AS (
   SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
          pr.priced,
@@ -1329,6 +1329,7 @@ type ListItemsRow struct {
 // ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 // difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 // Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
+//
 // The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //

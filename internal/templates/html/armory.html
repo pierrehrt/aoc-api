@@ -1,48 +1,266 @@
-{{define "content"}}
+{{define "content"}}{{$d := .Data}}
 <h1 class="sr-only">Armory</h1>
-{{/* ONE form: the search and the filter rail submit together, so a search keeps the filters and a
-     filter keeps the search. Without JavaScript it is a plain GET form (AOC-049). */}}
-<form method="get" action="/armory" class="armory">
-  <div role="search" class="flex flex-wrap items-center gap-3">
-    <label for="q" class="sr-only">Search items by name or id</label>
-    <input id="q" name="q" type="search" value="{{.Data.Query}}" placeholder="Search {{.Data.Span.Total}} items by name or id"
-           class="min-w-0 flex-1 rounded border border-line bg-ink-2 px-3 py-2 text-paper placeholder:text-muted focus:border-link focus:outline-none">
-    <button type="submit" class="rounded bg-link px-4 py-2 font-medium text-ink">Search</button>
-  </div>
-  {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
-       submitted and never in the URL. app.css § The filter sheet. */}}
-  <input type="checkbox" id="filter-sheet" class="peer sr-only lg:hidden">
-  <label for="filter-sheet" class="mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1 rounded border border-line px-3 text-sm text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link lg:hidden">Filters<span id="filter-count">{{template "armory_filter_count" .Data}}</span></label>
-  <div class="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-8">
-    <div id="results" class="min-w-0">
-{{template "armory_rows" .Data}}
-    </div>
-    <aside aria-label="Filters" class="filter-sheet hidden lg:block">
-      <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
-        <p class="font-medium text-paper">Filters</p>
-        <label for="filter-sheet" class="cursor-pointer text-sm text-link">Close</label>
+{{/* The validated design (AOC-065; product_management/reference/ui-guidelines.md). From lg up the page
+     is the full-window app: this search block fixed under the header, then the table pane and the
+     filter pane side by side, each scrolling inside itself. Below lg it is the canvas's 1b — an
+     ordinary scrolling page, the filters in a sheet.
+     ONE form: the search and the filters submit together, so each keeps the other, and without
+     JavaScript it is a plain GET form (AOC-049). */}}
+{{/* hx-sync, inherited by every htmx request in the form (the pane's, the pills', sort and pager):
+     a new request aborts the one in flight, so the only answer that lands is the latest action's.
+     The pane is then never redrawn from a stale state over the reader's newer change (AOC-065). */}}
+<form method="get" action="/armory" class="armory flex flex-col lg:min-h-0 lg:flex-1" hx-sync="this:replace">
+  <div class="flex flex-none flex-col gap-3 border-b border-line bg-ink-pane px-5 pb-[14px] pt-[18px]">
+    <div role="search" class="flex items-center gap-3">
+      <div class="flex h-[46px] min-w-0 flex-1 items-center gap-[11px] rounded-[7px] border-[1.5px] border-link bg-ink px-[14px] shadow-[0_0_0_3px_rgba(205,151,91,0.13)]">
+        <span aria-hidden="true" class="size-[14px] flex-none rounded-full border-[1.6px] border-muted-2"></span>
+        <label for="q" class="sr-only">Search items by name or id</label>
+        <input id="q" name="q" type="search" value="{{$d.Query}}" placeholder="Search {{num $d.Span.Total}} items by name or id"
+               class="min-w-0 flex-1 border-0 bg-transparent px-[2px] py-[1px] text-[15px] text-paper placeholder:text-faint focus:outline-none">
+        <kbd aria-hidden="true" class="js-only flex-none rounded-[4px] border border-line-control px-1.5 py-[3px] font-mono text-[11px] font-medium text-faint max-sm:hidden">⌘K</kbd>
       </div>
-      {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the
-           answer carries the rail out of band (armory_update). Never swapped itself, so the phone
-           sheet's scroll position survives a change. */}}
-      <div class="min-h-0 flex-1 overflow-y-auto px-4 lg:px-0" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true">
+      <button type="button" id="copy-link" class="js-only h-[46px] flex-none rounded-[7px] border border-line-control px-4 text-[13px] font-medium text-muted hover:border-link hover:text-paper max-sm:hidden">Copy link ↗</button>
+    </div>
+    {{/* The phone's filter sheet (design 1b) opens on this checkbox — CSS only, no name, so it is never
+         submitted and never in the URL. app.css § The filter sheet. */}}
+    <div class="flex items-center gap-3 lg:hidden">
+      <input type="checkbox" id="filter-sheet" class="peer sr-only">
+      <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Filters<span id="filter-count">{{template "armory_filter_count" $d}}</span></label>
+    </div>
+    <div id="armory-chips" class="flex flex-wrap items-center gap-2">
+{{template "armory_chips" $d}}
+    </div>
+  </div>
+
+  <div class="lg:flex lg:min-h-0 lg:flex-1">
+    <div id="results" class="flex min-w-0 flex-col lg:min-h-0 lg:min-w-[380px] lg:flex-1">
+{{template "armory_rows" $d}}
+    </div>
+
+    {{/* The filter pane (the design's right column, 232px). It collapses to a 34px strip through this
+         unnamed checkbox; on a phone it is the sheet. */}}
+    <input type="checkbox" id="filters-collapsed" class="sr-only max-lg:hidden" aria-label="Collapse the filters">
+    <label for="filters-collapsed" class="filters-strip w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-pane py-3 hover:bg-ink-pane-hover" title="Show the filters">
+      <span class="font-mono text-[12px] font-medium text-link">‹</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Filters <span id="strip-active">{{template "armory_active" $d}}</span></span>
+    </label>
+    <aside aria-label="Filters" class="filter-sheet filters-pane relative hidden lg:flex lg:min-w-[186px] lg:flex-[0_1_232px] lg:flex-col lg:border-l lg:border-line lg:bg-ink-pane">
+      <div class="flex items-center justify-between border-b border-line px-4 py-3 lg:hidden">
+        <p class="text-[12px] font-semibold uppercase tracking-[0.06em] text-link">Filters</p>
+        <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center px-2 text-[13px] text-link">Close</label>
+      </div>
+      {{/* With JavaScript, a change here re-renders the rows and the counts in one request; the answer
+           carries the pane out of band (armory_update). This scroll box is never swapped itself, so the
+           scroll position survives a change. */}}
+      <div class="relative min-h-0 flex-1 overflow-y-auto px-4 lg:px-[14px]" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true">
         <div id="armory-facets">
-{{template "armory_facets" .Data}}
+{{template "armory_facets" $d}}
         </div>
       </div>
     </aside>
   </div>
 </form>
-{{/* A change's answer redraws the rail. A number typed, or a choice made, while that request was in
-     flight would be wiped by the redraw (AOC-049 review) — so the control that has focus keeps what
-     the reader put in it, and its own change sends it next. An enhancement only: without it, and
-     without JavaScript, the page works. */}}
+{{/* Enhancements only: without them, and without JavaScript, the page works.
+     - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
+     - A link's or Cancel's request sets the form to its state as it goes; a pane an answer draws
+       during a press on a slider is held back until the press ends (AOC-065).
+     - The phone sheet's Cancel returns to the state the sheet was opened on (AOC-065).
+     - ⌘K / Ctrl+K focuses the search; Copy link copies the state's URL (the design). */}}
 <script>
+// Each level bound has two inputs: the sliders' hidden one (data-js-enable, shipped disabled) and a
+// number input for a script-less reader (data-js-disable). Here — at load, and for every pane htmx
+// swaps in, whose markup is the server's as for a script-less reader — the first is switched on and
+// the second off, so each bound is sent once (AOC-065 verify round 1: after the first swap the
+// <noscript> inputs this replaced had become live fields, and every bound was sent twice).
+function aocEnable(root) {
+  root.querySelectorAll("[data-js-enable]").forEach(function (i) { i.disabled = false; });
+  root.querySelectorAll("[data-js-disable]").forEach(function (i) { i.disabled = true; });
+}
+aocEnable(document);
+document.addEventListener("htmx:load", function (e) { aocEnable(e.detail.elt); });
+document.addEventListener("htmx:oobAfterSwap", function () { aocEnable(document); });
+// A slider writes its bound's hidden input — empty at the slider's end, which is no bound — and the
+// legend's range.
+function aocSyncRange(s) {
+  var box = s.closest("[data-range]"), h = box.querySelector('input[type=hidden][name="' + s.dataset.bound + '"]');
+  var end = s.dataset.end === "min" ? s.min : s.max;
+  h.value = s.value === end ? "" : s.value;
+  var lo = box.querySelector("[data-end=min]").value, hi = box.querySelector("[data-end=max]").value;
+  box.querySelector("[data-range-label]").textContent = lo + " – " + hi;
+}
+document.addEventListener("input", function (e) {
+  if (e.target.matches && e.target.matches("input[type=range][data-bound]")) aocSyncRange(e.target);
+});
+// An answer's pane is drawn from the state its request carried. The form's hx-sync="this:replace"
+// makes every new request abort the one in flight, so an answer that lands is the latest action's,
+// and a change the reader makes is sent at once with the form as it is (AOC-065 delta verifies: a
+// second tick, a slider's move, had been wiped by a stale redraw).
+var aocPane = document.getElementById("armory-facets"), aocScroll = aocPane.parentElement;
+
+// A request that does not come from the pane — a link (a pill's ×, "clear all", sort, a page) or
+// Cancel — names its state in its URL. The form takes that state as the request goes, control by
+// name, so a change the reader makes before its answer lands builds on it rather than on the page
+// being left (AOC-065 delta verify 4, P3: a pill removed, then a box ticked within the round trip,
+// brought the pill back). The search box is in no redraw: it takes the state's search here (removing
+// the "q:" pill left the query in it, and the next change sent it again). A parameter the form has
+// no control for (the sort, say) rides along as a hidden input until the answer redraws the pane.
+function aocFormFrom(url) {
+  var left = [], form = aocPane.closest("form");
+  new URLSearchParams(url.split("?")[1] || "").forEach(function (v, k) { if (k !== "p") left.push([k, v]); });
+  var take = function (name, value) { // the first pair left with this name (and value), consumed
+    for (var j = 0; j < left.length; j++) {
+      if (left[j][0] === name && (value === undefined || left[j][1] === value)) return left.splice(j, 1)[0][1];
+    }
+    return null;
+  };
+  form.querySelectorAll("input[name]").forEach(function (i) {
+    if (i.type === "checkbox") { i.checked = take(i.name, i.value) !== null; return; }
+    var v = take(i.name);
+    i.value = v === null ? "" : v;
+  });
+  left.forEach(function (pair) {
+    var h = document.createElement("input");
+    h.type = "hidden"; h.name = pair[0]; h.value = pair[1];
+    aocPane.appendChild(h);
+  });
+  aocPane.querySelectorAll("[data-range]").forEach(aocRangeFromBounds);
+  // A slider pressed meanwhile is put back, if the browser takes the touch over, to this state, not
+  // to the one the press began on (delta verify 8, N12: a bound the link cleared came back).
+  if (aocPress) aocPressFrom = aocPress.value;
+}
+// A slider set from its bounds, and the legend with them ("≥ 85" for a bound its span cannot show
+// is the server's to write; this is only until the answer redraws the pane).
+function aocRangeFromBounds(box) {
+  var lo = box.querySelector("[data-end=min]"), hi = box.querySelector("[data-end=max]");
+  if (!lo || !hi) return;
+  var bmin = box.querySelector('input[type=hidden][name="' + lo.dataset.bound + '"]').value;
+  var bmax = box.querySelector('input[type=hidden][name="' + hi.dataset.bound + '"]').value;
+  lo.value = bmin || lo.min; hi.value = bmax || hi.max;
+  box.querySelector("[data-range-label]").textContent = (bmin || lo.min) + " – " + (bmax || hi.max);
+}
+// The search the current state was asked with: what the last request carried — not the box's text,
+// which may be a draft not yet sent (Cancel restores the state, and leaves a draft a draft).
+var aocQ = document.getElementById("q"), aocStateQ = aocQ.defaultValue;
+document.addEventListener("htmx:beforeRequest", function (e) {
+  if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);
+  aocStateQ = aocQ.value;
+  // A newer request supersedes a pane held during a press: its answer will draw the pane, and the
+  // held one must not be drawn over the state this request names (delta verify 7, R2).
+  aocHeld = null;
+});
+
+// One case is left: an answer landing while a slider is pressed would replace the slider under the
+// pointer and cut the drag short (F19). So during a press the pane an answer draws is held back, and
+// drawn when the press ends. If the press moved the slider, its change does not send the form as it
+// is — that is the pane from before the answer, and it would undo a link (delta verify 4, N4) —
+// but the held pane with the moved bound carried into it.
+var aocPress = null, aocPressFrom = null, aocPressId = null, aocHeld = null;
+aocPane.addEventListener("pointerdown", function (e) {
+  if (e.button === 0 && e.target.matches("input[type=range]")) { aocPress = e.target; aocPressFrom = e.target.value; aocPressId = e.pointerId; }
+});
 document.addEventListener("htmx:oobBeforeSwap", function (e) {
-  var a = document.activeElement, f = e.detail.fragment;
-  if (!a || !a.id || !f || !(a.tagName === "SELECT" || a.type === "number")) return;
-  var n = f.querySelector("#" + CSS.escape(a.id));
-  if (n) n.value = a.value;
+  if (e.detail.target !== aocPane) return;
+  // A pane drawn while nothing is pressed is the newest: nothing held may be drawn after it.
+  if (!aocPress) { aocHeld = null; return; }
+  e.detail.shouldSwap = false;
+  var d = document.createElement("div");
+  d.appendChild(e.detail.fragment.cloneNode(true));
+  aocHeld = d.innerHTML;
+});
+aocPane.addEventListener("change", function (e) {
+  if (e.target === aocPutBack) { // a slider a cancelled touch put back (below): its change is not sent
+    aocPutBack = null;
+    if (e.target.value === aocPressFrom) { e.stopPropagation(); return; }
+  }
+  if (aocHeld !== null && e.target.matches("input[type=range][data-bound]")) {
+    e.stopPropagation();
+    aocShowHeld(e.target);
+  }
+}, true);
+// A press ends on its own pointer only: another finger lifting, or cancelled, is not this press's end.
+function aocPressEnd(e) {
+  if (!aocPress || e.pointerId !== aocPressId) return;
+  aocPress = null;
+  // A moved slider's change fires in the same task as the pointerup (measured, mouse and touch), and
+  // draws the held pane with its bound; whatever is still held after it is drawn here. Never left
+  // held: a pane kept past its press would later undo newer changes (delta verify 5, N7: the slider's
+  // value had changed without the pointer, so the press was taken for one that moved).
+  setTimeout(function () { aocShowHeld(null); }, 0);
+}
+document.addEventListener("pointerup", aocPressEnd);
+// A touch the browser takes over is not a move: a scroll that starts on a slider's track, where
+// Chrome jumps the thumb under the finger, or a touch the system cancels. The slider goes back to
+// where the press found it, with its hidden input and legend, and nothing is sent (delta verify 7,
+// N10: a scroll of the phone sheet applied a level bound; delta 6, A1c: a cancelled touch left an
+// unsent one shown). Chrome may still send a change when the finger lifts; for a slider put back,
+// it is not sent.
+var aocPutBack = null;
+document.addEventListener("pointercancel", function (e) {
+  var s = aocPress;
+  if (!s || e.pointerId !== aocPressId) return;
+  if (s.value !== aocPressFrom) { s.value = aocPressFrom; aocSyncRange(s); aocPutBack = s; }
+  aocPressEnd(e);
+});
+aocPane.addEventListener("pointerdown", function () { aocPutBack = null; }, true);
+function aocShowHeld(moved) {
+  if (aocHeld === null) return;
+  var bound = moved && moved.dataset.bound;
+  var value = moved && moved.closest("[data-range]").querySelector('input[type=hidden][name="' + bound + '"]').value;
+  var focused = document.activeElement && document.activeElement.id;
+  aocPane.innerHTML = aocHeld;
+  aocHeld = null;
+  aocEnable(aocPane);
+  var f = focused && document.getElementById(focused);
+  if (f) f.focus();
+  if (!moved) return;
+  var h = aocPane.querySelector('input[type=hidden][name="' + bound + '"]');
+  h.value = value;
+  aocRangeFromBounds(h.closest("[data-range]"));
+  h.dispatchEvent(new Event("change", { bubbles: true }));
+}
+// The phone sheet's Cancel (armory_filters.html): the reset closes the sheet and restores the
+// controls; every change made in the sheet has already applied, so return to the state it was opened on.
+// The state the sheet was opened on is the form as it was then — not the address bar, which a link's
+// request in flight has not updated yet (delta verify 5) — and the reset alone would restore the page
+// as first drawn, search box included (N8: a removed search came back). So after the reset, the form
+// takes that state; and if anything changed in the sheet, a request returns the rows to it, aborting
+// a change still in flight (N5).
+var aocOpenedAt = null, aocOpenedBox = "", aocSheetChanged = false, aocForm = aocPane.closest("form");
+document.getElementById("filter-sheet").addEventListener("change", function (e) {
+  aocOpenedAt = null;
+  if (e.target.checked) {
+    // the form as it stands, with the search the state was asked with — a draft in the box is not
+    // the state (delta verify 6, B5b: Cancel applied a search never sent); the box keeps it as a draft
+    var q = new URLSearchParams();
+    new FormData(aocForm).forEach(function (v, k) { if (k === "q") v = aocStateQ; if (v !== "") q.append(k, v); });
+    aocOpenedAt = aocForm.getAttribute("action") + "?" + q.toString();
+    aocOpenedBox = aocQ.value;
+  }
+  aocSheetChanged = false;
+});
+aocPane.addEventListener("change", function () { if (aocOpenedAt !== null) aocSheetChanged = true; });
+document.addEventListener("reset", function (e) {
+  var back = aocOpenedAt, changed = aocSheetChanged;
+  aocOpenedAt = null;
+  aocSheetChanged = false;
+  if (back === null) return;
+  var box = aocOpenedBox;
+  setTimeout(function () { aocFormFrom(back); aocQ.value = box; }, 0); // the reset event fires before the reset itself
+  if (changed) {
+    // from #results, so the request syncs on the form (hx-sync) but sends none of its fields
+    htmx.ajax("GET", back, { source: "#results", target: "#results", swap: "innerHTML" });
+  }
+});
+document.addEventListener("keydown", function (e) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.getElementById("q").focus(); }
+});
+document.addEventListener("click", function (e) {
+  var b = e.target.closest && e.target.closest("#copy-link");
+  if (!b || !navigator.clipboard) return;
+  navigator.clipboard.writeText(location.href).then(function () {
+    b.textContent = "Link copied";
+    setTimeout(function () { b.textContent = "Copy link ↗"; }, 1500);
+  });
 });
 </script>
 {{end}}

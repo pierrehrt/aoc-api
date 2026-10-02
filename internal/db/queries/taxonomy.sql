@@ -12,9 +12,10 @@
 SELECT id, slug, name FROM archetypes ORDER BY name;
 
 -- name: ListClasses :many
+-- In classes.sort_order (AOC-065): Soldier, Rogue, Priest, Mage (Pierre), the design's order within.
 SELECT c.id, c.slug, c.name, c.short_name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
 FROM classes c JOIN archetypes a ON a.id = c.archetype_id
-ORDER BY a.name, c.name;
+ORDER BY c.sort_order NULLS LAST, c.name;
 
 -- name: ListRarities :many
 SELECT id, slug, name, sort_order, colour_token FROM rarities ORDER BY sort_order;

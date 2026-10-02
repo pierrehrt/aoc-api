@@ -36,7 +36,7 @@ type Facets struct {
 
 // FacetGroup is one facet: EVERY value of its vocabulary, 0 counts included (a hidden value teaches
 // nothing; a 0 says why), in the order the rail shows them, and Any — the count with this facet
-// unset, which is what its "Any" choice leaves.
+// unset, which is what ticking none of its values leaves.
 type FacetGroup struct {
 	Any    int64        `json:"any"`
 	Values []FacetValue `json:"values"`

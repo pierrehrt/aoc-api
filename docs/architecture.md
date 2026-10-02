@@ -119,6 +119,28 @@ cannot fix. Readiness against Postgres is a separate endpoint if and when someth
 sentinels (`ErrNotFound`, `ErrInvalid`, `ErrUnauthorized`, `ErrForbidden`, `ErrConflict`), wrapped
 freely with `%w` for context; handlers call `httpx.Fail`.
 
+**A client that went away is not a failure** (`httpx.ClientGone`). It requires that the request's
+own context was canceled. net/http cancels it when the reader's connection closes, and when a write
+to it fails. The error must then be that cancellation, or the reset or broken pipe (`ECONNRESET`,
+`EPIPE`) of the failed write. The answer is 499 ("client closed request", nginx's) with an Info line,
+in `httpx.Fail` and in the pages' `fail`; the access line may say 200 if the status had already
+gone out. ⚠️ **The context is what makes it the reader's connection.** A reset from the database's
+connection leaves the request alive and is a 500 with an ERROR line. Before the context check it was
+answered 499 with an empty body and logged as a reader gone, at Info (delta verify 6, N9).
+
+The armory aborts every superseded live request (`hx-sync` replace). The query each was running
+failed with "context canceled", or, if it had finished, the write failed. Logged as ERROR and 500,
+that put 52 failures nobody saw in one session's log, and it would have filled the +24h watch's
+error count (AOC-065 delta verifies 4 and 5). A deadline or a write timeout is still a 500: a
+timeout is the server being slow.
+
+**Every request has a deadline** (`httpx.RequestDeadline`, 10 s, set by the router). A database that
+hangs without resetting used to hold a request until the reader, or Cloudflare at 100 s, gave up.
+That cancellation is a genuine reader gone, so the hang reached the log only as 499s at Info, and
+`/health`, which touches no database, stayed 200 (delta verify 7, N11). At the deadline the query
+fails with `DeadlineExceeded`, which `ClientGone` does not take: a 500 and an ERROR line. 10 s is far
+beyond the slowest page's queries (tens of milliseconds) and well inside Cloudflare's limit.
+
 **What is logged and what is sent are different on purpose.** The log gets the full wrapped error
 with the request id; the client gets the *sentinel's* text, or a flat `"internal error"` for anything
 unmapped. A wrapped error routinely carries a table name, a column or a query fragment, and that is
@@ -140,7 +162,11 @@ stale, not the behaviour.
 
 ## Middleware, in order
 
-`RequestID` → `Log` → `Cache` → `Recover` → `GetHead`.
+`RequestID` → `Log` → `Cache` → (`canonicalHost`, with `WithCanonicalHost`) → `Recover` → `deadline`
+→ `GetHead`.
+
+`deadline` (AOC-065, § 3) gives every request's context `RequestDeadline`; it sits inside `Recover`,
+so everything a handler starts is bounded.
 
 `Cache` (AOC-026, § Caching below) sits **inside `Log` and outside `Recover`**: the 500 that
 `Recover` writes for a panic passes through it and leaves as `no-store`, where the other way round
@@ -416,7 +442,11 @@ source and no other creator anywhere; where the data came from is said once, on 
   `rarities.colour_token` names a CSS property (`rarity-epic` → `--color-rarity-epic`; NULL = no
   colour of its own, renders as paper) and `classes.short_name` holds the abbreviation players use
   (Conq, DT, Guard … — Pierre, Tier A). `/v1/taxonomies` carries both, so the JSON surface and
-  the pages read one row. A template paints a rarity with
+  the pages read one row. **`classes.sort_order`** (AOC-065, migration `20261001120000`) is the one
+  order every class list reads: the filter chips, the list's `Conq/DT/Guard`, the item page and
+  `/v1`. It runs Soldier, Rogue, Priest, Mage (Pierre, Tier A), with the validated design's order
+  within each. A class without one sorts last. `TestClassesAreOrderedSoldierRoguePriestMage` pins
+  it. A template paints a rarity with
   `style="color: var(--color-{{.ColourToken}})"` and never names a rarity itself.
 - Pages are wide (`max-w-7xl`): the Armory table needs it; prose pages constrain themselves.
 
@@ -450,14 +480,74 @@ service) answers it, and the handler adds only what a page owns — `p`, the URL
 `items.Service.IDSpan`. Each row links to its item page (AOC-048); before that page existed rows
 linked to nothing, because a link to a 404 is a bug — the same rule as the nav.
 
+**The full-window app** (AOC-065, Pierre's validated design; `product_management/reference/ui-guidelines.md`
+is the visual source of truth, distilled from `discovery/design/armory-2026-10-01/`). A page that sets
+`View.App` is laid out from `lg` up as the design's app, and `base.html` does the rest:
+- **The body is the window** (`lg:h-screen lg:overflow-hidden`, a flex column): the 52px header, then
+  the page's own fixed bars, then panes that each scroll inside themselves (`min-h-0`, and
+  `overflow-auto` for the table, `overflow-y-auto` for the filter pane). **The document never
+  scrolls** — measured at 1024, 1440 and 1920 px, with and without JavaScript. ⚠️ Every scrolling pane is `relative`: the visually hidden checkboxes are
+  absolutely positioned, and without a positioned ancestor the ones far down a pane counted
+  toward the *document's* height (it scrolled 109px with JavaScript off until this was found).
+- **Below `lg` it is an ordinary scrolling page** (the canvas's 1b), so a phone is never a squeezed app.
+- **Scrollbars are the design's** (9px, `line-control` thumb, `ink-pane` track), drawn with
+  `::-webkit-scrollbar` in `app.css`'s base layer. ⚠️ Chrome ignores those rules on any element whose
+  standard `scrollbar-width`/`scrollbar-color` is set, so the standard pair applies only where
+  `::-webkit-scrollbar` is unsupported (`@supports not selector(…)`, Firefox). The corner between
+  two bars is `ink-pane` too — the prototype leaves it the browser's white (a noted deviation). A global
+  `scrollbar-width: thin` hid every bar until AOC-065 verify round 2.
+- **The phone sheet's bar is the canvas 1b's** — Cancel and a full-width "Show N items", 46px. Cancel
+  is a `type="reset"`: it restores every control as the page drew it, the sheet's own unticked
+  checkbox included, so the sheet closes with nothing applied and no script. With scripts each change
+  has already applied live, so `armory.html` also returns, through htmx, to the URL the sheet was
+  opened on. On a wide screen without scripts the bar is Reset and the submit; with them it is hidden.
+- **The design's type is `line-height: normal`** (its `font` shorthand resets it), scoped to `.armory`
+  and the header; prose pages keep 1.5. With it, and the first cell's own 13.5px (a cell that inherits
+  16px sets a taller line box), every row is the design's 37px; it was 43px, then 39px. The table's
+  lines are on its cells with separate borders: a collapsed table gives half of each line to the next
+  row (a 30.5px header against the design's 31) and its sticky header's line scrolls away.
+- **Tokens:** `app.css` carries the guideline's palette; `TestThemeTextTokensPassAA` measures every
+  text token against every pane background (the design's two faintest greys are lifted to `faint`,
+  `#837d74`, for AA — a noted deviation). Computed styles of 61 elements were checked against the
+  guideline in a browser (AOC-065 ticket Log).
+- **JavaScript-only controls** (⌘K, Copy link, the level sliders) carry `.js-only` and stay hidden until
+  `base.html`'s first script marks `<html class="js">`; what only a script-less reader needs carries
+  `.no-js-only`. Each level bound has **two inputs and exactly one submits, in every state**: the
+  hidden one ships `disabled` (`data-js-enable`), the number input ships enabled (`data-js-disable`),
+  and the page's script flips both at load **and for every pane htmx swaps in** (`htmx:load`). The
+  hidden inputs are drawn even when the other filters leave no item with a level and there are no
+  sliders; until AOC-065's delta verify (F16) they came with the sliders, and with scripts on such a
+  state dropped the bound. ⚠️ Not
+  `<noscript>`: htmx parses a swapped fragment with scripting off, so `<noscript>` content became live
+  fields after the first update and every bound was sent twice (AOC-065 verify round 1).
+  `TestTheLevelSlidersNeverDoubleABound` pins the markup on the page and on a live update, with a
+  span and without; the browser half (one value per bound in the submitted URL after a swap) was
+  measured.
+- **The filter pane is exactly the design's five sections** (Pierre, 2026-10-01: *"I want exactly like it
+  is in the design"*): Rarity (checkbox rows with counts), Slot, Armour weight and Class restriction
+  (toggle chips, no numbers), Item level (two stacked sliders and the note). Vendor price, required
+  level, currency and set left the pane. They still filter by link and by `/v1`, and an active one
+  rides along as a hidden input and shows as a pill (`TestTheOtherFiltersStillApplyAsPills`). Its
+  parts were measured against the prototype in the same browser: rows 16px on a 21px pitch,
+  checkbox 13px/3px, chips' font, padding, border and radius, and the sliders' 2px margin and 15px
+  pitch are identical.
+- **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051) and
+  account (EP-06) are absent until they ship. **The exception is the header's tabs** (Pierre,
+  2026-10-01): AA's, Feats, DJ/Raids and More are shown, and each leads to a "Coming Soon" page.
+  `pages.siteNav` marks them `Soon`; that gives each a route, `noindex`, and keeps it out of
+  `sitemapStatic`. So every nav link still answers 200 (`TestEveryNavLinkIsARegisteredRoute`), and
+  no thin page is offered for indexing (`TestTheHeaderTabsLeadToComingSoonPages`).
+
 **The filter rail** (AOC-049) is the pattern for any page with filters:
 
 - **One `<form method="get">`** holds the search and the rail, so each keeps the other, and the
-  page works with JavaScript off (Apply is a submit). Rarity, slot, armour weight and class are
-  checkbox groups, several ticked at once and none ticked meaning any (AOC-064). Vendor price is a
-  radio group led by "Any". There are two number ranges, and `<select>`s for the long vocabularies
-  (24 currencies, 368 sets). A select holds one value, so further chosen values ride along as hidden
-  inputs.
+  page works with JavaScript off (Apply is a submit). The controls are the validated design's and
+  nothing else (AOC-065): rarity, slot, armour weight and class as checkbox groups — several ticked
+  at once, none ticked meaning any (AOC-064) — and one level range, the item level, as two sliders
+  over number inputs for a script-less reader. **No radio group, no `<select>`:** every other filter
+  the parser accepts (vendor price, required level, currency, set, region, tier, place…) has no
+  control; an active one rides along as a hidden input and shows as a pill. A page built from this
+  pattern starts from its own design, not from a list of every filter the API takes.
   Every value and count is `items.Facets`; the handler turns it into controls in
   `pages.buildRail`, and the template only prints. A 0 is muted, never hidden.
 - **Every link is built from the whole state** — `items.Filters.Values()`, the parser's inverse,
@@ -467,15 +557,18 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   show as chips.
 - **With HTMX, a change re-renders the rows and the rail in one request.** The rail's scroll box
   carries `hx-get hx-trigger="change" hx-include="closest form" hx-target="#results"`; the answer is
-  `armory_update` — the rows, plus the rail and the phone button's count **out of band**
-  (`hx-swap-oob="innerHTML:#…"`), so the counts always describe the rows beside them, and the hidden
-  inputs and the sort can never go stale. Inputs keep stable ids, so HTMX hands focus back after
-  the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
+  `armory_update` — the rows, plus the rail, the pills and both "active" counts (the phone
+  button's and the collapsed strip's) **out of band**
+  (`hx-swap-oob="innerHTML:#…"`), so once an answer has landed (and no press on a slider holds
+  its pane back; see below) the counts describe the rows beside them, and the hidden inputs and the
+  sort match its state. Inputs keep stable ids, so HTMX hands
+  focus back after the swap. `HX-Push-Url` is the state's canonical URL, not the form's raw query with its empty
   fields.
 - **The phone sheet is CSS only**: an unnamed checkbox (`#filter-sheet`, never submitted, never in
   the URL) and one `:has()` rule in `app.css` that turns the rail into a full-screen sheet below
-  `lg`. Not `<details>`: a closed `<details>` hides its content at every width, so the desktop rail
-  would need a second copy of the form.
+  `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
+  (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content
+  at every width, so the desktop rail would need a second copy of the form.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
   `htmx-config` meta tag that adds one rule, "a 400 is swapped" (other 4xx/5xx stay unswapped), and
@@ -483,17 +576,97 @@ linked to nothing, because a link to a 404 is a bug — the same rule as the nav
   of the rows, with `HX-Push-Url: false` and **no rail redraw**, so the bad value stays where the
   reader can fix it. `templates.Engine.FragmentStatus` is a fragment with a status. Without
   JavaScript the same reason is on the `RejectHTML` page.
-- **Back always gets the whole page** (AOC-063). htmx keeps snapshots of the last ten pages; on a
-  miss it used to re-request the URL *as an HTMX request* and put the answer in `<body>`, and a
-  handler that serves fragments (today the armory's) answers that with one, so Back left bare rows (live since 0.2.0 through the pager,
-  and reachable from every filter change once the rail pushed URLs). The same `htmx-config` tag sets
-  `refreshOnHistoryMiss: true`: a miss reloads the page normally. One line for every HTMX page, rather
-  than a full-page branch for `HX-History-Restore-Request` in every handler.
-- **The focused control keeps what the reader typed.** A redraw that answers an earlier change used
-  to wipe a number typed while that request was in flight. A six-line inline script on
-  `htmx:oobBeforeSwap` copies the focused number input's or select's value into the incoming rail.
-  It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
-  CSP arrives.
+- **Back always reloads the whole page from the server** (AOC-063, AOC-065). On a history miss htmx
+  used to re-request the URL *as an HTMX request* and put the answer in `<body>`. A handler that
+  serves fragments (today the armory's) answers that with one, so Back left bare rows (live since
+  0.2.0 through the pager, and reachable from every filter change once the rail pushed URLs). The
+  `htmx-config` tag sets `refreshOnHistoryMiss: true`, so a miss reloads the page normally.
+  **`historyCacheSize: 0` makes every Back a miss.** A snapshot is the live DOM at the moment the
+  next answer lands, and on a live pane that can hold what a server never drew: a slider's value
+  written but not yet sent, or a pane whose redraw was skipped mid-drag. Back restored those
+  (AOC-065 delta verify 3, N2 and P1). The server's page for a URL is correct by construction, and
+  it is one request. These are two config lines for every htmx page, rather than a full-page branch
+  for `HX-History-Restore-Request` in every handler.
+- **Only the latest action's answer lands: `hx-sync="this:replace"` on the form.** Every htmx
+  request in the form inherits it: the pane's, the pills', sort's and the pager's. A new one aborts
+  the one in flight. An answer's pane is drawn from the state its request carried, so a stale answer
+  landing over a newer change used to wipe it (a second box ticked, a slider moved). htmx's default
+  queue then sent the change *after* that redraw, reading the wiped form. Measured: a second tick
+  lost (live since AOC-049's rail), and slider moves lost or read again in a new span (AOC-065 delta
+  verifies). With replace, a change is sent at once with the form as the reader has it, and nothing
+  older can land after it.
+  - **A link's request sets the form to its state as it goes.** A request that does not come from
+    the pane (a pill's ×, "clear all", sort, a page, Cancel) names its state in its URL. On
+    `htmx:beforeRequest` the page's script copies that URL into the form by parameter name: boxes
+    ticked or not, hidden inputs and the search box set, and a hidden input for a parameter that has
+    no control (never `p`: a change starts again at page 1). It knows no filter, only names. So a change made before the link's answer lands
+    builds on the link's state, not on the page being left. Before this, a pill removed and then a
+    box ticked inside the round trip brought the pill back, and the search box, which no redraw
+    touches, kept a removed query and sent it again (AOC-065 delta verify 4, P3).
+  - **Cancel returns to the form as it was when the sheet opened**, not to the address bar, which a
+    link's request in flight has not updated yet. After the form's reset, which alone would restore
+    the page as first drawn and bring back a removed search (delta verify 5, N8), the script copies
+    that state into the form. If anything changed in the sheet, a request returns the rows to it,
+    aborting a change in flight.
+  - **A drag.** An answer landing mid-drag would replace the slider under the pointer and cut the
+    drag short (F19). While a slider is pressed with the primary button, the pane that answer draws
+    is held back (`shouldSwap = false`); the rows, pills and counts still update. When the press
+    ends, the held pane is drawn, unless something newer superseded it (below). If the press moved the
+    slider, its `change`, which fires in
+    the same task as the `pointerup` (measured for mouse and touch), is not sent as it is: that would
+    send the pane from before the answer, and undo a link (N4). The moved bound is carried into the
+    held pane, and that pane is sent. Whatever is still held after that is drawn, with no request.
+    No pane outlives its press (delta verify 5, N7: when the slider's value changed without the
+    pointer, the press was taken for one that moved, and a stale pane was drawn much later).
+  - **What the reader sees:** every quiet end state equals a direct load of its URL, and that URL is
+    what they set. (The search box can also hold an unsent draft: see below.) No value is reinterpreted. A bound beyond the new span applies as set; its legend
+    and pill read "≥ 85", never "85–80". This was measured on the real corpus with 40–300 ms of added
+    latency, real drags, key presses and touch:
+    - two ticks;
+    - a slider moved or dragged during a request;
+    - a slider taken to its end (no bound) while the span widens;
+    - an answer with no span;
+    - five arrow presses;
+    - a press, tap or swipe while an answer lands;
+    - a pill ×, "clear all" or sort, then a press or a held press;
+    - a link, then a change inside its round trip, or a change, then a link;
+    - Cancel within the first round trip;
+    - Back and Forward.
+  - **Requests:** one per change; the older ones are aborted (five arrow presses send five, and only
+    the last answer lands; nothing lands until the reader pauses). A link aborts a pending change,
+    which is right: it goes to the state it names. An aborted request is a 499 in the log, not an
+    error (§ 3).
+  - **One history entry per new state:** an answer for the state the reader is already on carries
+    `HX-Replace-Url` instead of `HX-Push-Url`, so Back never lands on the same page twice. The state
+    is `HX-Current-URL` read by the same parser and defaults (`canonicalOf`), so the form's raw query
+    after Enter or Apply counts as the state it names.
+  - **Pills follow the vocabulary's order** (the pane's), whatever order the request named the values
+    in. Slugs the vocabulary lacks, and places, come sorted as the canonical URL sorts them. A live
+    answer and a direct load of its URL show the same pills.
+  - **A draft in the search box is the reader's, not the state's.** Text typed and not yet sent stays
+    in the box, and the next change sends it, as the form always has. A link replaces it with the
+    link's own search, as it would without scripts. Cancel restores the state the sheet was opened
+    on, with the search that state was asked with, and leaves the draft in the box (delta verify 6,
+    B5b: Cancel had applied a search never sent).
+  - **A touch the browser takes over is not a move.** This covers a scroll that starts on a slider's
+    track (Chrome jumps the thumb under the finger at `touchstart`, then sends `pointercancel`) and a
+    touch the system cancels. The slider goes back to where the press found it, with its hidden
+    input and legend, and nothing is sent. Chrome has sent no `change` after a put-back in any run;
+    should one come when the finger lifts, it is not sent. A link clicked during the press sets what
+    the press is put back to (delta verify 8, N12), and a press ends only on its own pointer, so a
+    second finger cannot put back the first one's drag. Before, a scroll of the phone sheet applied a level bound (delta verify 7,
+    N10), and a cancelled touch left an unsent one shown (delta 6, A1c).
+  - **Nothing held is drawn after something newer:** a pane drawn while nothing is pressed, or any
+    request sent, discards a held pane. The newer answer draws the pane (R; delta verify 7, R2: a
+    link sent during a press was undone by the press's held pane).
+  - **Known limit:** a Tab pressed while the mouse holds a slider and an answer is held ends the drag
+    early. The end state is consistent (A3c); it takes two inputs at once.
+  - **A 400:** its reason replaces the rows. The pane keeps the reader's input to correct, with the
+    last drawn counts.
+  - **Relies on** the platform firing `change` when a slider's move ends. Mouse, touch, keys and
+    assistive technology all do; a script that sets a value and fires only `input` is not a move.
+  - It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
+    CSP arrives.
 
 **The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
 — rendered through `templates.NewItemData`, which groups the sources for display and does nothing
@@ -551,7 +724,7 @@ point: it should not be possible to add a page whose data nobody declared.
 ### Being found: robots.txt, the sitemap, one indexed host (AOC-025)
 
 `internal/pages/seo.go`. **The sitemap is built from the database and the nav, never from a list**:
-`/`, every `siteNav` section (which lists only routes that exist), then every item slug in item-id
+`/`, every built `siteNav` section (it lists only routes that exist; a Coming Soon tab is skipped), then every item slug in item-id
 order (`items.Service.Slugs`, paged by the chunk) — so an import that adds items adds their URLs,
 and a new section is in the sitemap the day it enters the nav. `/sitemap.xml` is an index; chunks
 hold at most the protocol's **50,000** URLs (`sitemapMaxURLs`, boundary-tested; a full chunk of the

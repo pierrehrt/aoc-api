@@ -1,11 +1,13 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"syscall"
 )
 
 // The sentinel errors a service may return. A service knows it could not find a thing;
@@ -26,6 +28,29 @@ var (
 	ErrMethodNotAllowed = errors.New("method not allowed")
 )
 
+// StatusClientClosedRequest is nginx's 499: the client went away before the answer. Nothing reaches
+// it; the status is for the log, where it must not read as a server failure.
+const StatusClientClosedRequest = 499
+
+// ClientGone reports whether err is the request's own client having gone. The request's context
+// must be canceled — net/http cancels it when the reader's connection closes, and when a write to it
+// fails — and err must be that: the cancellation, or the reset or broken pipe of the failed write.
+// The armory aborts a superseded live request (hx-sync replace, AOC-065): the query it was running
+// fails with "context canceled", or, if it had finished, the write fails with "connection reset by
+// peer" (delta verify 5: 1 in 600). Logged as a 500 they filled the error log with failures no
+// reader saw.
+// ⚠️ The context is what makes it the READER's connection: a reset from the database's connection
+// leaves the request alive, and is the server failing (delta verify 6, N9: without that check, a
+// Postgres reset was answered 499 with an empty body, and logged as a reader gone, at Info). A
+// deadline (RequestDeadline) or a write timeout is not this either: a timeout is the server being
+// slow.
+func ClientGone(r *http.Request, err error) bool {
+	if !errors.Is(r.Context().Err(), context.Canceled) {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+}
+
 // ErrorBody is the single shape of every error response. Clients can rely on it.
 type ErrorBody struct {
 	Error     string `json:"error"`
@@ -38,8 +63,14 @@ type ErrorBody struct {
 // often carries a table name, a column, a file path or a query fragment, and those
 // belong in the log, not in a public response body.
 func Fail(w http.ResponseWriter, r *http.Request, err error) {
-	status := statusFor(err)
 	rid := RequestIDFrom(r.Context())
+	if ClientGone(r, err) {
+		slog.InfoContext(r.Context(), "client closed request", "status", StatusClientClosedRequest,
+			"request_id", rid, "method", r.Method, "path", r.URL.Path)
+		w.WriteHeader(StatusClientClosedRequest) // superfluous if the answer had begun; no one reads it
+		return
+	}
+	status := statusFor(err)
 
 	if status >= 500 {
 		slog.ErrorContext(r.Context(), "request failed",

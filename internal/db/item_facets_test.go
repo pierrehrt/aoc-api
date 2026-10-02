@@ -64,7 +64,7 @@ func TestTheFilterCTEIsOneDefinition(t *testing.T) {
 	}
 }
 
-// facetSlugs picks taxonomy rows by POSITION, so the fixture names no real class or currency.
+// facetSlug picks taxonomy rows by POSITION, so the fixture names no real class or currency.
 func facetSlug(t *testing.T, d *sql.DB, table, order string, offset int) string {
 	t.Helper()
 	var s string
@@ -434,8 +434,8 @@ func TestAZeroIsListedAndPriceMeansAnySource(t *testing.T) {
 
 // AOC-064: a group takes several values, any of them. For a facet that holds one value per item
 // (rarity, armour weight, set), ticking several gives EXACTLY the sum of their counts — the number
-// beside each box is what ticking it adds. For one that holds several (slot, class, currency), the
-// union: at least the largest count, at most the sum.
+// beside each box is what ticking it adds. For every facet, exactly the union, by id, of what each
+// value gives alone.
 func TestSeveralValuesInAGroupAreAnyOfThem(t *testing.T) {
 	s, _ := facetService(t)
 	ctx := context.Background()
@@ -451,21 +451,17 @@ func TestSeveralValuesInAGroupAreAnyOfThem(t *testing.T) {
 		}{{"rarity", res.Facets.Rarity, true}, {"armour_weight", res.Facets.ArmourWeight, true}, {"set", res.Facets.Set, true},
 			{"equip_location", res.Facets.EquipLocation, false}, {"class", res.Facets.Class, false}, {"currency", res.Facets.Currency, false}} {
 			var picked []string
-			var sum, largest int64
+			var sum int64
 			for _, v := range g.group.Values {
 				if v.Count > 0 && len(picked) < 2 {
 					picked = append(picked, v.Slug)
 					sum += v.Count
-					if v.Count > largest {
-						largest = v.Count
-					}
 				}
 			}
 			if len(picked) < 2 {
 				continue
 			}
-			f := withFacet(t, base, g.param, picked[0])
-			f = withFacet(t, f, g.param, "")
+			f := base
 			switch g.param {
 			case "rarity":
 				f.Rarities = picked
@@ -488,7 +484,9 @@ func TestSeveralValuesInAGroupAreAnyOfThem(t *testing.T) {
 			// bound is not enough (a filter that read only the first value passed one, AOC-064 mutant).
 			union := map[int32]bool{}
 			for _, one := range picked {
-				r, err := s.List(ctx, withFacet(t, base, g.param, one))
+				alone := withFacet(t, base, g.param, one)
+				alone.Limit = items.MaxLimit // every row, not the first page: the fixture is far smaller
+				r, err := s.List(ctx, alone)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -499,7 +497,6 @@ func TestSeveralValuesInAGroupAreAnyOfThem(t *testing.T) {
 			if got != int64(len(union)) {
 				t.Errorf("%s %v under %+v: %d items, want the union of what each gives alone, %d", g.param, picked, base, got, len(union))
 			}
-			_ = largest
 		}
 	}
 }

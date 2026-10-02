@@ -42,6 +42,7 @@ var pageTemplates = map[string]string{
 	"smoke":  "html/smoke.html",
 	"armory": "html/armory.html",
 	"item":   "html/item.html",
+	"soon":   "html/soon.html",
 }
 
 // fragmentsIn lists the HTMX partials: every html/*.html that is neither base.html nor a page.
@@ -75,6 +76,7 @@ func fragmentsIn(fsys fs.FS, pageMap map[string]string) ([]string, error) {
 var pageProbes = map[string]any{
 	"armory": armoryProbe(),
 	"item":   itemProbe(),
+	"soon":   SoonData{Section: "Probe"},
 }
 
 // fragmentProbes likewise, by fragment name.
@@ -83,6 +85,9 @@ var fragmentProbes = map[string]any{
 	"armory_facets":       armoryProbe(),
 	"armory_update":       armoryProbe(),
 	"armory_filter_count": armoryProbe(),
+	"armory_chips":        armoryProbe(),
+	"armory_choice":       RailOption{Name: "probe", ID: "f-probe"},
+	"armory_active":       armoryProbe(),
 	"armory_invalid":      InvalidSearch{Reason: "probe"},
 	"armory_slot":         armoryProbe().Result.Items[0],
 	"armory_type":         armoryProbe().Result.Items[0],
@@ -115,6 +120,8 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		"slotNames": SlotNames,
 		"typeLabel": TypeLabel,
 		"phoneLine": PhoneLine,
+		// num prints a count the design's way: 4,646 (AOC-065).
+		"num": Num,
 	}
 
 	fragmentFiles, err := fragmentsIn(fsys, pageMap)

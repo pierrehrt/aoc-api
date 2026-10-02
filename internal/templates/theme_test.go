@@ -35,7 +35,12 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	}
 	// Text tokens: everything that is not a surface or a border. A new surface token must be
 	// added here on purpose, so that a text colour cannot be excused by being misnamed.
-	surfaces := map[string]bool{"ink": true, "ink-2": true, "line": true}
+	surfaces := map[string]bool{"ink": true, "ink-header": true, "ink-pane": true, "ink-strip": true, "ink-hover": true,
+		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true, "ink-pane-hover": true,
+		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true}
+	// AOC-065: text sits on every pane of the full-window layout, not only on the page colour — each
+	// pair is measured. (On ink-selected, only paper is ever written; it is measured below.)
+	backgrounds := []string{"ink", "ink-header", "ink-pane", "ink-strip", "ink-hover", "ink-pane-hover"}
 	if len(tokens) <= len(surfaces) {
 		t.Fatalf("only %d colour tokens found; the theme is not where this test looks", len(tokens))
 	}
@@ -43,10 +48,24 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 		if surfaces[name] {
 			continue
 		}
-		if r := contrast(hex, ink); r < 4.5 {
-			t.Errorf("--color-%s %s on ink %s is %.2f:1 — below AA's 4.5:1", name, hex, ink, r)
+		for _, bg := range backgrounds {
+			b, ok := tokens[bg]
+			if !ok {
+				t.Fatalf("no --color-%s surface token", bg)
+			}
+			if r := contrast(hex, b); r < 4.5 {
+				t.Errorf("--color-%s %s on %s %s is %.2f:1 — below AA's 4.5:1", name, hex, bg, b, r)
+			}
 		}
 	}
+	// The few surfaces that carry only particular text: selected things and the active nav pill carry
+	// paper; a nav pill under the pointer carries muted-2 or paper.
+	for _, pair := range [][2]string{{"paper", "ink-selected"}, {"paper", "ink-nav"}, {"paper", "ink-pill"}, {"paper", "ink-nav-hover"}, {"muted-2", "ink-nav-hover"}} {
+		if r := contrast(tokens[pair[0]], tokens[pair[1]]); r < 4.5 {
+			t.Errorf("%s on %s is %.2f:1 — below AA's 4.5:1", pair[0], pair[1], r)
+		}
+	}
+	_ = ink
 	for _, must := range []string{"paper", "muted", "link", "rarity-legendary", "rarity-epic", "rarity-rare"} {
 		if _, ok := tokens[must]; !ok {
 			t.Errorf("--color-%s is missing from @theme; the database names it as a rarity token or the shell uses it", must)

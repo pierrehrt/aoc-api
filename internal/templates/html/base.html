@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{{/* Marks a page whose scripts run, before first paint, so a JavaScript-only control is shown only
+     where it works (app.css § JavaScript enhancements, AOC-065). */}}
+<script>document.documentElement.classList.add("js")</script>
 <title>{{.View.Title}}</title>
 <meta name="description" content="{{.View.Description}}">
 <link rel="canonical" href="{{.View.Canonical}}">
@@ -22,27 +25,37 @@
      - refreshOnHistoryMiss (AOC-063): Back to a state htmx kept no snapshot of (it keeps ten) made it
        re-request the URL AS AN HTMX REQUEST and put the answer in <body> — every handler answers
        that with its fragment, so the page became bare rows. A miss now reloads the page normally.
+     - historyCacheSize 0 (AOC-065): htmx keeps no snapshot at all, so EVERY Back is a miss and
+       reloads that URL from the server. A snapshot is the live DOM at the moment the next answer
+       lands; a live pane can hold a slider's half-applied value then, and Back restored it (AOC-065
+       delta verify 3, N2/P1). The server's page for the URL is correct by construction.
      - responseHandling: htmx's own list, plus ONE line — a 400 is swapped (AOC-049 review). htmx
        discards every 4xx by default, so a page's own rejection of a live request (the armory's
        invalid-range message) vanished and the control looked dead. Other 4xx/5xx stay unswapped. */}}
-<meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
+<meta name="htmx-config" content='{"refreshOnHistoryMiss":true,"historyCacheSize":0,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"400","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}'>
 <script src="{{asset "htmx.min.js"}}" defer></script>
 </head>
-<body class="flex min-h-screen flex-col bg-ink font-sans text-paper antialiased">
-<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:p-3">Skip to content</a>
-<header class="border-b border-line">
-  <div class="mx-auto flex max-w-7xl flex-wrap items-baseline gap-x-6 gap-y-1 px-4 py-3">
-    <a href="/" class="text-base font-semibold tracking-tight text-paper">AoC Codex</a>
-    <nav aria-label="Sections" class="flex flex-wrap gap-x-4 text-sm">
-      {{range .View.Nav}}<a href="{{.Path}}" class="text-muted hover:text-paper">{{.Label}}</a>{{end}}
-    </nav>
-  </div>
+<body class="flex min-h-screen flex-col bg-ink font-sans text-paper{{if .View.App}} lg:h-screen lg:overflow-hidden{{end}}">
+<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-3">Skip to content</a>
+{{/* The header (AOC-065, the validated design): 52px, the diamond mark and the name, pill nav. Every
+     tab leads to a page that exists: AA's / Feats / DJ-Raids / More are "Coming Soon" pages until their
+     sections ship (Pierre, 2026-10-01). An account arrives with EP-06. */}}
+<header class="site-header flex h-[52px] flex-none items-center gap-7 border-b border-line bg-ink-header px-5 max-sm:gap-4">
+  <a href="/" class="flex flex-none items-center gap-[9px] text-paper">
+    <span aria-hidden="true" class="size-[18px] rotate-45 border-[1.5px] border-link"></span>
+    <span class="text-[15px] font-semibold tracking-[-0.01em]">AoC Codex</span>
+  </a>
+  {{/* On a phone five tabs do not fit beside the name: the row scrolls sideways inside the header, so
+       the page itself never does. */}}
+  <nav aria-label="Sections" class="flex min-w-0 gap-1 overflow-x-auto text-[13px] font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    {{range .View.Nav}}<a href="{{.Path}}"{{if .Current}} aria-current="page" class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] bg-ink-nav px-2.5 py-[5px] text-paper"{{else}} class="flex flex-none items-center gap-[7px] whitespace-nowrap rounded-[5px] px-2.5 py-[5px] text-muted-2 hover:bg-ink-nav-hover hover:text-paper"{{end}}>{{.Label}}{{if .Menu}}<span aria-hidden="true" class="size-[5px] border-b-[1.4px] border-r-[1.4px] border-[#6f6a62] [transform:rotate(45deg)_translateY(-2px)]"></span>{{end}}</a>{{end}}
+  </nav>
 </header>
-<main id="main" class="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
+<main id="main" class="{{if .View.App}}flex w-full flex-1 flex-col lg:min-h-0{{else}}mx-auto w-full max-w-7xl flex-1 px-4 py-8{{end}}">
 {{template "content" .}}
 </main>
-<footer class="border-t border-line">
-  <div class="mx-auto max-w-7xl px-4 py-6 text-xs text-muted"></div>
+<footer class="border-t border-line{{if .View.App}} lg:hidden{{end}}">
+  <div class="mx-auto max-w-7xl px-4 py-6 text-xs text-faint"></div>
 </footer>
 </body>
 </html>{{end}}

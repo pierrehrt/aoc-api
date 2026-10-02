@@ -71,7 +71,8 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.name;
+-- one order for classes everywhere (AOC-065)
+ORDER BY cl.sort_order NULLS LAST, cl.name;
 
 -- name: ListItemSources :many
 -- An item page's "where does this come from". 237 items have more than one place — 8 with two and
@@ -141,6 +142,7 @@ JOIN currencies cu ON cu.id = ic.currency_id
 WHERE ic.item_source_id = ANY($1::bigint[])
 ORDER BY ic.item_source_id, cu.name;
 
+-- name: ListItems :many
 -- ⭐ THE FILTER RULES ARE WRITTEN ONCE (AOC-049). Every query that filters the armory list starts with
 -- the same `filtered` CTE, byte for byte: one row per item, carrying one boolean per filter -- a
 -- flag per facet of the rail, and `in_base` for the filters that have none. The list keeps the
@@ -152,8 +154,7 @@ ORDER BY ic.item_source_id, cu.name;
 -- ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 -- difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 -- Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
-
--- name: ListItems :many
+--
 -- The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 -- which keeps one query behind every combination the page offers rather than building SQL by hand.
 --
@@ -404,13 +405,12 @@ LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity
 GROUP BY aw.id
 UNION ALL
 SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
-       row_number() OVER (ORDER BY a.name, cl.name),
+       row_number() OVER (ORDER BY cl.sort_order NULLS LAST, cl.name),
        count(DISTINCT f.item_id)
 FROM classes cl
-JOIN archetypes a ON a.id = cl.archetype_id
 LEFT JOIN item_classes ic ON ic.class_id = cl.id
 LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
-GROUP BY cl.id, a.name
+GROUP BY cl.id
 UNION ALL
 SELECT 'currency', cu.slug, cu.name, '', '',
        row_number() OVER (ORDER BY cu.name),
@@ -559,7 +559,8 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY(sqlc.arg('item_ids')::integer[])
-ORDER BY ic.item_id, cl.id;
+-- one order for classes everywhere (AOC-065)
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id;
 
 -- name: ListItemPageCosts :many
 -- A page's vendor prices in one round trip: every cost of every source, grouped by the caller.

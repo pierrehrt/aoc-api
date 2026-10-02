@@ -100,7 +100,7 @@ since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `pric
 
   (Counts illustrative.) A group lists **every** value of its vocabulary, read from the lookup
   table, **0 counts included**, in display order: rarities best first, slots head to necklace,
-  armour weights heaviest first, classes by archetype, currencies and sets by name. `any` is the
+  armour weights heaviest first, classes in `classes.sort_order` (Soldier, Rogue, Priest, Mage — AOC-065), currencies and sets by name. `any` is the
   count with that facet unset. `price.count` is items with a vendor price, `any − count` those with
   none. `ilvl` / `reqlvl` are the lowest and highest level among the items the other filters leave,
   and are **absent** when none of them has that level.
@@ -242,7 +242,10 @@ of class names in a filter dropdown is the exact bug the content model exists to
 (`reference/content-model.md` § 0).
 
 Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
-- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …);
+- classes: `"short_name"` — the abbreviation players use (`Conq`, `DT`, `HoX` …). Since AOC-065 they come
+  in `classes.sort_order`: Soldier, Rogue, Priest, Mage (Pierre), the design's order within each —
+  the same order the list's class column and the item page use. The order of an array was never
+  part of the contract; only its contents are;
 - rarities: `"colour_token"` — the name of the CSS custom property that paints it
   (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
 
@@ -279,11 +282,12 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
-| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049 — the rail offers rarity, slot, armour weight and class as checkboxes, several at once (AOC-064), both level ranges, vendor price, currency and set; the rest ride along as hidden inputs and chips, one chip per value). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the rail and the phone's filter count out of band — with `HX-Push-Url` set to the state's canonical URL; both answers send `Vary: HX-Request`. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049; since AOC-065 the pane is exactly the validated design's: rarity, slot, armour weight and class as checkboxes and toggle chips, several at once (AOC-064), and the item level as two sliders. Every other filter — required level, vendor price, currency, set, and the rest — rides along as a hidden input and shows as a pill, one per value, worded as the design's (`rarity: Epic`, `class: Conq`, `ilvl 60–90`, `q: …`)). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the pane, the pills and both active counts out of band — with `HX-Push-Url` set to the state's canonical URL (`HX-Replace-Url` instead when `HX-Current-URL` names the same state: one history entry per state); both answers send `Vary: HX-Request`. A request whose reader went away (an aborted live request: its own context canceled) is logged as 499, not an error; a database failure stays a 500. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
+| GET | `/aa`, `/feats`, `/dj-raids`, `/more` | **Coming Soon pages** (Pierre, 2026-10-01): the design's header tabs, shown before their sections exist. Each says only that the section is not built. **`noindex`**, canonical to itself, **not in the sitemap**. A section that ships takes over its URL (or 301s it, rule 5c) |
 | GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |
 | GET | `/sitemap.xml` | **AOC-025.** A sitemap **index** (sitemaps.org 0.9) listing every chunk, absolute URLs on `PUBLIC_BASE_URL` |
-| GET | `/sitemaps/{n}.xml` | **AOC-025.** Chunk `n` (1-based) of one sequence: `/`, every section in the nav, then every `/armory/{slug}` in item-id order — at most **50,000** URLs a file, built from the database on each request (edge-cached for an hour). **No `<lastmod>`**: no row has a real modification time. `n` out of range is a 404 |
+| GET | `/sitemaps/{n}.xml` | **AOC-025.** Chunk `n` (1-based) of one sequence: `/`, every **built** section in the nav (a Coming Soon tab is left out), then every `/armory/{slug}` in item-id order — at most **50,000** URLs a file, built from the database on each request (edge-cached for an hour). **No `<lastmod>`**: no row has a real modification time. `n` out of range is a 404 |
 | GET | `/_smoke` | Rendering proof page, HTML, **noindex**. Deleted by a later ticket |
 | POST | `/_smoke/echo` | Fragment when `HX-Request: true`, otherwise the full page. Both send `Vary: HX-Request` |
 | GET | `/assets/{name}.{hash}.{ext}` | Embedded CSS, JS and images (`.css`, `.js`, `.png`, `.svg`), `Cache-Control: public, max-age=31536000, immutable` (from the policy). A wrong hash is 404, `no-store` |

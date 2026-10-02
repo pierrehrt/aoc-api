@@ -106,26 +106,23 @@ func TestEveryChipIsTheStateMinusExactlyItsOwnValue(t *testing.T) {
 // A select holds one value. The rest of a URL's values for it must not be lost on the next submit:
 // they ride along as hidden inputs, and each is its own chip.
 func TestASelectsFurtherValuesRideAlongAsHiddenInputsAndChips(t *testing.T) {
+	// AOC-065 (Pierre, 2026-10-01): currency left the pane — the design has no currency control — so
+	// EVERY chosen currency rides along as a hidden input (once each), and each is its own chip.
 	body := get(t, router(t), http.MethodGet, "/armory?currency=test-token&currency=test-coin&sort=name", nil, "").Body.String()
 	form := body[strings.Index(body, `<form method="get"`):strings.Index(body, `</form>`)]
-	sel := regexp.MustCompile(`(?s)<select id="f-currency" name="currency"[^>]*>(.*?)</select>`).FindStringSubmatch(form)
-	if sel == nil {
-		t.Fatal("no currency select")
+	if strings.Contains(form, `<select`) {
+		t.Error("a currency select is back in the pane — the design has none")
 	}
-	if got := regexp.MustCompile(`<option value="([^"]*)" selected`).FindAllStringSubmatch(sel[1], -1); len(got) != 1 || got[0][1] != "test-token" {
-		t.Errorf("selected options = %v, want only the first value, test-token", got)
-	}
-	if !strings.Contains(form, `<input type="hidden" name="currency" value="test-coin">`) {
-		t.Error("the second currency is not carried as a hidden input — a submit would drop it")
-	}
-	if strings.Contains(form, `<input type="hidden" name="currency" value="test-token">`) {
-		t.Error("the selected currency is also a hidden input — it would be sent twice")
+	for _, v := range []string{"test-token", "test-coin"} {
+		if n := strings.Count(form, `<input type="hidden" name="currency" value="`+v+`">`); n != 1 {
+			t.Errorf("currency %s is carried %d times, want once — a submit would drop or double it", v, n)
+		}
 	}
 	labels := map[string]bool{}
 	for _, c := range chipRe.FindAllStringSubmatch(body, -1) {
 		labels[html.UnescapeString(c[2])] = true
 	}
-	for _, want := range []string{"Currency: Test Token", "Currency: Test Coin"} {
+	for _, want := range []string{"currency: Test Token", "currency: Test Coin"} {
 		if !labels[want] {
 			t.Errorf("no chip %q (chips: %v)", want, labels)
 		}
