@@ -35,11 +35,11 @@ const containerFixtureJSON = `[
   {"acquisition_type":"drop","acquisition_cost":[],"container":"Acheronian Cache",
    "unchained":false,"region":null,"region_source":null,"map":null,"instance":null,
    "dungeon_or_raid":null,"boss_or_npc":null,"vendor":null,"quest":null,"is_raid":false,
-   "coords":null,"tier":null,"section_raw":"fixture","on_hold":false,"on_hold_reason":null},
+   "coords":null,"tier":null,"section_raw":"Unsorted Items","on_hold":false,"on_hold_reason":null},
   {"acquisition_type":"drop","acquisition_cost":[],"container":null,"unchained":true,
    "region":null,"region_source":null,"map":null,"instance":"Dead Man's Hand",
    "dungeon_or_raid":"Dead Man's Hand (Unchained)","boss_or_npc":null,"vendor":null,
-   "quest":null,"is_raid":false,"coords":null,"tier":null,"section_raw":"fixture",
+   "quest":null,"is_raid":false,"coords":null,"tier":null,"section_raw":"Unsorted Items",
    "on_hold":false,"on_hold_reason":null}]}]`
 
 func TestAContainerSourceKeepsItsContainer(t *testing.T) {

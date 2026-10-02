@@ -60,7 +60,7 @@ never a free-text value a client invented — except `q`, which is a name search
 `rarity` · `item_type` · `equip_location` · `armour_weight` · `class` · `region` · `tier` ·
 `place` (repeatable) · `pvp` (bool) · `unchained` (bool) · `q` · `sort` · `limit` · `offset` ·
 since AOC-049: `ilvl_min` · `ilvl_max` · `reqlvl_min` · `reqlvl_max` · `price` (bool) ·
-`currency` · `set` · `facets` (bool)
+`currency` · `set` · `facets` (bool) · since AOC-050: `tab` · `source` · `get`
 
 - **`q`** matches the name (case-insensitive substring) — **and, when it is a whole number, the
   item's id exactly** (AOC-047): `q=2183` finds item 2183 as well as any item whose name contains
@@ -148,6 +148,14 @@ mode therefore follows the filters and cannot be asked for:
 | nothing, or `region` / `tier` — an **aggregate** view | one per item, with `places[]` as context | `true` |
 | one `place` | one per item, each carrying `place` | `false` |
 | several `place` values | **one per item per named place**, so a shared item appears under each | `false` |
+| a `place` that **contains places** (a raid and its wings), alone or with others | the place's items **and every place inside it**, at any depth, **one per item**, with `places[]` as context | `true` |
+
+**A place that contains places** (AOC-038, Pierre 2026-09-29). House of Crom's loot is recorded against
+its two wings and Warmonk Monastery's against its three, so `place=house-of-crom` used to answer 0
+items. It now answers all 152, each once: asking for the raid means everything in it. Naming two
+wings of one raid is still two dungeons (the row above). Which places a place contains is
+`places.parent_place_id`, read by the service, never a list in code. A `place` value no place has
+still matches nothing; it is never dropped, which would remove the filter.
 
 An item that matches the filters but is in **none** of the named places does not appear. It is not
 emitted without a place: a row missing from a place view is visible, a place-less row in one is not
@@ -192,6 +200,90 @@ With several values in a group, a facet's count is still "items with this value 
 filters". For a facet that holds one value per item (rarity, armour weight, set), the total for
 several ticked values is exactly the sum of their counts. For slot, class and currency it is
 their union.
+
+**The source panel's filter (AOC-050), additive.** Without `tab`, `source` or `get` every answer is
+byte-identical to 0.5.0's.
+
+- **`source`** picks a node of the Armory's source panel: **typed levels joined by `.`**, in tree
+  order. The kinds are `s:` section, `r:` region, `m:` map, `p:` place, `b:` boss, `v:` vendor,
+  `q:` quest giver and `c:` container, each followed by a slug:
+  `source=s:pve-tier-3.p:<raid>.b:<boss>`.
+  - **A node is ONE source row.** An item is listed when one of its source rows has every level
+    named, together. That differs from `tier=` plus `place=`, which may each match a different row
+    of the same item and keep their meaning.
+  - **Each kind appears once, except places,** which form a chain, each the parent of the next
+    (`p:house-of-crom.p:the-vile-nativity`), as deep as the hierarchy goes. A chain whose places are not each
+    other's parents names nothing. The last place is the one matched. It is matched with every
+    place inside it when the path ends there (AOC-038), and alone when a boss, vendor, quest giver
+    or container follows.
+  - **A row's location is its first kind, in the order boss, vendor, quest giver, container.** A
+    `v:`, `q:` or `c:` matches only a row with no earlier kind, because that is where the tree
+    draws it (a row with a quest giver and a container is under the quest giver).
+  - **`-` is a level the row does not have:** `r:-` and `m:-` for no region or map, and `p:-` (only
+    on its own) for no place before a boss, vendor, quest giver or container.
+    `/v1/sources/tree` writes them wherever a row lacks a level, so a branch's `source` lists
+    exactly its rows.
+  - The values to send come from `/v1/sources/tree`.
+- **`tab`** is the panel's tab (`/v1/taxonomies` → `source_tabs`). On its own it filters
+  **nothing**: the tab changes what the panel shows, not the list (Pierre, 2026-10-02). With a
+  `source`, the node is matched among the rows of that tab's sections. With no `tab`, the first tab
+  is used.
+- **`get`** picks one half of a node, as an acquisition group's slug: `drop` (the design's
+  "loot / drops") or `vendor` ("quest / vendor"). Which acquisition types fall in each is data
+  (`acquisition_types.group_id`). **`get` needs a `source`**: alone it is a 400.
+- **A malformed `source`, `tab` or `get` is a 400.** That covers an unknown kind, a segment that is
+  not `kind:slug`, a level twice, `-` where it cannot stand, a value that is
+  not a slug, or `get` without a `source`. `/armory` answers each with its own 400 page. The body is the central mapping's
+  `{"error":"invalid request"}`, as for a bad `sort`; the reason is logged. An unknown **slug** is
+  not malformed: it matches nothing, like an unknown rarity.
+
+### `GET /v1/sources/tree`
+
+The Armory's source panel for one tab (AOC-050): `?tab=<slug>` (absent = the first tab), plus **any
+`/v1/items` filter**. Every branch is counted under those filters. **A `source` on the request is
+not applied to the counts**, so each branch says what picking it would leave (the rail's rule,
+AOC-049). An unknown tab is a **404**.
+
+Its shape (counts inside a branch shown as 0 here, not measured values):
+
+```json
+{
+  "tab": {"slug": "pve", "name": "PVE", "levels_note": "tier › raid › boss", "groups": ["section"]},
+  "total": 965,
+  "end_points": 26,
+  "nodes": [
+    {"kind": "section", "slug": "pve-tier-3", "name": "PvE Tier 3", "source": "s:pve-tier-3",
+     "count": 183, "groups": [{"slug": "drop", "name": "loot / drops", "count": 0}],
+     "children": [{"kind": "place", "slug": "…", "name": "…", "source": "s:pve-tier-3.p:…",
+                   "count": 0, "children": [{"kind": "boss", "…": "…"}]}]}
+  ]
+}
+```
+
+- **The levels are data.** A tab draws its `groups` (from `section`, `region`, `map`), then the
+  location: the row's place under every place above it, at any depth, then its boss, vendor, quest
+  giver or container, the first of those the row has. A row with no place has one of those as its location instead. A level a row does not
+  have is never shown as "Unknown": no branch is drawn for it, and its branches hang from the one
+  above. Their `source` still names it as `-`. The tabs, the sections in each and their order are rows
+  (`source_tabs`, `sections`), seeded with Pierre's assignment of AoC>TV's 39 sections
+  (2026-10-02).
+- **A branch the filters empty is listed with `count: 0`**, never dropped. The tree's shape is every
+  source row of the tab, whatever the filters.
+- `count` is distinct items. `groups` is the same count per acquisition group, for every group the
+  branch's rows have, **0 included** when the filters empty it. `total` is the distinct items in
+  the tab under the filters. `end_points` is how many branches have no branch under them
+  (structural, not filtered). `halves` is every acquisition group in its order. `attribution` is
+  on this route too.
+- `source` is the value `/v1/items?tab=<tab>&source=…` takes to list exactly `count` items.
+- `coords` (AOC-068) is where on its map the branch is, AoC>TV's `x,y`, **only when every row of the
+  branch has the same coordinates** (Pierre, 2026-10-02). Otherwise the key is absent. Measured on
+  the corpus, 2026-10-02:
+  - The Gilding Vendor has no coordinates at all.
+  - The Collectors vendor has two points: 400,652 in PvE Tier 3.5, and 1230,1086 in Tiers 5 and 6.
+    Each of its three branches, one per tier, is a single point and shows it.
+  - House of Crom's two wings share one point, but 14 of its rows record none, so it has none.
+  - A tier whose every row is at one stronghold is that point, and has it.
+- Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
 
 ### `GET /v1/items/{slug}`
 
@@ -249,6 +341,10 @@ Each term is `{"slug", "name"}` plus, where the row has one (AOC-046, additive):
 - rarities: `"colour_token"` — the name of the CSS custom property that paints it
   (`rarity-epic` → `--color-rarity-epic` in the site's stylesheet). Absent = no colour of its own.
 
+**`source_tabs`** (AOC-050, a new key, additive): the source panel's tabs in Pierre's order, each
+`{"slug", "name", "levels_note", "groups"}`: PVE, PVP, Region, Faction, Onslaught, Other.
+`levels_note` is the panel's wording for the tab's levels.
+
 ### Attribution
 
 Every response on every route carries `"attribution": "AoC Codex — https://aoc-codex.app/info"`.
@@ -282,7 +378,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
-| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049; since AOC-065 the pane is exactly the validated design's: rarity, slot, armour weight and class as checkboxes and toggle chips, several at once (AOC-064), and the item level as two sliders. Every other filter — required level, vendor price, currency, set, and the rest — rides along as a hidden input and shows as a pill, one per value, worded as the design's (`rarity: Epic`, `class: Conq`, `ilvl 60–90`, `q: …`)). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the pane, the pills and both active counts out of band — with `HX-Push-Url` set to the state's canonical URL (`HX-Replace-Url` instead when `HX-Current-URL` names the same state: one history entry per state); both answers send `Vary: HX-Request`. A request whose reader went away (an aborted live request: its own context canceled) is logged as 499, not an error; a database failure stays a 500. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049; since AOC-065 the pane is exactly the validated design's: rarity, slot, armour weight and class as checkboxes and toggle chips, several at once (AOC-064), and the item level as two sliders. Every other filter — required level, vendor price, currency, set, and the rest — rides along as a hidden input and shows as a pill, one per value, worded as the design's (`rarity: Epic`, `class: Conq`, `ilvl 60–90`, `q: …`)). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the pane, the pills and both active counts out of band — with `HX-Push-Url` set to the state's canonical URL (`HX-Replace-Url` instead when `HX-Current-URL` names the same state: one history entry per state); both answers send `Vary: HX-Request`. A request whose reader went away (an aborted live request: its own context canceled) is logged as 499, not an error; a database failure stays a 500. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state. **Since AOC-068 the sources panel**: `tab` (the active main category, absent = the first; it filters nothing), `source` and `get` (the picked branch, as `/v1/items` reads them). The tabs, the tree, the selected-source box and its counts come back out of band too, and the pick is a `source: …` pill. An unknown `tab` is a 404 |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
 | GET | `/aa`, `/feats`, `/dj-raids`, `/more` | **Coming Soon pages** (Pierre, 2026-10-01): the design's header tabs, shown before their sections exist. Each says only that the section is not built. **`noindex`**, canonical to itself, **not in the sitemap**. A section that ships takes over its URL (or 301s it, rule 5c) |
 | GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |

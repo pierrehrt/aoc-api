@@ -37,6 +37,12 @@ const (
 type Querier interface {
 	ListItems(ctx context.Context, arg sqlcgen.ListItemsParams) ([]sqlcgen.ListItemsRow, error)
 	ListItemPlaces(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPlacesRow, error)
+	ExpandPlaces(ctx context.Context, slugs []string) ([]sqlcgen.ExpandPlacesRow, error)
+	// The source panel (AOC-050).
+	ListSourceTabs(ctx context.Context) ([]sqlcgen.ListSourceTabsRow, error)
+	ListSourceTreeRows(ctx context.Context, arg sqlcgen.ListSourceTreeRowsParams) ([]sqlcgen.ListSourceTreeRowsRow, error)
+	ListAcquisitionGroups(ctx context.Context) ([]sqlcgen.ListAcquisitionGroupsRow, error)
+	ListPlaceHierarchy(ctx context.Context) ([]sqlcgen.ListPlaceHierarchyRow, error)
 	GetItemBySlug(ctx context.Context, slug string) (int32, error)
 	GetItem(ctx context.Context, itemID int32) (sqlcgen.GetItemRow, error)
 	ListItemStats(ctx context.Context, itemID int32) ([]sqlcgen.ListItemStatsRow, error)
@@ -82,6 +88,12 @@ type Filters struct {
 	// Places are the specific places the caller named. One or more of these is what makes the
 	// view a PLACE view rather than an aggregate one, and that is what decides collapsing.
 	Places []string
+
+	// The source panel (AOC-050). Tab is the panel's active tab: on its own it filters NOTHING
+	// (Pierre, 2026-10-02: the tab changes what the panel shows). Source is the node picked in it,
+	// matched on one source row of a section in that tab; with no Tab, the first tab.
+	Tab    string
+	Source SourceNode
 
 	PvP       *bool
 	Unchained *bool
@@ -144,13 +156,51 @@ func idQuery(q string) *int32 {
 	return &id
 }
 
-// Aggregate reports whether this view is one that CONTAINS several places rather than being one.
+// Aggregate reports whether this view is one that CONTAINS several places rather than being one,
+// as far as the filters alone can say: it names no place.
 //
 // ⭐ Pierre's rule, DECISIONS.md 2026-09-13: one dungeon shows its loot as it is; anything that
 // contains several dungeons shows each item once. So the mode is a consequence of the filters, not
 // a parameter -- there is no flag for a caller to get wrong, which is the point, because a client
 // that forgets it renders a visibly broken page (CLAUDE.md rule 5b).
+//
+// A named place that itself CONTAINS places (a raid and its wings, AOC-038) is aggregate too, but
+// only the database knows which places those are: List adds that half (expandPlaces), so a caller
+// never decides it either.
 func (f Filters) Aggregate() bool { return len(f.Places) == 0 }
+
+// expandPlaces is the named places and every place inside them, at any depth (AOC-038), and whether
+// any named place contained one. Asking for House of Crom means its two wings' loot (Pierre,
+// 2026-09-29); its own row holds none of it.
+//
+// ⚠️ The named slugs are ALWAYS kept, known or not. A name no place has expands to nothing, and an
+// empty list reaches SQL as no filter at all (listArg): place=a-typo would answer the whole armory
+// instead of nothing. Keeping it makes the typo match nothing, which is what it did before.
+func (s *Service) expandPlaces(ctx context.Context, named []string) ([]string, bool, error) {
+	if len(named) == 0 {
+		return nil, false, nil
+	}
+	rows, err := s.q.ExpandPlaces(ctx, named)
+	if err != nil {
+		return nil, false, fmt.Errorf("expand places: %w", err)
+	}
+	out := append([]string{}, named...)
+	seen := map[string]bool{}
+	for _, n := range named {
+		seen[n] = true
+	}
+	contains := false
+	for _, r := range rows {
+		if r.Slug != r.Named {
+			contains = true
+		}
+		if !seen[r.Slug] {
+			seen[r.Slug] = true
+			out = append(out, r.Slug)
+		}
+	}
+	return out, contains, nil
+}
 
 // Place is where an item comes from, as shown next to it in a list.
 type PlaceRef struct {
@@ -252,50 +302,12 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		offset = 0
 	}
 
-	// ⭐ ONE definition of "no places", not two. Aggregate() decides the collapsing mode; this
-	// decides the SQL predicate; and when they disagreed, an EMPTY (non-nil) slice reached Postgres
-	// as '{}' rather than NULL, so `p.slug = ANY('{}')` was false for every row: the service
-	// reported collapsed=true and returned nothing (verify round 2).
-	//
-	// Deriving the parameter FROM the predicate is what makes that unrepresentable, rather than a
-	// second length check sitting somewhere else waiting to drift from the first.
-	//
-	// It is reachable from the surface this layer exists for: the HTML armory page builds
-	// Filters{Places: selected} from a multi-select, and an empty multi-select is its default
-	// state — first paint would have shown zero items.
-	// listArg is nil exactly when Places is empty — exactly when Aggregate() is true — so the
-	// collapsing mode and the predicate are one condition. The six facet lists take the same road
-	// (AOC-064): one spelling for all seven.
-	placeSlugs := listArg(f.Places)
-
-	if err := f.validRanges(); err != nil {
+	// The SQL arguments and the collapsing mode come from one place, listParams.
+	params, collapsed, err := s.listParams(ctx, f)
+	if err != nil {
 		return ListResult{}, err
 	}
-
-	params := sqlcgen.ListItemsParams{
-		Rarities:       listArg(f.Rarities),
-		ItemType:       ptrIfSet(f.ItemType),
-		NameQuery:      ptrIfSet(escapeLike(f.Query)),
-		IDQuery:        idQuery(f.Query),
-		EquipLocations: listArg(f.EquipLocations),
-		Classes:        listArg(f.Classes),
-		PlaceSlugs:     placeSlugs,
-		ArmourWeights:  listArg(f.ArmourWeights),
-		Region:         ptrIfSet(f.Region),
-		Tier:           ptrIfSet(f.Tier),
-		Unchained:      f.Unchained,
-		Pvp:            f.PvP,
-		IlvlMin:        f.ILvlMin,
-		IlvlMax:        f.ILvlMax,
-		ReqlvlMin:      f.ReqLvlMin,
-		ReqlvlMax:      f.ReqLvlMax,
-		Price:          f.Price,
-		Currencies:     listArg(f.Currencies),
-		Sets:           listArg(f.Sets),
-		SortBy:         f.Sort,
-		PageSize:       int32(limit),
-		PageOffset:     int32(offset),
-	}
+	params.SortBy, params.PageSize, params.PageOffset = f.Sort, int32(limit), int32(offset)
 
 	rows, err := s.q.ListItems(ctx, params)
 	if err != nil {
@@ -306,7 +318,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Items:       make([]ListItem, 0, len(rows)),
 		Limit:       limit,
 		Offset:      offset,
-		Collapsed:   f.Aggregate(),
+		Collapsed:   collapsed,
 		Attribution: Attribution,
 	}
 	if f.WithFacets {
@@ -415,7 +427,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		}
 		places := byItem[r.ItemID]
 
-		if f.Aggregate() {
+		if collapsed {
 			// Collapsed: the item appears ONCE, and the places it drops in ride along as context.
 			base.Places = places
 			out.Items = append(out.Items, base)
@@ -446,6 +458,60 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	}
 
 	return out, nil
+}
+
+// listParams turns the filters into the list query's arguments: ONE mapping, read by the list (and
+// so its facets, facetParams) and by the source tree (AOC-050), so no surface filters on a field
+// another one forgot. Sort and paging are the list's own and are set by List.
+func (s *Service) listParams(ctx context.Context, f Filters) (sqlcgen.ListItemsParams, bool, error) {
+	// ⭐ ONE definition of "no places", not two. When the collapsing mode and the SQL predicate
+	// disagreed about it, an EMPTY (non-nil) slice reached Postgres as '{}' rather than NULL, so
+	// `p.slug = ANY('{}')` was false for every row: the service reported collapsed=true and returned
+	// nothing (AOC-012 verify round 2). It is reachable from the surface this layer exists for: the
+	// HTML armory page builds Filters{Places: selected} from a multi-select whose default is empty.
+	//
+	// Deriving the parameter through listArg is what makes that unrepresentable: the place list SQL
+	// sees is nil exactly when Places is empty — expandPlaces keeps every named slug — which is
+	// exactly when Aggregate() is true. The six facet lists take the same road (AOC-064). The
+	// collapsing mode then adds the one case the filters alone cannot see: a named place that
+	// contains places (AOC-038).
+	if err := f.validRanges(); err != nil {
+		return sqlcgen.ListItemsParams{}, false, err
+	}
+	expanded, contains, err := s.expandPlaces(ctx, f.Places)
+	if err != nil {
+		return sqlcgen.ListItemsParams{}, false, err
+	}
+	placeSlugs := listArg(expanded)
+	// Collapsed when nothing is named, or when something named contains places: a raid shows each
+	// item once, like any view of several dungeons. Two sibling wings named stay expanded.
+	collapsed := f.Aggregate() || contains
+
+	params := sqlcgen.ListItemsParams{
+		Rarities:       listArg(f.Rarities),
+		ItemType:       ptrIfSet(f.ItemType),
+		NameQuery:      ptrIfSet(escapeLike(f.Query)),
+		IDQuery:        idQuery(f.Query),
+		EquipLocations: listArg(f.EquipLocations),
+		Classes:        listArg(f.Classes),
+		PlaceSlugs:     placeSlugs,
+		ArmourWeights:  listArg(f.ArmourWeights),
+		Region:         ptrIfSet(f.Region),
+		Tier:           ptrIfSet(f.Tier),
+		Unchained:      f.Unchained,
+		Pvp:            f.PvP,
+		IlvlMin:        f.ILvlMin,
+		IlvlMax:        f.ILvlMax,
+		ReqlvlMin:      f.ReqLvlMin,
+		ReqlvlMax:      f.ReqLvlMax,
+		Price:          f.Price,
+		Currencies:     listArg(f.Currencies),
+		Sets:           listArg(f.Sets),
+	}
+	if err := s.applySource(ctx, f, &params); err != nil {
+		return sqlcgen.ListItemsParams{}, false, err
+	}
+	return params, collapsed, nil
 }
 
 // Detail is the full item, as /v1/items/{slug} returns it.

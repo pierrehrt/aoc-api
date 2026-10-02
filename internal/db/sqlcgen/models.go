@@ -8,10 +8,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AcquisitionGroup struct {
+	ID        int32
+	Slug      string
+	Name      string
+	SortOrder int32
+}
+
 type AcquisitionType struct {
-	ID   int32
-	Slug string
-	Name string
+	ID      int32
+	Slug    string
+	Name    string
+	GroupID *int32
 }
 
 type Archetype struct {
@@ -154,6 +162,7 @@ type ItemSource struct {
 	ConfidenceID      int32
 	SourceNote        string
 	OpenQuestion      *string
+	SectionID         *int32
 }
 
 type ItemSpellEffect struct {
@@ -248,6 +257,14 @@ type SchemaProbe struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Section struct {
+	ID        int32
+	Slug      string
+	Name      string
+	TabID     int32
+	SortOrder int32
+}
+
 type Set struct {
 	ID                 int32
 	Slug               string
@@ -265,6 +282,15 @@ type SlotFit struct {
 	Slug      string
 	Name      string
 	SortOrder int32
+}
+
+type SourceTab struct {
+	ID         int32
+	Slug       string
+	Name       string
+	SortOrder  int32
+	LevelsNote string
+	Groups     []string
 }
 
 type Tier struct {

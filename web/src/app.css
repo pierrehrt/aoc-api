@@ -59,6 +59,7 @@
   --color-ink-nav-hover: #191716;
   --color-ink-pill: #1d1a17;     /* an active-filter pill */
   --color-ink-pane-hover: #151312; /* a collapsed pane strip under the pointer */
+  --color-ink-tree-hover: #1a1816; /* a source tree row under the pointer (AOC-068) */
   --color-line: #221f1c;         /* structural borders: header, panes, table header, pager bar */
   --color-line-row: #1a1817;     /* between table rows */
   --color-line-control: #2b2723; /* buttons, sort, pager, the ⌘K hint; scrollbar thumb */
@@ -91,7 +92,8 @@
    than a utility because one condition sets six properties, and :has() lets the checkbox sit beside
    its button (for the focus ring) instead of beside the sheet. Unlayered, so it outranks `hidden`. */
 @media (width < 64rem) {
-  .armory:has(#filter-sheet:checked) .filter-sheet {
+  .armory:has(#filter-sheet:checked) .filter-sheet,
+  .armory:has(#sources-sheet:checked) .sources-sheet {
     position: fixed;
     inset: 0;
     z-index: 40;
@@ -99,7 +101,8 @@
     flex-direction: column;
     background: var(--color-ink-header); /* the canvas 1b sheet's #111010 */
   }
-  body:has(#filter-sheet:checked) {
+  body:has(#filter-sheet:checked),
+  body:has(#sources-sheet:checked) {
     overflow: hidden;
   }
 }
@@ -139,6 +142,10 @@ html.js .no-js-only { display: none !important; }
   .armory:has(#filters-collapsed:checked) .filters-pane { display: none; }
   .filters-strip { display: none; }
   .armory:has(#filters-collapsed:checked) .filters-strip { display: flex; }
+  /* The sources pane folds the same way, to its own strip on the left (AOC-068). */
+  .armory:has(#sources-collapsed:checked) .sources-pane { display: none; }
+  .sources-strip { display: none; }
+  .armory:has(#sources-collapsed:checked) .sources-strip { display: flex; }
 }
 
 /* Respect a reader who has asked for less motion. Non-negotiable, and cheap. */

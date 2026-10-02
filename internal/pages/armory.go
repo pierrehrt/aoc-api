@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -30,21 +31,7 @@ var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortN
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)
 	if err != nil {
-		// The parser's reason is shown: it names only parameters and the reader's own input
-		// ("ilvl_min (80) is above ilvl_max (60)"), never anything internal.
-		reason := strings.TrimPrefix(err.Error(), httpx.ErrInvalid.Error()+": ")
-		if templates.IsHTMX(r) {
-			// A live change from the rail (AOC-049 review): a 400 that HTMX swapped nowhere left the
-			// rail silently dead. The message goes where the rows were; the rail is not redrawn, so
-			// the bad value stays where the reader can fix it, and no URL is pushed — "false" says so
-			// explicitly, or htmx pushes the request's own URL (measured in a browser).
-			w.Header().Set("HX-Push-Url", "false")
-			if err := h.tpl.FragmentStatus(w, http.StatusBadRequest, "armory_invalid", templates.InvalidSearch{Reason: reason}); err != nil {
-				h.fail(w, r, err)
-			}
-			return
-		}
-		httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
+		h.invalidSearch(w, r, err)
 		return
 	}
 	page := 1
@@ -64,6 +51,12 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f.WithFacets = true
 
 	res, err := h.items.List(r.Context(), f)
+	if errors.Is(err, httpx.ErrInvalid) {
+		// The service refuses what the parser cannot see on its own: a 400, never a 500 and an
+		// ERROR line (AOC-050 verify round 2, F10).
+		h.invalidSearch(w, r, err)
+		return
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -87,9 +80,39 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	// ⭐ Every link on the page is built from the whole state (items.Filters.Values), so no filter can
 	// fall out of a pager, a sort or a chip.
 	here := func(g items.Filters) string { return armoryURL(g, 1) }
+	// The sources panel (AOC-068): the tabs and the active one's tree, counted under every other
+	// filter. A tab no tab has names nothing: 404, like a page past the end.
+	tabs, err := h.items.Tabs(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own
+	// canonical). Before any link is built from f, "Clear the search" included (round 2, O1).
+	firstTab := ""
+	if len(tabs) > 0 {
+		firstTab = tabs[0].Slug
+	}
+	if f.Tab == firstTab {
+		f.Tab = ""
+	}
 	withoutQuery := f
 	withoutQuery.Query = ""
-	rail, chips, clearAll := buildRail(f, res.Facets, here)
+	var sources templates.Sources
+	sourceLabel := ""
+	if len(tabs) > 0 {
+		tree, err := h.items.Tree(r.Context(), f)
+		if errors.Is(err, items.ErrNoSuchTab) {
+			httpx.RejectHTML(w, r, http.StatusNotFound, "There is no such source tab")
+			return
+		}
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		sources, sourceLabel = buildSources(f, tabs, tree, here)
+	}
+	rail, chips, clearAll := buildRail(f, res.Facets, here, sourceLabel)
 	d := templates.ArmoryData{
 		Query:    f.Query,
 		Sort:     f.Sort,
@@ -101,6 +124,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		Rail:     rail,
 		Chips:    chips,
 		ClearAll: clearAll,
+		Sources:  sources,
 	}
 	for i, k := range items.Sorts {
 		g := f
@@ -139,7 +163,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
 		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
 		canon := armoryURL(f, page)
-		if canonicalOf(r, r.Header.Get("HX-Current-URL")) == canon {
+		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == canon {
 			w.Header().Set("HX-Replace-Url", canon)
 		} else {
 			w.Header().Set("HX-Push-Url", canon)
@@ -167,6 +191,25 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "armory", v, d)
 }
 
+// invalidSearch answers a search the parser or the service refused (ErrInvalid) with a 400 naming
+// the reason, which names only parameters and the reader's own input ("ilvl_min (80) is above
+// ilvl_max (60)"), never anything internal.
+func (h *Handler) invalidSearch(w http.ResponseWriter, r *http.Request, err error) {
+	reason := strings.TrimPrefix(err.Error(), httpx.ErrInvalid.Error()+": ")
+	if templates.IsHTMX(r) {
+		// A live change from the rail (AOC-049 review): a 400 that HTMX swapped nowhere left the
+		// rail silently dead. The message goes where the rows were; the rail is not redrawn, so
+		// the bad value stays where the reader can fix it, and no URL is pushed — "false" says so
+		// explicitly, or htmx pushes the request's own URL (measured in a browser).
+		w.Header().Set("HX-Push-Url", "false")
+		if err := h.tpl.FragmentStatus(w, http.StatusBadRequest, "armory_invalid", templates.InvalidSearch{Reason: reason}); err != nil {
+			h.fail(w, r, err)
+		}
+		return
+	}
+	httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
+}
+
 // itemCount is "1 item", "7 items" — the meta description said "1 items" (AOC-047 verify round 3).
 func itemCount(n int64) string {
 	if n == 1 {
@@ -180,7 +223,7 @@ func itemCount(n int64) string {
 // Two addresses of one state compare equal: after the search's Enter or the phone's Apply the address
 // bar holds the form's raw query (?q=&rarity=epic&ilvl_min=&ilvl_max=), and a string comparison
 // took an answer for that same state for a new one (AOC-065 delta verify 6).
-func canonicalOf(r *http.Request, address string) string {
+func canonicalOf(r *http.Request, address, firstTab string) string {
 	u, err := url.Parse(address)
 	if err != nil || u.Path != "/armory" {
 		return ""
@@ -190,6 +233,11 @@ func canonicalOf(r *http.Request, address string) string {
 	f, err := items.ParseFilters(cr)
 	if err != nil {
 		return ""
+	}
+	// The default tab is no part of a state's URL, here as on the page (round 2, O1: a typed
+	// ?tab=<first> took the next answer for a new state, and Back stepped through it twice).
+	if f.Tab == firstTab {
+		f.Tab = ""
 	}
 	page := 1
 	if p := u.Query().Get("p"); p != "" {
@@ -223,7 +271,9 @@ func armoryURL(f items.Filters, page int) string {
 	if len(v) == 0 {
 		return "/armory"
 	}
-	return "/armory?" + v.Encode()
+	// A source path's ':' is printed as itself, not %3A (AOC-068): ':' is legal in a query, and the URL
+	// is shown in the search block, where "source=s:pve-tier-3" reads and "s%3Apve-tier-3" does not.
+	return "/armory?" + strings.ReplaceAll(v.Encode(), "%3A", ":")
 }
 
 // pagerWindow is the numbered links to show: five consecutive pages around the current one, as the

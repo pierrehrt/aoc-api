@@ -60,6 +60,26 @@ func (f *fakeItems) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItem
 	return nil, nil
 }
 
+func (f *fakeItems) ListSourceTabs(context.Context) ([]sqlcgen.ListSourceTabsRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ListSourceTreeRows(context.Context, sqlcgen.ListSourceTreeRowsParams) ([]sqlcgen.ListSourceTreeRowsRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ListAcquisitionGroups(context.Context) ([]sqlcgen.ListAcquisitionGroupsRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ListPlaceHierarchy(context.Context) ([]sqlcgen.ListPlaceHierarchyRow, error) {
+	return nil, nil
+}
+
+func (f *fakeItems) ExpandPlaces(context.Context, []string) ([]sqlcgen.ExpandPlacesRow, error) {
+	return nil, nil
+}
+
 // Every list row has a page (AOC-025: every sitemap URL must answer 200). Items 1–3 carry the
 // detailed fixtures in fake_item_detail_test.go; the rest are their bare list rows.
 func (f *fakeItems) GetItemBySlug(_ context.Context, slug string) (int32, error) {

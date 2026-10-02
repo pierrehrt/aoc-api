@@ -117,6 +117,7 @@ func run() error {
 		Handler: httpx.NewRouterWithAPI(build, site.Routes, assetSet.Handler(), func(v1 chi.Router) {
 			v1.Mount("/items", itemsAPI.Routes())
 			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
+			v1.Mount("/sources", itemsAPI.SourceRoutes())
 		}, routerOpts...),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that

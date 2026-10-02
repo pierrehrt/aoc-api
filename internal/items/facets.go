@@ -86,6 +86,17 @@ func facetParams(p sqlcgen.ListItemsParams) sqlcgen.CountItemFacetsParams {
 		Price:          p.Price,
 		Currencies:     p.Currencies,
 		Sets:           p.Sets,
+		// The picked source node (AOC-050): the rail counts under it like under any filter.
+		SourceTab:       p.SourceTab,
+		SourceSection:   p.SourceSection,
+		SourceRegion:    p.SourceRegion,
+		SourceMap:       p.SourceMap,
+		SourcePlaces:    p.SourcePlaces,
+		SourceBoss:      p.SourceBoss,
+		SourceVendor:    p.SourceVendor,
+		SourceQuest:     p.SourceQuest,
+		SourceContainer: p.SourceContainer,
+		SourceGroup:     p.SourceGroup,
 	}
 }
 

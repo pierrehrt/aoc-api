@@ -1,0 +1,410 @@
+package items
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
+	"github.com/pierrehrt/aoc-api/internal/httpx"
+)
+
+// The Armory's source panel (AOC-050). Pierre, 2026-10-02 (DECISIONS.md): the main categories under
+// the search — PVE, PVP, Region, Faction, Onslaught, Other — each hold some of AoC>TV's 39 armory
+// sections, and the panel below shows the active one's tree. Which sections a tab holds and which
+// levels it draws are rows (source_tabs, sections); this file only follows them.
+
+// SourceTab is one main category, as the panel and /v1/taxonomies show it.
+type SourceTab struct {
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	LevelsNote string `json:"levels_note"`
+	// Groups is the levels the tab draws above the location (section, region, map); every tab
+	// then draws location › boss.
+	Groups []string `json:"groups"`
+}
+
+// GroupCount is how many of a node's items come from one half of it ("loot / drops", "quest /
+// vendor"): the design's split of a location. Every half the branch's rows have is listed, 0
+// included when the filters empty it.
+type GroupCount struct {
+	Slug  string `json:"slug"`
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// TreeNode is one branch of the panel. Source is the `source` value that picks it; Count is how many
+// items choosing it would leave under every other filter (the rail's rule, AOC-049), 0 included.
+type TreeNode struct {
+	Kind   string       `json:"kind"` // section, region, map, place, boss, vendor, quest, container
+	Slug   string       `json:"slug"`
+	Name   string       `json:"name"`
+	Source string       `json:"source"`
+	Count  int64        `json:"count"`
+	Groups []GroupCount `json:"groups,omitempty"`
+	// Coords is where on its map the branch is, when every row of it has the same coordinates
+	// (AOC-068, Pierre: one location, one point; none, or two, and nothing is shown).
+	Coords   string      `json:"coords,omitempty"`
+	Children []*TreeNode `json:"children,omitempty"`
+
+	sort     int32
+	items    map[int32]struct{}
+	by       map[string]map[int32]struct{} // group slug -> matching items
+	has      map[string]bool               // the groups any of the branch's rows has, filters aside
+	at       map[string]bool               // the coordinates the branch's rows have, filters aside
+	unmapped bool                          // a row of the branch has none
+	index    map[string]*TreeNode          // the branches drawn under it, by their full source path
+}
+
+// Tree is one tab's panel.
+type Tree struct {
+	Tab SourceTab `json:"tab"`
+	// Total is the distinct items the tab's sections hold under every other filter.
+	Total int64 `json:"total"`
+	// EndPoints is how many branches have no branch under them — the design's "N end points".
+	EndPoints int         `json:"end_points"`
+	Nodes     []*TreeNode `json:"nodes"`
+	// Halves is every acquisition group in its order: the order a panel draws a location's halves
+	// in, whichever of them a branch has.
+	Halves      []Term `json:"halves"`
+	Attribution string `json:"attribution"`
+}
+
+// Tabs lists the main categories in Pierre's order.
+func (s *Service) Tabs(ctx context.Context) ([]SourceTab, error) {
+	rows, err := s.q.ListSourceTabs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list source tabs: %w", err)
+	}
+	out := make([]SourceTab, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SourceTab{Slug: r.Slug, Name: r.Name, LevelsNote: r.LevelsNote, Groups: r.Groups})
+	}
+	return out, nil
+}
+
+// tab is the named tab, or the first one when none is named. ok is false for a name no tab has.
+func (s *Service) tab(ctx context.Context, slug string) (SourceTab, bool, error) {
+	tabs, err := s.Tabs(ctx)
+	if err != nil {
+		return SourceTab{}, false, err
+	}
+	for _, t := range tabs {
+		if slug == "" || t.Slug == slug {
+			return t, true, nil
+		}
+	}
+	return SourceTab{}, false, nil
+}
+
+// applySource puts the picked node into the list's arguments. Nothing is picked → nothing is set,
+// and the tab alone filters nothing. A node with no tab named is in the first tab.
+func (s *Service) applySource(ctx context.Context, f Filters, p *sqlcgen.ListItemsParams) error {
+	if f.Source.IsZero() {
+		return nil
+	}
+	src := f.Source
+	// A half is of a branch (AOC-050 verify round 1, F6): alone, it would quietly narrow the list to
+	// one half of the first tab.
+	if src.Group != "" && src.String() == "" {
+		return fmt.Errorf("%w: get picks a half of a source; name the source too", httpx.ErrInvalid)
+	}
+	tab := f.Tab
+	if tab == "" {
+		t, ok, err := s.tab(ctx, "")
+		if err != nil {
+			return err
+		}
+		if ok {
+			tab = t.Slug
+		}
+	}
+	p.SourceTab = &tab
+	p.SourceSection = ptrIfSet(src.Section)
+	p.SourceRegion = ptrIfSet(src.Region) // "-" is "no region"; the SQL reads it
+	p.SourceMap = ptrIfSet(src.Map)
+	p.SourceBoss = ptrIfSet(src.Boss)
+	p.SourceVendor = ptrIfSet(src.Vendor)
+	p.SourceQuest = ptrIfSet(src.Quest)
+	p.SourceContainer = ptrIfSet(src.Container)
+	p.SourceGroup = ptrIfSet(src.Group)
+	if len(src.Places) == 0 {
+		return nil
+	}
+	places, err := s.sourcePlaces(ctx, src)
+	if err != nil {
+		return err
+	}
+	p.SourcePlaces = places
+	return nil
+}
+
+// sourcePlaces is the places a node's path matches (AOC-050 verify round 1, F2 and F3):
+//   - "-": the row has no place, as the tree writes it before a location that has none;
+//   - a chain of places, each the parent of the next: the LAST is matched — with every place inside
+//     it when the path ends there (AOC-038: a raid's branch is its wings' loot), alone when a boss,
+//     vendor, quest giver or container follows (the tree counts those rows under the place itself);
+//   - a chain that is not one (an unknown place, a "wing" of the wrong place) matches nothing.
+func (s *Service) sourcePlaces(ctx context.Context, src SourceNode) ([]string, error) {
+	if len(src.Places) == 1 && src.Places[0] == absent {
+		return []string{absent}, nil
+	}
+	h, err := s.placeHierarchy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, pl := range src.Places {
+		if _, ok := h[pl]; !ok {
+			return nothing, nil
+		}
+		if i > 0 && h[pl].parent != src.Places[i-1] {
+			return nothing, nil
+		}
+	}
+	last := src.Place()
+	if src.Boss != "" || src.Vendor != "" || src.Quest != "" || src.Container != "" {
+		return []string{last}, nil
+	}
+	expanded, _, err := s.expandPlaces(ctx, []string{last})
+	return expanded, err
+}
+
+// nothing is a place list no row matches: a slug no place has. Not an empty list, which reaches SQL
+// as '{}' and is the trap listArg exists for.
+var nothing = []string{""}
+
+// absent is a level a row does not have, in a source path: "r:-", "m:-", "p:-".
+const absent = "-"
+
+// placeInfo is one place's name and parent, from ListPlaceHierarchy.
+type placeInfo struct{ name, parent string }
+
+func (s *Service) placeHierarchy(ctx context.Context) (map[string]placeInfo, error) {
+	rows, err := s.q.ListPlaceHierarchy(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list place hierarchy: %w", err)
+	}
+	h := make(map[string]placeInfo, len(rows))
+	for _, r := range rows {
+		h[r.Slug] = placeInfo{name: r.Name, parent: r.ParentSlug}
+	}
+	return h, nil
+}
+
+// treeParams is the tree query's arguments: the list's, WITHOUT its source selection — a node's
+// count is what choosing it would leave, so the panel's own pick must not narrow it. ⛔ Every other
+// field, from the list's: TestTheTreeTakesEveryListFilterButTheSource fails on one this misses.
+func treeParams(p sqlcgen.ListItemsParams, tab string) sqlcgen.ListSourceTreeRowsParams {
+	return sqlcgen.ListSourceTreeRowsParams{
+		Tab:            tab,
+		ItemType:       p.ItemType,
+		NameQuery:      p.NameQuery,
+		IDQuery:        p.IDQuery,
+		PlaceSlugs:     p.PlaceSlugs,
+		Region:         p.Region,
+		Tier:           p.Tier,
+		Unchained:      p.Unchained,
+		Pvp:            p.Pvp,
+		Rarities:       p.Rarities,
+		EquipLocations: p.EquipLocations,
+		ArmourWeights:  p.ArmourWeights,
+		Classes:        p.Classes,
+		IlvlMin:        p.IlvlMin,
+		IlvlMax:        p.IlvlMax,
+		ReqlvlMin:      p.ReqlvlMin,
+		ReqlvlMax:      p.ReqlvlMax,
+		Price:          p.Price,
+		Currencies:     p.Currencies,
+		Sets:           p.Sets,
+	}
+}
+
+// ErrNoSuchTab is a tab slug no tab has: the tree endpoint's 404, through the central mapping.
+var ErrNoSuchTab = fmt.Errorf("%w: no such source tab", httpx.ErrNotFound)
+
+// Tree is a tab's panel under the filters. Its counts ignore the filters' own source pick (see
+// treeParams), so every branch says what picking it would leave.
+func (s *Service) Tree(ctx context.Context, f Filters) (Tree, error) {
+	t, ok, err := s.tab(ctx, f.Tab)
+	if err != nil {
+		return Tree{}, err
+	}
+	if !ok {
+		return Tree{}, ErrNoSuchTab
+	}
+	lp, _, err := s.listParams(ctx, f)
+	if err != nil {
+		return Tree{}, err
+	}
+	rows, err := s.q.ListSourceTreeRows(ctx, treeParams(lp, t.Slug))
+	if err != nil {
+		return Tree{}, fmt.Errorf("list source tree rows: %w", err)
+	}
+	groups, err := s.q.ListAcquisitionGroups(ctx)
+	if err != nil {
+		return Tree{}, fmt.Errorf("list acquisition groups: %w", err)
+	}
+	h, err := s.placeHierarchy(ctx)
+	if err != nil {
+		return Tree{}, err
+	}
+	return buildTree(t, rows, groups, h), nil
+}
+
+// level is one step of a row's path through the tree. A level with slug "-" is one the row does
+// not have: it is in the path, so picking the branch below it holds only rows that lack it, and it
+// is drawn as nothing — its branches hang from the one above it.
+type level struct {
+	kind, slug, name string
+	sort             int32
+}
+
+// rowPath is the levels a row takes in a tab: each of the tab's groups ("-" where the row has none),
+// then the location — the row's place under every place above it, then its boss, vendor, quest
+// giver or container ("p:-" first when such a location has no place) — the most specific named
+// thing a source row has.
+func rowPath(groups []string, r sqlcgen.ListSourceTreeRowsRow, h map[string]placeInfo) []level {
+	var out []level
+	some := func(kind, slug, name string, sort int32) level {
+		if slug == "" {
+			return level{kind: kind, slug: absent}
+		}
+		return level{kind, slug, name, sort}
+	}
+	for _, g := range groups {
+		switch g {
+		case "section":
+			out = append(out, level{"section", r.SectionSlug, r.SectionName, r.SectionSort})
+		case "region":
+			out = append(out, some("region", r.RegionSlug, r.RegionName, r.RegionSort))
+		case "map":
+			out = append(out, some("map", r.MapSlug, r.MapName, 0))
+		}
+	}
+	var leaf *level
+	switch {
+	case r.BossSlug != "":
+		leaf = &level{"boss", r.BossSlug, r.BossName, 0}
+	case r.VendorSlug != "":
+		leaf = &level{"vendor", r.VendorSlug, r.VendorName, 0}
+	case r.QuestSlug != "":
+		leaf = &level{"quest", r.QuestSlug, r.QuestName, 0}
+	case r.ContainerSlug != "":
+		leaf = &level{"container", r.ContainerSlug, r.ContainerName, 0}
+	}
+	switch {
+	case r.PlaceSlug != "":
+		// Top place first, at any depth (AOC-038). A cycle cannot loop here: the walk stops at a
+		// place already on the chain.
+		chain := []level{{"place", r.PlaceSlug, r.PlaceName, 0}}
+		seen := map[string]bool{r.PlaceSlug: true}
+		// The whole ancestry, never cut (verify round 3, F11: a chain cut at a fixed depth miscounts
+		// the branches above the cut, because a place's branch includes every place inside it).
+		for up := h[r.PlaceSlug].parent; up != "" && !seen[up]; up = h[up].parent {
+			seen[up] = true
+			chain = append([]level{{"place", up, h[up].name, 0}}, chain...)
+		}
+		out = append(out, chain...)
+	case leaf != nil:
+		out = append(out, level{kind: "place", slug: absent})
+	}
+	if leaf != nil {
+		out = append(out, *leaf)
+	}
+	return out
+}
+
+// segment is a level's part of a `source` value (SourceNode.String's spelling).
+var segment = map[string]string{
+	"section": "s", "region": "r", "map": "m", "place": "p",
+	"boss": "b", "vendor": "v", "quest": "q", "container": "c",
+}
+
+func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcgen.ListAcquisitionGroupsRow, h map[string]placeInfo) Tree {
+	root := &TreeNode{index: map[string]*TreeNode{}}
+	all := map[int32]struct{}{}
+	for _, r := range rows {
+		if r.Matches {
+			all[r.ItemID] = struct{}{}
+		}
+		n, path := root, ""
+		for _, l := range rowPath(t.Groups, r, h) {
+			seg := segment[l.kind] + ":" + l.slug
+			if path == "" {
+				path = seg
+			} else {
+				path += "." + seg
+			}
+			if l.slug == absent {
+				continue // in the path, not drawn: the next branch hangs from n
+			}
+			c := n.index[path]
+			if c == nil {
+				c = &TreeNode{Kind: l.kind, Slug: l.slug, Name: l.name, Source: path, sort: l.sort,
+					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, has: map[string]bool{}, at: map[string]bool{}, index: map[string]*TreeNode{}}
+				n.index[path] = c
+				n.Children = append(n.Children, c)
+			}
+			// Every row makes the branch and its halves exist; only a matching one counts in them,
+			// so a branch or a half the filters empty is listed at 0.
+			if r.GroupSlug != "" {
+				c.has[r.GroupSlug] = true
+			}
+			if r.Coords == "" {
+				c.unmapped = true
+			} else {
+				c.at[r.Coords] = true
+			}
+			if r.Matches {
+				c.items[r.ItemID] = struct{}{}
+				if r.GroupSlug != "" {
+					if c.by[r.GroupSlug] == nil {
+						c.by[r.GroupSlug] = map[int32]struct{}{}
+					}
+					c.by[r.GroupSlug][r.ItemID] = struct{}{}
+				}
+			}
+			n = c
+		}
+	}
+	out := Tree{Tab: t, Total: int64(len(all)), Nodes: root.Children, Halves: make([]Term, 0, len(groups)), Attribution: Attribution}
+	if out.Nodes == nil {
+		out.Nodes = []*TreeNode{}
+	}
+	for _, g := range groups {
+		out.Halves = append(out.Halves, Term{Slug: g.Slug, Name: g.Name})
+	}
+	var finish func(ns []*TreeNode)
+	finish = func(ns []*TreeNode) {
+		// Sections and regions in their own order, everything else by name: the data has no order
+		// for a map, a place or a vendor, and alphabetical is the one a reader can predict.
+		sort.SliceStable(ns, func(i, j int) bool {
+			if ns[i].sort != ns[j].sort {
+				return ns[i].sort < ns[j].sort
+			}
+			if ns[i].Name != ns[j].Name {
+				return ns[i].Name < ns[j].Name
+			}
+			return ns[i].Source < ns[j].Source
+		})
+		for _, n := range ns {
+			n.Count = int64(len(n.items))
+			if !n.unmapped && len(n.at) == 1 {
+				for c := range n.at {
+					n.Coords = c
+				}
+			}
+			for _, g := range groups {
+				if n.has[g.Slug] {
+					n.Groups = append(n.Groups, GroupCount{Slug: g.Slug, Name: g.Name, Count: int64(len(n.by[g.Slug]))})
+				}
+			}
+			if len(n.Children) == 0 {
+				out.EndPoints++
+			}
+			finish(n.Children)
+		}
+	}
+	finish(out.Nodes)
+	return out
+}

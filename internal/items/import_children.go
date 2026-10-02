@@ -139,8 +139,8 @@ func insertSources(ctx context.Context, tx pgx.Tx, its []Item, l *Lookups,
 			err := tx.QueryRow(ctx, `
 INSERT INTO item_sources (item_id, acquisition_type_id, place_id, boss_id, vendor_id, quest_id,
                           container_id, region_id, map_id, tier_id, is_raid, coords, section_raw,
-                          unchained, confidence_id, source_note, open_question)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+                          section_id, unchained, confidence_id, source_note, open_question)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
 				it.ItemID,
 				lookupPtr(s.AcquisitionType, l.AcquisitionTypes),
 				placeID, bossID,
@@ -150,7 +150,9 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id
 				regionID,
 				sourceMapID,
 				lookupPtr(s.Tier, l.Tiers),
-				s.IsRaid, coordsText(s.Coords), s.SectionRaw, s.Unchained,
+				s.IsRaid, coordsText(s.Coords), s.SectionRaw,
+				// The section, by AoC>TV's own name (AOC-050). Resolve checked it before any write.
+				lookupPtr(s.SectionRaw, l.Sections), s.Unchained,
 				confidence, note, openQ,
 			).Scan(&sourceID)
 			if err != nil {

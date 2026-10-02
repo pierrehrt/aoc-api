@@ -88,9 +88,18 @@ var fragmentProbes = map[string]any{
 	"armory_chips":        armoryProbe(),
 	"armory_choice":       RailOption{Name: "probe", ID: "f-probe"},
 	"armory_active":       armoryProbe(),
-	"armory_invalid":      InvalidSearch{Reason: "probe"},
-	"armory_slot":         armoryProbe().Result.Items[0],
-	"armory_type":         armoryProbe().Result.Items[0],
+	// The sources panel (AOC-068).
+	"armory_tabs":             armoryProbe(),
+	"armory_tabs_sheet":       armoryProbe(),
+	"armory_tab_class":        armoryProbe().Sources.Tabs[0],
+	"armory_sources_count":    armoryProbe(),
+	"armory_sources_head":     armoryProbe(),
+	"armory_sources_tree":     armoryProbe(),
+	"armory_sources_selected": armoryProbe(),
+	"armory_sources_show":     armoryProbe(),
+	"armory_invalid":          InvalidSearch{Reason: "probe"},
+	"armory_slot":             armoryProbe().Result.Items[0],
+	"armory_type":             armoryProbe().Result.Items[0],
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.

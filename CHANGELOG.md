@@ -8,6 +8,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-02
+
+The Armory's sources panel. The main categories sit under the search, and on the left a tree
+shows where items come from, each branch with its count.
+
+### Added
+
+- The Armory's sources panel: the main categories (PVE, PVP, Region, Faction, Onslaught, Other)
+  under the search, one active at a time, and on the left the active one's tree of where items come
+  from, by section or region, zone, place, and boss, vendor, quest giver or container (AOC-068)
+- Each branch of the panel shows how many items picking it would leave, under every other filter: a
+  0 is listed, never hidden, and end branches split into "loot / drops" and "quest / vendor"
+  (AOC-068)
+- Picking a branch narrows the list and shows as a "source: …" pill. The selected-source box gives
+  the branch's path and count, and "· map (x,y)" when every row of it has the same coordinates
+  (AOC-068)
+- The panel folds to a strip; on a phone it opens as a Sources sheet; with JavaScript off every tab
+  and branch is a link (AOC-068)
+- AoC>TV's 39 armory sections as data, each in one of the six categories (AOC-050)
+- `/v1/items` takes `tab`, `source` and `get`, which pick a node of the panel, matched on one source
+  row. Without them, the answer is unchanged. A `tab` alone filters nothing. A malformed `source`,
+  `tab` or `get`, or `get` without `source`, is a 400 (AOC-050)
+- `/v1/sources/tree?tab=`: a category's tree, each branch counted under every other filter, with
+  its halves and, when it is one point, its coordinates. An unknown tab is a 404, as it is on
+  `/armory` (AOC-050, AOC-068)
+- `/v1/taxonomies` gains `source_tabs` (AOC-050)
+
+### Changed
+
+- Asking for a place that contains places (a raid and its wings) lists everything inside it, each
+  item once. `place=house-of-crom` lists its 152 items instead of none, and Warmonk Monastery 175
+  instead of 1 (AOC-038).
+
+### Migration
+
+- `20261002120000_source_sections`: `source_tabs`, `sections` (AoC>TV's 39, each in its category),
+  `acquisition_groups`, `acquisition_types.group_id`, and `item_sources.section_id` backfilled
+  from each row's own section. It is run against production **before** this deploy with
+  `scripts/release-migrate.sh`, and 0.5.0 runs unchanged on it (AOC-050).
+- The `import` service is redeployed in this release. The importer now resolves each row's section
+  and refuses a section it does not know; an importer from before it would write source rows with
+  no section (AOC-050).
+
 ## [0.5.0] - 2026-10-02
 
 The Armory list in the validated design: a full-window app whose table and filter panes scroll on
