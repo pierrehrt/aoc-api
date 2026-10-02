@@ -205,23 +205,34 @@ their union.
 byte-identical to 0.5.0's.
 
 - **`source`** picks a node of the Armory's source panel: **typed levels joined by `.`**, in tree
-  order. The kinds are `s:` section, `r:` region, `m:` map, `p:` place (a place may be followed by
-  its wing, `p:house-of-crom.p:the-vile-nativity`), `b:` boss, `v:` vendor, `q:` quest giver,
-  `c:` container, each followed by a slug: `source=s:pve-tier-3.p:<raid>.b:<boss>`. Each kind
-  appears once (a place twice at most). **A node is ONE source row**: an item is listed when one of
-  its source rows has every level named, together. That differs from `tier=` plus `place=`, which
-  may each match a different row of the same item and keep their meaning. A place node includes
-  every place inside it (AOC-038). The values to send come from `/v1/sources/tree`.
+  order. The kinds are `s:` section, `r:` region, `m:` map, `p:` place, `b:` boss, `v:` vendor,
+  `q:` quest giver and `c:` container, each followed by a slug:
+  `source=s:pve-tier-3.p:<raid>.b:<boss>`.
+  - **A node is ONE source row.** An item is listed when one of its source rows has every level
+    named, together. That differs from `tier=` plus `place=`, which may each match a different row
+    of the same item and keep their meaning.
+  - **Each kind appears once, except places,** which form a chain, each the parent of the next
+    (`p:house-of-crom.p:the-vile-nativity`), at most eight. A chain whose places are not each
+    other's parents names nothing. The last place is the one matched. It is matched with every
+    place inside it when the path ends there (AOC-038), and alone when a boss, vendor, quest giver
+    or container follows.
+  - **`-` is a level the row does not have:** `r:-` and `m:-` for no region or map, and `p:-` (only
+    on its own) for no place before a boss, vendor, quest giver or container.
+    `/v1/sources/tree` writes them wherever a row lacks a level, so a branch's `source` lists
+    exactly its rows.
+  - The values to send come from `/v1/sources/tree`.
 - **`tab`** is the panel's tab (`/v1/taxonomies` → `source_tabs`). On its own it filters
   **nothing**: the tab changes what the panel shows, not the list (Pierre, 2026-10-02). With a
   `source`, the node is matched among the rows of that tab's sections. With no `tab`, the first tab
   is used.
 - **`get`** picks one half of a node, as an acquisition group's slug: `drop` (the design's
   "loot / drops") or `vendor` ("quest / vendor"). Which acquisition types fall in each is data
-  (`acquisition_types.group_id`).
-- A **malformed** `source`, `tab` or `get` is a 400 that says why (an unknown kind, a segment that
-  is not `kind:slug`, a level twice, a value that is not a slug). An unknown **slug** is not
-  malformed: it matches nothing, like an unknown rarity.
+  (`acquisition_types.group_id`). **`get` needs a `source`**: alone it is a 400.
+- **A malformed `source`, `tab` or `get` is a 400.** That covers an unknown kind, a segment that is
+  not `kind:slug`, a level twice, more than eight places, `-` where it cannot stand, a value that is
+  not a slug, or `get` without a `source`. The body is the central mapping's
+  `{"error":"invalid request"}`, as for a bad `sort`; the reason is logged. An unknown **slug** is
+  not malformed: it matches nothing, like an unknown rarity.
 
 ### `GET /v1/sources/tree`
 
@@ -247,16 +258,19 @@ Its shape (counts inside a branch shown as 0 here, not measured values):
 ```
 
 - **The levels are data.** A tab draws its `groups` (from `section`, `region`, `map`), then the
-  location: the row's place and the place's wing, then its boss. A row with no place has its
-  vendor, quest giver, container or boss as the location instead. A level a row does not have is
-  skipped, never shown as "Unknown". The tabs, the sections in each and their order are rows
+  location: the row's place under every place above it, then its boss, vendor, quest giver or
+  container. A row with no place has one of those as its location instead. A level a row does not
+  have is never shown as "Unknown": no branch is drawn for it, and its branches hang from the one
+  above. Their `source` still names it as `-`. The tabs, the sections in each and their order are rows
   (`source_tabs`, `sections`), seeded with Pierre's assignment of AoC>TV's 39 sections
   (2026-10-02).
 - **A branch the filters empty is listed with `count: 0`**, never dropped. The tree's shape is every
   source row of the tab, whatever the filters.
-- `count` is distinct items. `groups` is the same count per acquisition group, listing only the
-  groups the branch has. `total` is the distinct items in the tab under the filters. `end_points`
-  is how many branches have no branch under them (structural, not filtered).
+- `count` is distinct items. `groups` is the same count per acquisition group, for every group the
+  branch's rows have, **0 included** when the filters empty it. `total` is the distinct items in
+  the tab under the filters. `end_points` is how many branches have no branch under them
+  (structural, not filtered). `halves` is every acquisition group in its order. `attribution` is
+  on this route too.
 - `source` is the value `/v1/items?tab=<tab>&source=…` takes to list exactly `count` items.
 - Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
 

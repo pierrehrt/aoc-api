@@ -42,6 +42,7 @@ type Querier interface {
 	ListSourceTabs(ctx context.Context) ([]sqlcgen.ListSourceTabsRow, error)
 	ListSourceTreeRows(ctx context.Context, arg sqlcgen.ListSourceTreeRowsParams) ([]sqlcgen.ListSourceTreeRowsRow, error)
 	ListAcquisitionGroups(ctx context.Context) ([]sqlcgen.ListAcquisitionGroupsRow, error)
+	ListPlaceHierarchy(ctx context.Context) ([]sqlcgen.ListPlaceHierarchyRow, error)
 	GetItemBySlug(ctx context.Context, slug string) (int32, error)
 	GetItem(ctx context.Context, itemID int32) (sqlcgen.GetItemRow, error)
 	ListItemStats(ctx context.Context, itemID int32) ([]sqlcgen.ListItemStatsRow, error)

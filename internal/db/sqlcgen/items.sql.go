@@ -86,10 +86,14 @@ WITH filtered AS MATERIALIZED (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = $9::varchar
                    AND ($10::varchar IS NULL OR sc.slug = $10::varchar)
-                   AND ($11::varchar IS NULL OR sr.slug = $11::varchar)
-                   AND ($12::varchar IS NULL OR sm.slug = $12::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND ($13::varchar[] IS NULL OR p.slug = ANY($13::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND ($11::varchar IS NULL OR CASE WHEN $11::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = $11::varchar END)
+                   AND ($12::varchar IS NULL OR CASE WHEN $12::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = $12::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND ($13::varchar[] IS NULL OR CASE WHEN $13::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($13::varchar[]) END)
                    AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
                    AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
                    AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
@@ -540,10 +544,14 @@ WITH filtered AS MATERIALIZED (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = $9::varchar
                    AND ($10::varchar IS NULL OR sc.slug = $10::varchar)
-                   AND ($11::varchar IS NULL OR sr.slug = $11::varchar)
-                   AND ($12::varchar IS NULL OR sm.slug = $12::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND ($13::varchar[] IS NULL OR p.slug = ANY($13::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND ($11::varchar IS NULL OR CASE WHEN $11::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = $11::varchar END)
+                   AND ($12::varchar IS NULL OR CASE WHEN $12::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = $12::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND ($13::varchar[] IS NULL OR CASE WHEN $13::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($13::varchar[]) END)
                    AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
                    AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
                    AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
@@ -1405,10 +1413,14 @@ WITH filtered AS (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = $12::varchar
                    AND ($13::varchar IS NULL OR sc.slug = $13::varchar)
-                   AND ($14::varchar IS NULL OR sr.slug = $14::varchar)
-                   AND ($15::varchar IS NULL OR sm.slug = $15::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND ($16::varchar[] IS NULL OR p.slug = ANY($16::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND ($14::varchar IS NULL OR CASE WHEN $14::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = $14::varchar END)
+                   AND ($15::varchar IS NULL OR CASE WHEN $15::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = $15::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND ($16::varchar[] IS NULL OR CASE WHEN $16::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($16::varchar[]) END)
                    AND ($17::varchar IS NULL OR sb.slug = $17::varchar)
                    AND ($18::varchar IS NULL OR sv.slug = $18::varchar)
                    AND ($19::varchar IS NULL OR sq.slug = $19::varchar)
@@ -1783,6 +1795,40 @@ func (q *Queries) ListOpenItemQuestions(ctx context.Context) ([]ListOpenItemQues
 	return items, nil
 }
 
+const listPlaceHierarchy = `-- name: ListPlaceHierarchy :many
+SELECT p.slug, p.name, coalesce(pp.slug, '')::varchar AS parent_slug
+FROM places p LEFT JOIN places pp ON pp.id = p.parent_place_id
+ORDER BY p.slug
+`
+
+type ListPlaceHierarchyRow struct {
+	Slug       string
+	Name       string
+	ParentSlug string
+}
+
+// Every place with its parent (AOC-050): the source panel draws a place under every place above it,
+// at any depth (AOC-038), and checks that a source path's places are each other's parents. 86 rows.
+func (q *Queries) ListPlaceHierarchy(ctx context.Context) ([]ListPlaceHierarchyRow, error) {
+	rows, err := q.db.Query(ctx, listPlaceHierarchy)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPlaceHierarchyRow{}
+	for rows.Next() {
+		var i ListPlaceHierarchyRow
+		if err := rows.Scan(&i.Slug, &i.Name, &i.ParentSlug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSectionTabs = `-- name: ListSectionTabs :many
 SELECT sc.slug, sc.name, t.slug AS tab_slug
 FROM sections sc JOIN source_tabs t ON t.id = sc.tab_id
@@ -2031,10 +2077,14 @@ WITH filtered AS (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = $10::varchar
                    AND ($11::varchar IS NULL OR sc.slug = $11::varchar)
-                   AND ($12::varchar IS NULL OR sr.slug = $12::varchar)
-                   AND ($13::varchar IS NULL OR sm.slug = $13::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND ($14::varchar[] IS NULL OR p.slug = ANY($14::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND ($12::varchar IS NULL OR CASE WHEN $12::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = $12::varchar END)
+                   AND ($13::varchar IS NULL OR CASE WHEN $13::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = $13::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND ($14::varchar[] IS NULL OR CASE WHEN $14::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($14::varchar[]) END)
                    AND ($15::varchar IS NULL OR sb.slug = $15::varchar)
                    AND ($16::varchar IS NULL OR sv.slug = $16::varchar)
                    AND ($17::varchar IS NULL OR sq.slug = $17::varchar)
@@ -2086,9 +2136,8 @@ SELECT DISTINCT src.item_id,
        coalesce(sr.slug, '')::varchar AS region_slug, coalesce(sr.name, '')::varchar AS region_name,
        coalesce(sr.sort_order, 0)::integer AS region_sort,
        coalesce(sm.slug, '')::varchar AS map_slug, coalesce(sm.name, '')::varchar AS map_name,
-       coalesce(pp.slug, p.slug, '')::varchar AS place_slug, coalesce(pp.name, p.name, '')::varchar AS place_name,
-       (CASE WHEN pp.id IS NOT NULL THEN p.slug ELSE '' END)::varchar AS wing_slug,
-       (CASE WHEN pp.id IS NOT NULL THEN p.name ELSE '' END)::varchar AS wing_name,
+       -- The row's own place; the service draws its whole ancestry from ListPlaceHierarchy.
+       coalesce(p.slug, '')::varchar AS place_slug, coalesce(p.name, '')::varchar AS place_name,
        coalesce(sb.slug, '')::varchar AS boss_slug, coalesce(sb.name, '')::varchar AS boss_name,
        coalesce(sv.slug, '')::varchar AS vendor_slug, coalesce(sv.name, '')::varchar AS vendor_name,
        -- quests.name is deliberately NULL (the real name is unknown); the armory's label is what it said.
@@ -2104,7 +2153,6 @@ JOIN item_sources src ON src.item_id = f.item_id
 JOIN sections sc ON sc.id = src.section_id
 JOIN source_tabs stb ON stb.id = sc.tab_id
 LEFT JOIN places p ON p.id = src.place_id
-LEFT JOIN places pp ON pp.id = p.parent_place_id
 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
 LEFT JOIN bosses sb ON sb.id = src.boss_id
@@ -2162,8 +2210,6 @@ type ListSourceTreeRowsRow struct {
 	MapName       string
 	PlaceSlug     string
 	PlaceName     string
-	WingSlug      string
-	WingName      string
 	BossSlug      string
 	BossName      string
 	VendorSlug    string
@@ -2182,7 +2228,6 @@ type ListSourceTreeRowsRow struct {
 // rule (AOC-049) -- and the tree's own selection is left out by calling this with no source_*
 // arguments. Levels are columns of our own tables; which of them a tab draws is source_tabs.groups.
 // ” is "this row has no such level" (sqlc types a coalesced column as non-null).
-// A place's PARENT is the location and the place itself its wing (House of Crom › The Vile Nativity).
 func (q *Queries) ListSourceTreeRows(ctx context.Context, arg ListSourceTreeRowsParams) ([]ListSourceTreeRowsRow, error) {
 	rows, err := q.db.Query(ctx, listSourceTreeRows,
 		arg.Tab,
@@ -2235,8 +2280,6 @@ func (q *Queries) ListSourceTreeRows(ctx context.Context, arg ListSourceTreeRows
 			&i.MapName,
 			&i.PlaceSlug,
 			&i.PlaceName,
-			&i.WingSlug,
-			&i.WingName,
 			&i.BossSlug,
 			&i.BossName,
 			&i.VendorSlug,

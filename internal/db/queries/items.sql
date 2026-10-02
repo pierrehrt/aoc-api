@@ -236,10 +236,14 @@ WITH filtered AS (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = sqlc.narg('source_tab')::varchar
                    AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
-                   AND (sqlc.narg('source_region')::varchar IS NULL OR sr.slug = sqlc.narg('source_region')::varchar)
-                   AND (sqlc.narg('source_map')::varchar IS NULL OR sm.slug = sqlc.narg('source_map')::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR p.slug = ANY(sqlc.narg('source_places')::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
                    AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
                    AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
@@ -393,10 +397,14 @@ WITH filtered AS MATERIALIZED (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = sqlc.narg('source_tab')::varchar
                    AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
-                   AND (sqlc.narg('source_region')::varchar IS NULL OR sr.slug = sqlc.narg('source_region')::varchar)
-                   AND (sqlc.narg('source_map')::varchar IS NULL OR sm.slug = sqlc.narg('source_map')::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR p.slug = ANY(sqlc.narg('source_places')::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
                    AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
                    AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
@@ -571,10 +579,14 @@ WITH filtered AS MATERIALIZED (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = sqlc.narg('source_tab')::varchar
                    AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
-                   AND (sqlc.narg('source_region')::varchar IS NULL OR sr.slug = sqlc.narg('source_region')::varchar)
-                   AND (sqlc.narg('source_map')::varchar IS NULL OR sm.slug = sqlc.narg('source_map')::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR p.slug = ANY(sqlc.narg('source_places')::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
                    AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
                    AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
@@ -784,7 +796,6 @@ ORDER BY kind, name;
 -- rule (AOC-049) -- and the tree's own selection is left out by calling this with no source_*
 -- arguments. Levels are columns of our own tables; which of them a tab draws is source_tabs.groups.
 -- '' is "this row has no such level" (sqlc types a coalesced column as non-null).
--- A place's PARENT is the location and the place itself its wing (House of Crom › The Vile Nativity).
 WITH filtered AS (
   SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
          pr.priced,
@@ -859,10 +870,14 @@ WITH filtered AS (
                  WHERE src.item_id = i.item_id
                    AND stb.slug = sqlc.narg('source_tab')::varchar
                    AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
-                   AND (sqlc.narg('source_region')::varchar IS NULL OR sr.slug = sqlc.narg('source_region')::varchar)
-                   AND (sqlc.narg('source_map')::varchar IS NULL OR sm.slug = sqlc.narg('source_map')::varchar)
-                   -- The place and every place inside it (AOC-038), expanded by the service.
-                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR p.slug = ANY(sqlc.narg('source_places')::varchar[]))
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
                    AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
                    AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
@@ -914,9 +929,8 @@ SELECT DISTINCT src.item_id,
        coalesce(sr.slug, '')::varchar AS region_slug, coalesce(sr.name, '')::varchar AS region_name,
        coalesce(sr.sort_order, 0)::integer AS region_sort,
        coalesce(sm.slug, '')::varchar AS map_slug, coalesce(sm.name, '')::varchar AS map_name,
-       coalesce(pp.slug, p.slug, '')::varchar AS place_slug, coalesce(pp.name, p.name, '')::varchar AS place_name,
-       (CASE WHEN pp.id IS NOT NULL THEN p.slug ELSE '' END)::varchar AS wing_slug,
-       (CASE WHEN pp.id IS NOT NULL THEN p.name ELSE '' END)::varchar AS wing_name,
+       -- The row's own place; the service draws its whole ancestry from ListPlaceHierarchy.
+       coalesce(p.slug, '')::varchar AS place_slug, coalesce(p.name, '')::varchar AS place_name,
        coalesce(sb.slug, '')::varchar AS boss_slug, coalesce(sb.name, '')::varchar AS boss_name,
        coalesce(sv.slug, '')::varchar AS vendor_slug, coalesce(sv.name, '')::varchar AS vendor_name,
        -- quests.name is deliberately NULL (the real name is unknown); the armory's label is what it said.
@@ -932,7 +946,6 @@ JOIN item_sources src ON src.item_id = f.item_id
 JOIN sections sc ON sc.id = src.section_id
 JOIN source_tabs stb ON stb.id = sc.tab_id
 LEFT JOIN places p ON p.id = src.place_id
-LEFT JOIN places pp ON pp.id = p.parent_place_id
 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
 LEFT JOIN bosses sb ON sb.id = src.boss_id
@@ -959,3 +972,10 @@ ORDER BY t.sort_order, sc.sort_order;
 -- name: ListAcquisitionGroups :many
 -- The design's two halves of a location, "loot / drops" and "quest / vendor" (AOC-050), in order.
 SELECT slug, name FROM acquisition_groups ORDER BY sort_order;
+
+-- name: ListPlaceHierarchy :many
+-- Every place with its parent (AOC-050): the source panel draws a place under every place above it,
+-- at any depth (AOC-038), and checks that a source path's places are each other's parents. 86 rows.
+SELECT p.slug, p.name, coalesce(pp.slug, '')::varchar AS parent_slug
+FROM places p LEFT JOIN places pp ON pp.id = p.parent_place_id
+ORDER BY p.slug;
