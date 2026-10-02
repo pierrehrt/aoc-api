@@ -213,7 +213,46 @@ WITH filtered AS (
                    AND (src.unchained OR coalesce(p.unchained, false)) = sqlc.narg('unchained')::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND (sqlc.narg('pvp')::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND (sqlc.narg('source_tab')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = sqlc.narg('source_tab')::varchar
+                   AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
+                   AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
+                   AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
@@ -339,7 +378,46 @@ WITH filtered AS MATERIALIZED (
                    AND (src.unchained OR coalesce(p.unchained, false)) = sqlc.narg('unchained')::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND (sqlc.narg('pvp')::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND (sqlc.narg('source_tab')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = sqlc.narg('source_tab')::varchar
+                   AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
+                   AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
+                   AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
@@ -486,7 +564,46 @@ WITH filtered AS MATERIALIZED (
                    AND (src.unchained OR coalesce(p.unchained, false)) = sqlc.narg('unchained')::boolean))
            -- pvp is three independent facts on the item, and "pvp=true" means any of them.
            AND (sqlc.narg('pvp')::boolean IS NULL
-                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND (sqlc.narg('source_tab')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = sqlc.narg('source_tab')::varchar
+                   AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
+                   AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
+                   AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
          -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
@@ -683,3 +800,201 @@ UNION ALL
 SELECT 'set', s.id, s.name, s.open_question
 FROM sets s WHERE s.open_question IS NOT NULL
 ORDER BY kind, name;
+
+-- name: ListSourceTreeRows :many
+-- The source panel's raw material (AOC-050): one row per (item, the levels of ONE of its source rows)
+-- in a tab, with whether the item passes every OTHER filter. The service builds the tab's tree from these and
+-- counts distinct items per node, so a node's count is what choosing it would leave -- the rail's
+-- rule (AOC-049) -- and the tree's own selection is left out by calling this with no source_*
+-- arguments. Levels are columns of our own tables; which of them a tab draws is source_tabs.groups.
+-- '' is "this row has no such level" (sqlc types a coalesced column as non-null).
+WITH filtered AS (
+  SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
+         pr.priced,
+         -- The filters that have no facet of their own, as ONE flag.
+         coalesce(
+           (sqlc.narg('item_type')::varchar IS NULL OR it.slug = sqlc.narg('item_type')::varchar)
+           -- ESCAPE, because a name query is free text from a URL: '%' alone matched every one of the
+           -- 4,646 items and '_' matched any single character. The caller escapes the metacharacters
+           -- (escapeLike); this names the escape character so Postgres honours them.
+           -- q matches the name, or the item's id exactly when q is a whole number (AOC-047): the
+           -- armory site's ids are what people still quote, and a name search for "2183" would
+           -- otherwise find nothing. id_query is NULL unless q is numeric.
+           AND (sqlc.narg('name_query')::varchar IS NULL
+                OR i.name ILIKE '%' || sqlc.narg('name_query')::varchar || '%' ESCAPE '\'
+                OR i.item_id = sqlc.narg('id_query')::integer)
+           -- A LIST, not one slug. Selecting two dungeons is the case Pierre's rule is about, and a
+           -- single-value parameter made the caller's second choice unrepresentable -- so the
+           -- service passed NULL and the place predicate silently vanished, returning all 4,646
+           -- items (AOC-012 verify round 1).
+           -- ⚠️ NULL means "no filter"; an EMPTY array does not -- `p.slug = ANY('{}')` is false for
+           -- every row. The caller passes nil rather than an empty slice, and derives that from the
+           -- same predicate that decides collapsing, so the two cannot disagree (verify round 2).
+           AND (sqlc.narg('place_slugs')::varchar[] IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND p.slug = ANY(sqlc.narg('place_slugs')::varchar[])))
+           -- region and tier live on item_sources, not on the item: an item is "in Kheshatta"
+           -- because something that drops it is. Both are aggregate views, so they collapse.
+           AND (sqlc.narg('region')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 -- The PLACE's region wins. 196 item_sources rows disagree with their own place's
+                 -- region (AOC-037), and the place row is the stronger fact: it carries name, map
+                 -- and region together, with an invariant test behind it, while the per-source
+                 -- region is derived and has none. A source with no place falls back to its own.
+                 LEFT JOIN regions r2 ON r2.id = coalesce(p.region_id, src.region_id)
+                 WHERE src.item_id = i.item_id AND r2.slug = sqlc.narg('region')::varchar))
+           AND (sqlc.narg('tier')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN tiers t ON t.id = src.tier_id
+                 WHERE src.item_id = i.item_id AND t.slug = sqlc.narg('tier')::varchar))
+           -- ⭐ unchained is true on EITHER the source row or the place it points at (AOC-039: the
+           -- one expression, shared with ListItemSources and ListItemPlaces).
+           AND (sqlc.narg('unchained')::boolean IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 LEFT JOIN places p ON p.id = src.place_id
+                 WHERE src.item_id = i.item_id
+                   AND (src.unchained OR coalesce(p.unchained, false)) = sqlc.narg('unchained')::boolean))
+           -- pvp is three independent facts on the item, and "pvp=true" means any of them.
+           AND (sqlc.narg('pvp')::boolean IS NULL
+                OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean)
+           -- ⭐ A SOURCE is ONE item_sources row (AOC-050): its tab's section, its region, map, place,
+           -- boss, vendor, quest giver, container and acquisition group TOGETHER. tier= and place=
+           -- above may each match a different row of the same item; a node of the source tree may
+           -- not, or a tier's raid would count an item that is in the tier only somewhere else.
+           -- source_tab is NULL unless a node is picked: a tab on its own filters nothing (Pierre,
+           -- 2026-10-02). Region and map are the PLACE's when it has one, as everywhere (AOC-037).
+           AND (sqlc.narg('source_tab')::varchar IS NULL OR EXISTS (
+                 SELECT 1 FROM item_sources src
+                 JOIN sections sc ON sc.id = src.section_id
+                 JOIN source_tabs stb ON stb.id = sc.tab_id
+                 LEFT JOIN places p ON p.id = src.place_id
+                 LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+                 LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+                 LEFT JOIN bosses sb ON sb.id = src.boss_id
+                 LEFT JOIN vendors sv ON sv.id = src.vendor_id
+                 LEFT JOIN quests sq ON sq.id = src.quest_id
+                 LEFT JOIN containers sct ON sct.id = src.container_id
+                 LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+                 LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+                 WHERE src.item_id = i.item_id
+                   AND stb.slug = sqlc.narg('source_tab')::varchar
+                   AND (sqlc.narg('source_section')::varchar IS NULL OR sc.slug = sqlc.narg('source_section')::varchar)
+                   -- '-' is "the row has no such level" (AOC-050 verify round 1, F1): a branch the
+                   -- panel draws with that level skipped holds only the rows that lack it.
+                   AND (sqlc.narg('source_region')::varchar IS NULL OR CASE WHEN sqlc.narg('source_region')::varchar = '-' THEN sr.id IS NULL ELSE sr.slug = sqlc.narg('source_region')::varchar END)
+                   AND (sqlc.narg('source_map')::varchar IS NULL OR CASE WHEN sqlc.narg('source_map')::varchar = '-' THEN sm.id IS NULL ELSE sm.slug = sqlc.narg('source_map')::varchar END)
+                   -- The places the service resolved: a place and every place inside it (AOC-038),
+                   -- the place alone when a boss, vendor, quest giver or container follows it, or
+                   -- '{-}' for no place at all.
+                   AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
+                   AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
+                   AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
+           false) AS in_base,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
+         (sqlc.narg('rarities')::varchar[] IS NULL OR r.slug = ANY(sqlc.narg('rarities')::varchar[])) AS in_rarity,
+         -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
+         -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
+         (sqlc.narg('equip_locations')::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_equip_locations iel
+           JOIN equip_locations el ON el.id = iel.equip_location_id
+           WHERE iel.item_id = i.item_id AND el.slug = ANY(sqlc.narg('equip_locations')::varchar[]))) AS in_slot,
+         coalesce(sqlc.narg('armour_weights')::varchar[] IS NULL OR aw.slug = ANY(sqlc.narg('armour_weights')::varchar[]), false) AS in_weight,
+         (sqlc.narg('classes')::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_classes ic
+           JOIN classes cl ON cl.id = ic.class_id
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY(sqlc.narg('classes')::varchar[]))) AS in_class,
+         -- A bound excludes an item with no level: it cannot be shown to be inside the range.
+         coalesce((sqlc.narg('ilvl_min')::integer IS NULL OR i.item_level >= sqlc.narg('ilvl_min')::integer)
+              AND (sqlc.narg('ilvl_max')::integer IS NULL OR i.item_level <= sqlc.narg('ilvl_max')::integer), false) AS in_ilvl,
+         coalesce((sqlc.narg('reqlvl_min')::integer IS NULL OR i.requires_level >= sqlc.narg('reqlvl_min')::integer)
+              AND (sqlc.narg('reqlvl_max')::integer IS NULL OR i.requires_level <= sqlc.narg('reqlvl_max')::integer), false) AS in_reqlvl,
+         -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
+         -- item free from a boss and sold by a vendor (689 of them) has a price.
+         (sqlc.narg('price')::boolean IS NULL OR pr.priced = sqlc.narg('price')::boolean) AS in_price,
+         (sqlc.narg('currencies')::varchar[] IS NULL OR EXISTS (
+           SELECT 1 FROM item_sources src
+           JOIN item_costs ico ON ico.item_source_id = src.id
+           JOIN currencies cu ON cu.id = ico.currency_id
+           WHERE src.item_id = i.item_id AND cu.slug = ANY(sqlc.narg('currencies')::varchar[]))) AS in_currency,
+         coalesce(sqlc.narg('sets')::varchar[] IS NULL OR st.slug = ANY(sqlc.narg('sets')::varchar[]), false) AS in_set
+  FROM items i
+  JOIN rarities r ON r.id = i.rarity_id
+  LEFT JOIN item_types it ON it.id = i.item_type_id
+  LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
+  LEFT JOIN sets st ON st.id = i.set_id
+  -- One expression for "has a vendor price", read by in_price and by the price facet. A subquery
+  -- with no FROM is pulled up into its references, so a query that reads neither never runs it.
+  CROSS JOIN LATERAL (SELECT EXISTS (
+    SELECT 1 FROM item_sources src
+    JOIN item_costs ico ON ico.item_source_id = src.id
+    WHERE src.item_id = i.item_id) AS priced) pr
+)
+SELECT DISTINCT src.item_id,
+       sc.slug AS section_slug, sc.name AS section_name, sc.sort_order AS section_sort,
+       coalesce(sr.slug, '')::varchar AS region_slug, coalesce(sr.name, '')::varchar AS region_name,
+       coalesce(sr.sort_order, 0)::integer AS region_sort,
+       coalesce(sm.slug, '')::varchar AS map_slug, coalesce(sm.name, '')::varchar AS map_name,
+       -- The row's own place; the service draws its whole ancestry from ListPlaceHierarchy.
+       coalesce(p.slug, '')::varchar AS place_slug, coalesce(p.name, '')::varchar AS place_name,
+       coalesce(sb.slug, '')::varchar AS boss_slug, coalesce(sb.name, '')::varchar AS boss_name,
+       coalesce(sv.slug, '')::varchar AS vendor_slug, coalesce(sv.name, '')::varchar AS vendor_name,
+       -- quests.name is deliberately NULL (the real name is unknown); the armory's label is what it said.
+       coalesce(sq.slug, '')::varchar AS quest_slug, coalesce(sq.name, sq.armory_label, '')::varchar AS quest_name,
+       coalesce(sct.slug, '')::varchar AS container_slug, coalesce(sct.name, '')::varchar AS container_name,
+       coalesce(sag.slug, '')::varchar AS group_slug,
+       -- Where on its map the row's location is (AoC>TV's coordinates). The panel shows a branch's
+       -- only when every row of it has the same ones (Pierre, 2026-10-02; AOC-068).
+       coalesce(src.coords, '')::varchar AS coords,
+       -- Whether the item passes every other filter. The tree's SHAPE is every row of the tab, so a
+       -- branch the filters empty is still listed with its 0, never hidden (the rail's rule); only
+       -- the rows that match are counted.
+       (f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_class AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set)::boolean AS matches
+FROM filtered f
+JOIN item_sources src ON src.item_id = f.item_id
+JOIN sections sc ON sc.id = src.section_id
+JOIN source_tabs stb ON stb.id = sc.tab_id
+LEFT JOIN places p ON p.id = src.place_id
+LEFT JOIN regions sr ON sr.id = coalesce(p.region_id, src.region_id)
+LEFT JOIN maps sm ON sm.id = coalesce(p.map_id, src.map_id)
+LEFT JOIN bosses sb ON sb.id = src.boss_id
+LEFT JOIN vendors sv ON sv.id = src.vendor_id
+LEFT JOIN quests sq ON sq.id = src.quest_id
+LEFT JOIN containers sct ON sct.id = src.container_id
+LEFT JOIN acquisition_types sat ON sat.id = src.acquisition_type_id
+LEFT JOIN acquisition_groups sag ON sag.id = sat.group_id
+WHERE stb.slug = sqlc.arg('tab')::varchar
+ORDER BY src.item_id;
+
+-- name: ListSourceTabs :many
+-- The tabs in Pierre's order, with the levels each draws above the location (AOC-050).
+SELECT slug, name, sort_order, levels_note, groups::varchar[] AS groups
+FROM source_tabs
+ORDER BY sort_order;
+
+-- name: ListSectionTabs :many
+-- Every section and its tab: what a source path's section must belong to.
+SELECT sc.slug, sc.name, t.slug AS tab_slug
+FROM sections sc JOIN source_tabs t ON t.id = sc.tab_id
+ORDER BY t.sort_order, sc.sort_order;
+
+-- name: ListAcquisitionGroups :many
+-- The design's two halves of a location, "loot / drops" and "quest / vendor" (AOC-050), in order.
+SELECT slug, name FROM acquisition_groups ORDER BY sort_order;
+
+-- name: ListPlaceHierarchy :many
+-- Every place with its parent (AOC-050): the source panel draws a place under every place above it,
+-- at any depth (AOC-038), and checks that a source path's places are each other's parents. 86 rows.
+SELECT p.slug, p.name, coalesce(pp.slug, '')::varchar AS parent_slug
+FROM places p LEFT JOIN places pp ON pp.id = p.parent_place_id
+ORDER BY p.slug;

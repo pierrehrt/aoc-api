@@ -43,6 +43,8 @@ type Taxonomies struct {
 	Places        []Term `json:"places"`
 	Currencies    []Term `json:"currencies"`
 	Attribution   string `json:"attribution"`
+	// The Armory's main categories (AOC-050), in Pierre's order. Additive: a new key.
+	SourceTabs []SourceTab `json:"source_tabs"`
 }
 
 // TaxonomyService reads the vocabularies from the database.
@@ -61,6 +63,7 @@ type TaxonomyQuerier interface {
 	ListRegions(ctx context.Context) ([]sqlcgen.ListRegionsRow, error)
 	ListPlaces(ctx context.Context) ([]sqlcgen.ListPlacesRow, error)
 	ListCurrencies(ctx context.Context) ([]sqlcgen.Currency, error)
+	ListSourceTabs(ctx context.Context) ([]sqlcgen.ListSourceTabsRow, error)
 }
 
 func (t *TaxonomyService) Taxonomies(ctx context.Context) (Taxonomies, error) {
@@ -68,7 +71,7 @@ func (t *TaxonomyService) Taxonomies(ctx context.Context) (Taxonomies, error) {
 		Rarities: []Term{}, ItemTypes: []Term{}, EquipLocation: []Term{},
 		ArmourWeights: []Term{}, Classes: []Term{}, Tiers: []Term{},
 		Regions: []Term{}, Places: []Term{}, Currencies: []Term{},
-		Attribution: Attribution,
+		Attribution: Attribution, SourceTabs: []SourceTab{},
 	}
 
 	rarities, err := t.q.ListRarities(ctx)
@@ -141,6 +144,14 @@ func (t *TaxonomyService) Taxonomies(ctx context.Context) (Taxonomies, error) {
 	}
 	for _, v := range currencies {
 		out.Currencies = append(out.Currencies, Term{Slug: v.Slug, Name: v.Name})
+	}
+
+	tabs, err := t.q.ListSourceTabs(ctx)
+	if err != nil {
+		return Taxonomies{}, fmt.Errorf("list source tabs: %w", err)
+	}
+	for _, v := range tabs {
+		out.SourceTabs = append(out.SourceTabs, SourceTab{Slug: v.Slug, Name: v.Name, LevelsNote: v.LevelsNote, Groups: v.Groups})
 	}
 
 	return out, nil

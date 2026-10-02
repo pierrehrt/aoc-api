@@ -569,6 +569,35 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
   (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content
   at every width, so the desktop rail would need a second copy of the form.
+- **The sources pane is the same pattern on the left** (AOC-068; the data is § The source tree).
+  - **What it shows.** The main categories (`items.Service.Tabs`) are links under the search. The
+    active tab's tree (`items.Service.Tree`, counted under every other filter) goes in a 288px pane
+    left of the table. `pages.buildSources` turns the tree into rows, and the templates only print
+    them.
+  - **Links, not controls.** Every tab and every branch is a link built from the whole state, so the
+    pane works without JavaScript. A tab link drops the pick and keeps the filters. The picked branch
+    and every branch above it are open: the open branches derive from the pick, never from stored
+    state. A picked, open branch links to the branch above it, which is the design's toggle. A set
+    of end branches is split under the design's halves ("loot / drops", "quest / vendor"), each
+    branch counted for that half and linking with `get=`.
+  - **The state rides in the form.** `tab`, `source` and `get` are hidden inputs in the rail
+    (`buildRail`), so a filter changed in the pane keeps the pick. The page's script copies a link's
+    URL into the form as it goes, the same as for a pill. The pick is a pill ("source: …", the
+    design's second, after the search). "Clear all" keeps the tab, because the tab is not a filter.
+  - **One answer redraws it.** `armory_update` carries the tabs, the pane's head, the tree, the
+    selected-source box and both of its counts out of band. The tree's scroll box is never swapped
+    itself, so it keeps its scroll position.
+  - **It folds like the filter pane:** an unnamed checkbox (`#sources-collapsed`) folds it to a 34px
+    strip on the left. Below `lg` it is a second CSS-only sheet (`#sources-sheet`), opened by
+    "Sources · 1" beside "Filters · N" (the design's mobile rule: only filters and the source tree
+    are behind a sheet). Its "Show N items" closes it, since every pick has already applied.
+  - **AA:** a row under the pointer sits on `ink-tree-hover` (#1a1816, the design's). There `faint`
+    is 4.34:1, so the caret and count turn `muted-2` (4.85:1). The theme test measures every pair
+    written on it.
+  - **The selected-source box** shows the picked branch's path and the list's count. It adds
+    "· map (x,y)" when the branch is one point: every row of it has the same coordinates
+    (`TreeNode.Coords`; Pierre, 2026-10-02). It shows nothing otherwise.
+  - **An unknown `tab` is a 404**: it names no panel, like a page past the end.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
   `htmx-config` meta tag that adds one rule, "a 400 is swapped" (other 4xx/5xx stay unswapped), and
@@ -1127,9 +1156,9 @@ the other filters**. That number is only worth showing if it is the total the li
 the filter rules exist **once**, as per-item flags, and both the rows and the counts read them.
 
 ```
-WITH filtered AS (             -- byte-identical in ListItems, CountItemFacets, ItemFacetTotals
+WITH filtered AS (             -- byte-identical in ListItems, CountItemFacets, ItemFacetTotals, ListSourceTreeRows
   SELECT i.item_id, …,          -- what the facets group by: rarity_id, set_id, levels, priced
-         <q, item_type, place, region, tier, unchained, pvp> AS in_base,   -- no facet of their own
+         <q, item_type, place, region, tier, unchained, pvp, source> AS in_base,   -- no facet of their own
          <rarity rule>   AS in_rarity,   <slot rule> AS in_slot,   <weight rule> AS in_weight,
          <class rule>    AS in_class,    <ilvl range> AS in_ilvl,  <reqlvl range> AS in_reqlvl,
          <price rule>    AS in_price,    <currency rule> AS in_currency,   <set rule> AS in_set
@@ -1139,7 +1168,7 @@ a facet value:    count(DISTINCT item) WHERE every flag EXCEPT the facet's own  
 a group's "Any":  count(*) FILTER (WHERE every flag except its own)
 ```
 
-- **The three copies are one definition by test.** sqlc cannot share a fragment between queries, so
+- **The four copies are one definition by test** (the fourth is the source tree's, AOC-050). sqlc cannot share a fragment between queries, so
   `TestTheFilterCTEIsOneDefinition` reads `items.sql` and fails on any difference between the CTE
   bodies. Only the header differs, deliberately: the facet queries say **`MATERIALIZED`** (they read
   the flags 6–14 times; inlined, Postgres re-ran every flag's subquery inside each `FILTER` — the
@@ -1171,6 +1200,57 @@ a group's "Any":  count(*) FILTER (WHERE every flag except its own)
   single-value design (`DECISIONS.md`).
 
 Measured on the dev corpus, without JIT: list 2–4 ms, facets 9–16 ms, totals 4–6 ms.
+
+### The source tree (AOC-050)
+
+The Armory's source panel: main categories under the search (PVE, PVP, Region, Faction, Onslaught,
+Other, Pierre 2026-10-02), one active at a time, and a tree of sources for the active one. **It is
+Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
+
+- **`source_tabs`** (the tabs, their order, `levels_note` and `groups`), **`sections`** (AoC>TV's
+  section names verbatim, each with its tab) and **`acquisition_groups`** (the design's
+  "loot / drops" and "quest / vendor", with `acquisition_types.group_id`).
+  `item_sources.section_id` is backfilled from `section_raw` by name; the importer resolves it the
+  same way and stops on a name it was never told about. Both new FKs are nullable like every
+  lookup: a row with no section is in no tab.
+- **A tab's levels.** `groups` is the levels drawn above the location (`section`, `region`, `map`;
+  a CHECK holds the vocabulary). Then every tab draws the location: the row's place under every place above it,
+  then its boss, vendor, quest giver or container, the first of those it has (with no place, that
+  one is the location). `items.rowPath` is that rule,
+  and the only code that knows level names, which are our own columns, like the sort keys.
+  - **Every level is in the path, `-` where the row has none** (verify round 1, F1). A branch
+    under a skipped level would otherwise list the rows that do have it too. The panel draws no
+    branch for a `-`.
+  - **A place is drawn under every place above it**, from `ListPlaceHierarchy`, at any depth, like
+    AOC-038's expansion (F2).
+  - **A row's location is its first kind** (boss, vendor, quest giver, container), in the tree and
+    in the predicate alike (verify round 2, F8). **The place chain is the row's whole ancestry**,
+    and the parser reads any chain: the hierarchy is the only bound, because each place must be the
+    parent of the next (verify round 3, F11: a fixed cut miscounted the branches above it).
+  - **A path's places are checked:** each must be the parent of the next, or the path names
+    nothing (F3). The last place is expanded when the path ends there, and exact when a location
+    follows, because that is how the tree counts it.
+- **A node matches ONE source row** (`Filters.Source`, `items.SourceNode`). Its levels go into the
+  shared CTE's `in_base` as one `EXISTS` over `item_sources`, every level on the same row. The
+  older `tier=` and `place=` are separate `EXISTS` and may match different rows of one item. That
+  is right for them and wrong for a node, where a tier's raid would count an item that is in the
+  tier only elsewhere. A place node is expanded to its descendants (AOC-038's `expandPlaces`) when the path ends there.
+  **The tab alone filters nothing**: `source_tab` is set only when a node is picked.
+- **Counts: one query, shape from every row.** `ListSourceTreeRows` (the fourth copy of the CTE)
+  returns every source row of the tab with its levels and a `matches` flag: every other filter, the
+  source excluded, because the service calls it with no `source_*` argument (`items.treeParams`;
+  `TestTheTreeTakesEveryListFilterButTheSource`). `items.buildTree` builds the tree from all rows
+  and counts the distinct matching items per node, so a branch the filters empty is still listed
+  at 0. Not `GROUPING SETS`: each tab draws different levels, and one row query plus a Go walk over
+  a few thousand rows is simpler. Measured on the corpus: 4–13 ms per tab, filtered or not, and the list unchanged against 0.5.0 (6.6 ms against 7.2 unfiltered, 26.1 against 25.8 with facets).
+- **The URL.** `source` is typed segments (`s:`, `r:`, `m:`, `p:`, `b:`, `v:`, `q:`, `c:`) joined
+  by `.`, so a level a row lacks cannot shift the others; `tab` and `get` ride beside it. All three
+  go through `Filters.Values`, so every link the page prints carries them
+  (`TestFiltersRoundTripThroughValues`).
+- **Proved on the corpus:** every branch of every tab, unfiltered and under two filtered states,
+  counts exactly what `List` gives for its `source`, and each half what `get` gives
+  (`TestEveryBranchCountsWhatPickingItLists`). Each tab has the same branches under every filter.
+  `TestEverySectionIsInPierresTab` reads the assignment back from the database.
 
 ### The pool
 

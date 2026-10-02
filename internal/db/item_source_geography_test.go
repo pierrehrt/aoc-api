@@ -44,7 +44,7 @@ const contradictingGeographyFixtureJSON = `[
    "unchained":true,"region":"Cimmeria","region_source":"pierre","map":"Atzel's Approach",
    "instance":"Scorpion Cave","dungeon_or_raid":"Scorpion Cave (Unchained)","boss_or_npc":null,
    "vendor":null,"quest":null,"is_raid":false,"coords":null,"tier":null,
-   "section_raw":"fixture","on_hold":false,"on_hold_reason":null}]}]`
+   "section_raw":"Unsorted Items","on_hold":false,"on_hold_reason":null}]}]`
 
 // A source with NO place must keep its own region and map — 1,732 rows in the dev corpus have a
 // region and no place, so dropping the columns outright would have thrown their geography away.
@@ -60,7 +60,7 @@ const placelessGeographyFixtureJSON = `[
    "unchained":false,"region":"Cimmeria","region_source":"derived","map":"Atzel's Approach",
    "instance":null,"dungeon_or_raid":null,"boss_or_npc":null,
    "vendor":null,"quest":null,"is_raid":false,"coords":null,"tier":null,
-   "section_raw":"fixture","on_hold":false,"on_hold_reason":null}]}]`
+   "section_raw":"Unsorted Items","on_hold":false,"on_hold_reason":null}]}]`
 
 func TestASourceNeverCarriesAGeographyItsPlaceAlreadySupplies(t *testing.T) {
 	pool, d := importTarget(t)
