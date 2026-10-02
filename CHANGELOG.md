@@ -8,6 +8,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-02
+
+The Armory's sources panel. The main categories sit under the search, and on the left a tree
+shows where items come from, each branch with its count.
+
+### Added
+
+- The Armory's sources panel (AOC-068):
+  - **Tabs:** the main categories PVE, PVP, Region, Faction, Onslaught and Other, under the
+    search, one active at a time.
+  - **Tree:** on the left, the active category's AoC>TV sections, zones, places, bosses and
+    vendors. Each branch shows how many items picking it would leave, with a 0 listed, never
+    hidden. End branches split into "loot / drops" and "quest / vendor".
+  - **Picking a branch** narrows the list and shows as a "source: …" pill.
+  - **The selected-source box** shows the branch's path and count, plus "· map (x,y)" when the
+    branch is one point.
+  - **Layout:** the pane folds to a strip. On a phone, a Sources sheet holds it. With JavaScript
+    off, every tab and branch is a link.
+- AoC>TV's 39 armory sections as data, each in one of the six categories (AOC-050).
+- `/v1/items` takes `tab`, `source` and `get`, which pick a node of the panel, matched on one source
+  row. Without them, the answer is unchanged (AOC-050).
+- `/v1/sources/tree?tab=`: a category's tree, each branch counted under every other filter, with
+  its halves and, when it is one point, its coordinates (AOC-050, AOC-068).
+- `/v1/taxonomies` gains `source_tabs` (AOC-050).
+
+### Changed
+
+- Asking for a place that contains places (a raid and its wings) lists everything inside it, each
+  item once. `place=house-of-crom` lists its 152 items instead of none, and Warmonk Monastery 175
+  instead of 1 (AOC-038).
+
+### Migration
+
+- `20261002120000_source_sections`: `source_tabs`, `sections` (AoC>TV's 39, each in its category),
+  `acquisition_groups`, `acquisition_types.group_id`, and `item_sources.section_id` backfilled
+  from each row's own section. It is run against production **before** this deploy with
+  `scripts/release-migrate.sh`, and 0.5.0 runs unchanged on it (AOC-050).
+- The `import` service is redeployed in this release. The importer now resolves each row's section
+  and refuses a section it does not know; an importer from before it would write source rows with
+  no section (AOC-050).
+
 ## [0.5.0] - 2026-10-02
 
 The Armory list in the validated design: a full-window app whose table and filter panes scroll on
