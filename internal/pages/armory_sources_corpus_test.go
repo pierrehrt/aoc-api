@@ -22,7 +22,7 @@ import (
 // branch is a plain link, and what it promises is what it lists.
 
 var (
-	treeLink   = regexp.MustCompile(`<li><a href="([^"]+)"([^>]*)>\s*<span aria-hidden="true"[^>]*>[^<]*</span>\s*<span class="min-w-0 flex-1 truncate">([^<]*)</span>\s*<span[^>]*>([0-9,]+)</span>`)
+	treeLink   = regexp.MustCompile(`<li><a(?: id="[^"]*")? href="([^"]+)"([^>]*)>\s*<span aria-hidden="true"[^>]*>[^<]*</span>\s*<span class="min-w-0 flex-1 truncate">([^<]*)</span>\s*<span[^>]*>([0-9,]+)</span>`)
 	listCount  = regexp.MustCompile(`<span class="text-\[13px\] font-semibold text-paper">([0-9,]+) items?</span>`)
 	currentTab = regexp.MustCompile(`aria-current="true" class="flex h-8[^"]*">([^<]+)</a>`)
 )
