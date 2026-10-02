@@ -590,7 +590,14 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   - **It folds like the filter pane:** an unnamed checkbox (`#sources-collapsed`) folds it to a 34px
     strip on the left. Below `lg` it is a second CSS-only sheet (`#sources-sheet`), opened by
     "Sources · 1" beside "Filters · N" (the design's mobile rule: only filters and the source tree
-    are behind a sheet). Its "Show N items" closes it, since every pick has already applied.
+    are behind a sheet). Its "Show N items" closes it, since every pick has already applied. The
+    sheet covers the search block, so it carries its own copy of the tabs (`armory_tabs_sheet`,
+    ids `sheet-tab-*`). Without JavaScript a pick reloads the page, so the sheet closes after each
+    tap: a limit of a CSS-only sheet. The links still work. The design's single sheet with Sources |
+    Filters tabs and a Cancel for both is AOC-067's.
+  - **Focus survives a pick:** every tab (`tab-<slug>`) and tree link (`src-<path>`, `:` → `_`,
+    `.` → `__`, `--<half>` for a half) has a stable id, so htmx gives focus back to the one used,
+    as it does for the filter inputs.
   - **AA:** a row under the pointer sits on `ink-tree-hover` (#1a1816, the design's). There `faint`
     is 4.34:1, so the caret and count turn `muted-2` (4.85:1). The theme test measures every pair
     written on it.

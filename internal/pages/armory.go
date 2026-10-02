@@ -80,8 +80,6 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	// ⭐ Every link on the page is built from the whole state (items.Filters.Values), so no filter can
 	// fall out of a pager, a sort or a chip.
 	here := func(g items.Filters) string { return armoryURL(g, 1) }
-	withoutQuery := f
-	withoutQuery.Query = ""
 	// The sources panel (AOC-068): the tabs and the active one's tree, counted under every other
 	// filter. A tab no tab has names nothing: 404, like a page past the end.
 	tabs, err := h.items.Tabs(r.Context())
@@ -89,10 +87,17 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own canonical).
-	if len(tabs) > 0 && f.Tab == tabs[0].Slug {
+	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own
+	// canonical). Before any link is built from f, "Clear the search" included (round 2, O1).
+	firstTab := ""
+	if len(tabs) > 0 {
+		firstTab = tabs[0].Slug
+	}
+	if f.Tab == firstTab {
 		f.Tab = ""
 	}
+	withoutQuery := f
+	withoutQuery.Query = ""
 	var sources templates.Sources
 	sourceLabel := ""
 	if len(tabs) > 0 {
@@ -158,7 +163,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
 		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
 		canon := armoryURL(f, page)
-		if canonicalOf(r, r.Header.Get("HX-Current-URL")) == canon {
+		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == canon {
 			w.Header().Set("HX-Replace-Url", canon)
 		} else {
 			w.Header().Set("HX-Push-Url", canon)
@@ -218,7 +223,7 @@ func itemCount(n int64) string {
 // Two addresses of one state compare equal: after the search's Enter or the phone's Apply the address
 // bar holds the form's raw query (?q=&rarity=epic&ilvl_min=&ilvl_max=), and a string comparison
 // took an answer for that same state for a new one (AOC-065 delta verify 6).
-func canonicalOf(r *http.Request, address string) string {
+func canonicalOf(r *http.Request, address, firstTab string) string {
 	u, err := url.Parse(address)
 	if err != nil || u.Path != "/armory" {
 		return ""
@@ -228,6 +233,11 @@ func canonicalOf(r *http.Request, address string) string {
 	f, err := items.ParseFilters(cr)
 	if err != nil {
 		return ""
+	}
+	// The default tab is no part of a state's URL, here as on the page (round 2, O1: a typed
+	// ?tab=<first> took the next answer for a new state, and Back stepped through it twice).
+	if f.Tab == firstTab {
+		f.Tab = ""
 	}
 	page := 1
 	if p := u.Query().Get("p"); p != "" {
