@@ -25,6 +25,9 @@ import (
 //  2. A place more than eight levels down. The tree draws a place under every place above it, at any
 //     depth (F2), and the parser takes at most eight places: the branch must still be one that
 //     /v1/items accepts and that lists its count. 9805 is nine places down.
+//  3. "m:-" (F1's marker for the map): 9806 has a vendor with a map, 9807 the same vendor with none,
+//     in a section of a tab that draws the map. Round 1's fixture covers "r:-" and "p:-" only, and
+//     the corpus has no such pair, so nothing failed when the service dropped "m:-".
 func TestEveryBranchListsItsCountWithTwoLocationKindsOrNinePlaces(t *testing.T) {
 	_, url := migratedDB(t)
 	ctx := context.Background()
@@ -63,11 +66,14 @@ INSERT INTO quests (slug, armory_label, confidence_id, source_note) SELECT 'test
 WITH c AS (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed')
 INSERT INTO containers (slug, name, confidence_id, source_note) SELECT 'test-chest-nu', 'Test Chest Nu', id, 'AOC-050 verify round 2 fixture' FROM c`)
 	exec(`
+WITH c AS (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed')
+INSERT INTO vendors (slug, name, confidence_id, source_note) SELECT 'test-vendor-nu', 'Test Vendor Nu', id, 'AOC-050 verify round 2 fixture' FROM c`)
+	exec(`
 WITH c AS (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed'),
      ra AS (SELECT id FROM rarities WHERE slug = 'rare')
 INSERT INTO items (item_id, slug, name, rarity_id, confidence_id, source_note)
 SELECT v, 'test-relic-nu-' || v, 'Test Relic Nu ' || v, ra.id, c.id, 'AOC-050 verify round 2 fixture'
-FROM c, ra, generate_series(9801, 9805) v`)
+FROM c, ra, generate_series(9801, 9807) v`)
 	exec(`
 WITH sr AS (SELECT sc.id FROM sections sc JOIN source_tabs t ON t.id = sc.tab_id
             WHERE t.groups = '{section,region}' ORDER BY t.sort_order, sc.sort_order LIMIT 1),
@@ -93,6 +99,15 @@ FROM (VALUES
   -- 2. nine places down
   (9805, false, 'test-n9-nu',   false, false, false)
 ) AS v(item_id, tab_region, place, boss, quest, chest)`)
+	exec(`
+WITH sm AS (SELECT sc.id FROM sections sc JOIN source_tabs t ON t.id = sc.tab_id
+            WHERE 'map' = ANY(t.groups) AND 'section' = ANY(t.groups) ORDER BY t.sort_order, sc.sort_order LIMIT 1),
+     c AS (SELECT id FROM confidence_levels WHERE slug = 'unconfirmed')
+INSERT INTO item_sources (item_id, acquisition_type_id, section_id, map_id, vendor_id, confidence_id, source_note)
+SELECT v.item_id, (SELECT id FROM acquisition_types WHERE slug = 'vendor'), sm.id,
+       CASE WHEN v.with_map THEN (SELECT id FROM maps ORDER BY id LIMIT 1) END,
+       (SELECT id FROM vendors WHERE slug = 'test-vendor-nu'), c.id, 'AOC-050 verify round 2 fixture'
+FROM sm, c, (VALUES (9806, true), (9807, false)) AS v(item_id, with_map)`)
 
 	s := items.NewService(sqlcgen.New(pool))
 	tabs, err := s.Tabs(ctx)
@@ -148,6 +163,9 @@ FROM (VALUES
 	})
 	t.Run("a place nine levels down has a branch that /v1/items accepts and that lists its count", func(t *testing.T) {
 		check(t, func(src string) bool { return strings.Contains(src, "test-n1-nu") })
+	})
+	t.Run("a vendor with no map is listed only under the branch that says m:-", func(t *testing.T) {
+		check(t, func(src string) bool { return strings.Contains(src, "test-vendor-nu") })
 	})
 }
 
