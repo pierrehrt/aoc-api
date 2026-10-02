@@ -144,8 +144,9 @@ func rangePill(prefix string, lo, hi *int32, span *items.LevelSpan) string {
 }
 
 // buildRail is the rail, the active filters as chips, and the "clear all" URL for state f. here
-// is the URL of a state, back on page 1.
-func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) string) (templates.Rail, []templates.Chip, string) {
+// is the URL of a state, back on page 1. source is the picked branch's pill ("" when none,
+// buildSources).
+func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) string, source string) (templates.Rail, []templates.Chip, string) {
 	if fc == nil {
 		fc = &items.Facets{}
 	}
@@ -160,6 +161,22 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 	// The search is the design's first pill ("q: …"), and counts as active.
 	if f.Query != "" {
 		chip("q: "+f.Query, func(g *items.Filters) { g.Query = "" })
+	}
+
+	// The source panel's state (AOC-068): its tab, and the branch picked in it, ride along as hidden
+	// inputs, so a filter changed in the pane keeps them. The branch is the design's second pill;
+	// its × removes the branch and keeps the tab. The tab is not a filter: no pill.
+	if f.Tab != "" {
+		rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "tab", Value: f.Tab})
+	}
+	if !f.Source.IsZero() {
+		if p := f.Source.String(); p != "" {
+			rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "source", Value: p})
+		}
+		if f.Source.Group != "" {
+			rail.Hidden = append(rail.Hidden, templates.HiddenInput{Name: "get", Value: f.Source.Group})
+		}
+		chip(source, func(g *items.Filters) { g.Source = items.SourceNode{} })
 	}
 
 	// One chip per chosen value, in the vocabulary's order (the pane's), whatever order the request
@@ -273,6 +290,7 @@ func buildRail(f items.Filters, fc *items.Facets, here func(items.Filters) strin
 		}
 	}
 
-	// The design's "clear all" clears the search too, and keeps the sort.
-	return rail, chips, here(items.Filters{Sort: f.Sort})
+	// The design's "clear all" clears the search too, and keeps the sort and the panel's tab, which
+	// is not a filter.
+	return rail, chips, here(items.Filters{Sort: f.Sort, Tab: f.Tab})
 }

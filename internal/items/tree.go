@@ -36,19 +36,24 @@ type GroupCount struct {
 // TreeNode is one branch of the panel. Source is the `source` value that picks it; Count is how many
 // items choosing it would leave under every other filter (the rail's rule, AOC-049), 0 included.
 type TreeNode struct {
-	Kind     string       `json:"kind"` // section, region, map, place, boss, vendor, quest, container
-	Slug     string       `json:"slug"`
-	Name     string       `json:"name"`
-	Source   string       `json:"source"`
-	Count    int64        `json:"count"`
-	Groups   []GroupCount `json:"groups,omitempty"`
-	Children []*TreeNode  `json:"children,omitempty"`
+	Kind   string       `json:"kind"` // section, region, map, place, boss, vendor, quest, container
+	Slug   string       `json:"slug"`
+	Name   string       `json:"name"`
+	Source string       `json:"source"`
+	Count  int64        `json:"count"`
+	Groups []GroupCount `json:"groups,omitempty"`
+	// Coords is where on its map the branch is, when every row of it has the same coordinates
+	// (AOC-068, Pierre: one location, one point; none, or two, and nothing is shown).
+	Coords   string      `json:"coords,omitempty"`
+	Children []*TreeNode `json:"children,omitempty"`
 
-	sort  int32
-	items map[int32]struct{}
-	by    map[string]map[int32]struct{} // group slug -> matching items
-	has   map[string]bool               // the groups any of the branch's rows has, filters aside
-	index map[string]*TreeNode          // the branches drawn under it, by their full source path
+	sort     int32
+	items    map[int32]struct{}
+	by       map[string]map[int32]struct{} // group slug -> matching items
+	has      map[string]bool               // the groups any of the branch's rows has, filters aside
+	at       map[string]bool               // the coordinates the branch's rows have, filters aside
+	unmapped bool                          // a row of the branch has none
+	index    map[string]*TreeNode          // the branches drawn under it, by their full source path
 }
 
 // Tree is one tab's panel.
@@ -336,7 +341,7 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 			c := n.index[path]
 			if c == nil {
 				c = &TreeNode{Kind: l.kind, Slug: l.slug, Name: l.name, Source: path, sort: l.sort,
-					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, has: map[string]bool{}, index: map[string]*TreeNode{}}
+					items: map[int32]struct{}{}, by: map[string]map[int32]struct{}{}, has: map[string]bool{}, at: map[string]bool{}, index: map[string]*TreeNode{}}
 				n.index[path] = c
 				n.Children = append(n.Children, c)
 			}
@@ -344,6 +349,11 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 			// so a branch or a half the filters empty is listed at 0.
 			if r.GroupSlug != "" {
 				c.has[r.GroupSlug] = true
+			}
+			if r.Coords == "" {
+				c.unmapped = true
+			} else {
+				c.at[r.Coords] = true
 			}
 			if r.Matches {
 				c.items[r.ItemID] = struct{}{}
@@ -379,6 +389,11 @@ func buildTree(t SourceTab, rows []sqlcgen.ListSourceTreeRowsRow, groups []sqlcg
 		})
 		for _, n := range ns {
 			n.Count = int64(len(n.items))
+			if !n.unmapped && len(n.at) == 1 {
+				for c := range n.at {
+					n.Coords = c
+				}
+			}
 			for _, g := range groups {
 				if n.has[g.Slug] {
 					n.Groups = append(n.Groups, GroupCount{Slug: g.Slug, Name: g.Name, Count: int64(len(n.by[g.Slug]))})

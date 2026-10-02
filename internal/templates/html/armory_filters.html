@@ -102,6 +102,13 @@
 <div hx-swap-oob="innerHTML:#armory-chips">{{template "armory_chips" .}}</div>
 <span hx-swap-oob="innerHTML:#filter-count">{{template "armory_filter_count" .}}</span>
 <span hx-swap-oob="innerHTML:#strip-active">{{template "armory_active" .}}</span>
+{{if .Sources.Tabs}}<div hx-swap-oob="innerHTML:#armory-tabs">{{template "armory_tabs" .}}</div>
+<div hx-swap-oob="innerHTML:#armory-tabs-sheet">{{template "armory_tabs_sheet" .}}</div>
+<div hx-swap-oob="innerHTML:#armory-sources-head">{{template "armory_sources_head" .}}</div>
+<div hx-swap-oob="innerHTML:#armory-sources-tree">{{template "armory_sources_tree" .}}</div>
+<div hx-swap-oob="innerHTML:#armory-sources-selected">{{template "armory_sources_selected" .}}</div>
+<span hx-swap-oob="innerHTML:#sources-count">{{template "armory_sources_count" .}}</span>
+<span hx-swap-oob="innerHTML:#sources-show">{{template "armory_sources_show" .}}</span>{{end}}
 {{end}}
 {{/* An HTMX change with a malformed filter (AOC-049 review): the reason, in place of the rows. */}}
 {{define "armory_invalid"}}<div role="alert" class="m-4 rounded-[8px] border border-dashed border-line-soft p-4 text-[13.5px]">
