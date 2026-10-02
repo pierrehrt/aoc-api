@@ -308,6 +308,9 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	//
 	// The places SQL sees are the named ones and everything inside them (AOC-038); expandPlaces
 	// keeps every named slug, so the list is still empty exactly when Places is.
+	if err := f.validRanges(); err != nil {
+		return ListResult{}, err
+	}
 	expanded, contains, err := s.expandPlaces(ctx, f.Places)
 	if err != nil {
 		return ListResult{}, err
@@ -316,10 +319,6 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	// Collapsed when nothing is named, or when something named contains places: a raid shows each
 	// item once, like any view of several dungeons. Two sibling wings named stay expanded.
 	collapsed := f.Aggregate() || contains
-
-	if err := f.validRanges(); err != nil {
-		return ListResult{}, err
-	}
 
 	params := sqlcgen.ListItemsParams{
 		Rarities:       listArg(f.Rarities),
