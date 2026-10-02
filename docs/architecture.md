@@ -165,8 +165,8 @@ stale, not the behaviour.
 `RequestID` → `Log` → `Cache` → (`canonicalHost`, with `WithCanonicalHost`) → `Recover` → `deadline`
 → `GetHead`.
 
-`deadline` (AOC-065, § 3) gives every request's context `RequestDeadline`; it sits inside `Recover`,
-so everything a handler starts is bounded.
+`deadline` (AOC-065, § 3) gives every request's context `RequestDeadline`. It is mounted with
+`r.Use` ahead of every route, so everything a handler starts is bounded.
 
 `Cache` (AOC-026, § Caching below) sits **inside `Log` and outside `Recover`**: the 500 that
 `Recover` writes for a panic passes through it and leaves as `no-store`, where the other way round
