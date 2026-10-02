@@ -54,6 +54,7 @@ type Sources struct {
 	EndPoints  int             // the tab's branches with nothing under them (the design's "N end points")
 	Rows       []TreeRow       // the tree as the panel draws it: open branches' children, group headers
 	Selected   string          // the picked branch's path, "A › B › C", or "" for none
+	Coords     string          // where on its map the picked branch is, when it is one point (Pierre)
 	Picked     bool            // a branch is picked (the phone button's "· 1")
 }
 
@@ -275,7 +276,7 @@ func armoryProbe() ArmoryData {
 				{Label: "test drops", Pad: 23, Header: true},
 				{Label: "Test Place", Count: 2, URL: "/armory?source=s:test-section.p:test-place&get=drop", Pad: 38, Selected: true},
 			},
-			Selected: "Test Section › Test Place", Picked: true,
+			Selected: "Test Section › Test Place", Picked: true, Coords: "1,2",
 		},
 	}
 }

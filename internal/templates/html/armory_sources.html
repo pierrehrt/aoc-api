@@ -42,12 +42,14 @@
 </ul>
 {{end}}
 
-{{/* The selected source (the design's dashed box): the branch's path, and how many items the list
-     now holds. No "verified on" line: the data carries no such date (CLAUDE.md rule 13). */}}
+{{/* The selected source (the design's dashed box): the branch's path, how many items the list now
+     holds, and where on its map it is — only when the branch is one point: every row of it has the
+     same coordinates (Pierre, 2026-10-02). No "verified on" line: the data carries no such date
+     (CLAUDE.md rule 13). */}}
 {{define "armory_sources_selected"}}
 <span class="font-mono text-[11.5px] font-medium text-muted">Selected source</span>
 <span class="text-[12px] text-paper">{{with .Sources.Selected}}{{.}}{{else}}All sources{{end}}</span>
-<span class="font-mono text-[11.5px] text-faint">{{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</span>
+<span class="font-mono text-[11.5px] text-faint">{{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}{{with .Sources.Coords}} · map ({{.}}){{end}}</span>
 {{end}}
 
 {{/* The phone sheet's button: the list's count, as the filter sheet's "Show N items". */}}

@@ -49,12 +49,13 @@ func buildSources(f items.Filters, tabs []items.SourceTab, tree items.Tree, here
 	// The picked branch and every branch above it are open; the open branches derive from the pick,
 	// never from a stored state, so a link and a reload draw the same tree.
 	var trail []string
+	var coords string
 	var find func(ns []*items.TreeNode, above []string) bool
 	find = func(ns []*items.TreeNode, above []string) bool {
 		for _, n := range ns {
 			names := append(append([]string{}, above...), n.Name)
 			if n.Source == path {
-				trail = names
+				trail, coords = names, n.Coords
 				return true
 			}
 			if strings.HasPrefix(path, n.Source+".") && find(n.Children, names) {
@@ -110,6 +111,7 @@ func buildSources(f items.Filters, tabs []items.SourceTab, tree items.Tree, here
 		label = "source: " + path
 		if found {
 			out.Selected = strings.Join(trail, " › ")
+			out.Coords = coords
 			label = "source: " + trail[len(trail)-1]
 		}
 		if f.Source.Group != "" {

@@ -21,7 +21,7 @@ func fakeTree() ([]items.SourceTab, items.Tree) {
 		}
 		return n
 	}
-	raid := &items.TreeNode{Kind: "place", Slug: "test-raid", Name: "Test Raid", Source: "s:test-tier.p:test-raid", Count: 5,
+	raid := &items.TreeNode{Kind: "place", Slug: "test-raid", Name: "Test Raid", Source: "s:test-tier.p:test-raid", Count: 5, Coords: "10,20",
 		Children: []*items.TreeNode{boss("test-boss-alpha", "Test Boss Alpha", 2, 0), boss("test-boss-beta", "Test Boss Beta", 1, 2)}}
 	tier := &items.TreeNode{Kind: "section", Slug: "test-tier", Name: "Test Tier", Source: "s:test-tier", Count: 5, Children: []*items.TreeNode{raid}}
 	other := &items.TreeNode{Kind: "section", Slug: "test-other", Name: "Test Other", Source: "s:test-other", Count: 0}
@@ -104,6 +104,13 @@ func TestAPickedRaidOpensItsWayDownAndSplitsItsBossesIntoHalves(t *testing.T) {
 	}
 	if label != "source: Test Raid" || src.Selected != "Test Tier › Test Raid" {
 		t.Errorf("label %q, selected %q", label, src.Selected)
+	}
+	// One point: the box says where (Pierre). The tier has none: it is many places.
+	if src.Coords != "10,20" {
+		t.Errorf("coords = %q, want the raid's", src.Coords)
+	}
+	if tier, _ := buildSources(items.Filters{Source: pickOf(t, "s:test-tier", "")}, tabs, tree, here); tier.Coords != "" {
+		t.Errorf("the tier's coords = %q, want none", tier.Coords)
 	}
 }
 

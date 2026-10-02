@@ -2144,6 +2144,9 @@ SELECT DISTINCT src.item_id,
        coalesce(sq.slug, '')::varchar AS quest_slug, coalesce(sq.name, sq.armory_label, '')::varchar AS quest_name,
        coalesce(sct.slug, '')::varchar AS container_slug, coalesce(sct.name, '')::varchar AS container_name,
        coalesce(sag.slug, '')::varchar AS group_slug,
+       -- Where on its map the row's location is (AoC>TV's coordinates). The panel shows a branch's
+       -- only when every row of it has the same ones (Pierre, 2026-10-02; AOC-068).
+       coalesce(src.coords, '')::varchar AS coords,
        -- Whether the item passes every other filter. The tree's SHAPE is every row of the tab, so a
        -- branch the filters empty is still listed with its 0, never hidden (the rail's rule); only
        -- the rows that match are counted.
@@ -2219,6 +2222,7 @@ type ListSourceTreeRowsRow struct {
 	ContainerSlug string
 	ContainerName string
 	GroupSlug     string
+	Coords        string
 	Matches       bool
 }
 
@@ -2289,6 +2293,7 @@ func (q *Queries) ListSourceTreeRows(ctx context.Context, arg ListSourceTreeRows
 			&i.ContainerSlug,
 			&i.ContainerName,
 			&i.GroupSlug,
+			&i.Coords,
 			&i.Matches,
 		); err != nil {
 			return nil, err

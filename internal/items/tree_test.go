@@ -375,3 +375,31 @@ func TestABranchTheFiltersEmptyIsListedWithZero(t *testing.T) {
 		t.Errorf("the emptied raid's halves = %v, want %v", emptied.Children[0].Groups, want)
 	}
 }
+
+// A branch is one point when every row of it has the same coordinates (Pierre, 2026-10-02): none,
+// a row without any, or two different ones, and the branch has no Coords.
+func TestABranchHasCoordinatesOnlyWhenItIsOnePoint(t *testing.T) {
+	tab := SourceTab{Slug: "test-tab", Groups: []string{"section"}}
+	at := func(item int32, place, coords string) sqlcgen.ListSourceTreeRowsRow {
+		return treeRow(item, "test-tier", func(r *sqlcgen.ListSourceTreeRowsRow) {
+			r.PlaceSlug, r.PlaceName, r.Coords = place, "Test "+place, coords
+		})
+	}
+	tr := buildTree(tab, []sqlcgen.ListSourceTreeRowsRow{
+		at(1, "test-one", "1,2"), at(2, "test-one", "1,2"),
+		at(3, "test-two", "1,2"), at(4, "test-two", "3,4"),
+		at(5, "test-part", "5,6"), at(6, "test-part", ""),
+		at(7, "test-none", ""),
+	}, testGroups, nil)
+	got := map[string]string{}
+	for _, n := range tr.Nodes[0].Children {
+		got[n.Slug] = n.Coords
+	}
+	want := map[string]string{"test-one": "1,2", "test-two": "", "test-part": "", "test-none": ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("coords = %v, want %v", got, want)
+	}
+	if tr.Nodes[0].Coords != "" {
+		t.Errorf("the tier, many points, has coords %q", tr.Nodes[0].Coords)
+	}
+}
