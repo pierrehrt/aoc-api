@@ -298,9 +298,9 @@ func rowPath(groups []string, r sqlcgen.ListSourceTreeRowsRow, h map[string]plac
 		// place already on the chain.
 		chain := []level{{"place", r.PlaceSlug, r.PlaceName, 0}}
 		seen := map[string]bool{r.PlaceSlug: true}
-		// At most maxPlaces, the parser's bound: a deeper chain is drawn from its maxPlaces-th place
-		// up, which is still a chain (each the parent of the next), so its paths parse and count.
-		for up := h[r.PlaceSlug].parent; up != "" && !seen[up] && len(chain) < maxPlaces; up = h[up].parent {
+		// The whole ancestry, never cut (verify round 3, F11: a chain cut at a fixed depth miscounts
+		// the branches above the cut, because a place's branch includes every place inside it).
+		for up := h[r.PlaceSlug].parent; up != "" && !seen[up]; up = h[up].parent {
 			seen[up] = true
 			chain = append([]level{{"place", up, h[up].name, 0}}, chain...)
 		}
