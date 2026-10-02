@@ -50,6 +50,11 @@ type View struct {
 	// package's view helper. The footer carries no credit and no notice (AOC-055, Pierre): where the
 	// data came from is said once, on the Info page (AOC-056).
 	Nav []NavItem // the header's section links — only routes that exist
+
+	// App lays the page out as the validated design's full-window app from lg up (AOC-065): the
+	// header and the page's own bars fixed, its panes scrolling inside, the document never scrolling.
+	// Below lg every page is an ordinary scrolling document.
+	App bool
 }
 
 // ThingLD is schema.org's Thing — what an item page describes. Not Product: Google reports a
@@ -70,9 +75,17 @@ func NewThingLD(name, description, url, image string) ThingLD {
 
 // NavItem is one header link.
 type NavItem struct {
-	Label string
-	Path  string
+	Label   string
+	Path    string
+	Current bool // the section this page belongs to: the design's filled pill (AOC-065)
+	// Soon marks a section that is not built: its tab leads to a "Coming Soon" page, which is noindex
+	// and kept out of the sitemap (Pierre, 2026-10-01; DECISIONS.md).
+	Soon bool
+	Menu bool // drawn with the design's ▾ (More)
 }
+
+// SoonData is what a Coming Soon page shows: the section's name, nothing else.
+type SoonData struct{ Section string }
 
 var (
 	ErrNoTitle       = errors.New("view has no title")

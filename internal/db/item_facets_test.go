@@ -64,7 +64,7 @@ func TestTheFilterCTEIsOneDefinition(t *testing.T) {
 	}
 }
 
-// facetSlugs picks taxonomy rows by POSITION, so the fixture names no real class or currency.
+// facetSlug picks taxonomy rows by POSITION, so the fixture names no real class or currency.
 func facetSlug(t *testing.T, d *sql.DB, table, order string, offset int) string {
 	t.Helper()
 	var s string
@@ -176,22 +176,26 @@ func facetService(t *testing.T) (*items.Service, *sql.DB) {
 	return items.NewService(sqlcgen.New(pool)), d
 }
 
-// withFacet returns f with the facet named by its parameter set to slug ("" clears it).
+// withFacet returns f with the facet named by its parameter set to just slug ("" clears it).
 func withFacet(t *testing.T, f items.Filters, param, slug string) items.Filters {
 	t.Helper()
+	var v []string
+	if slug != "" {
+		v = []string{slug}
+	}
 	switch param {
 	case "rarity":
-		f.Rarity = slug
+		f.Rarities = v
 	case "equip_location":
-		f.EquipLocation = slug
+		f.EquipLocations = v
 	case "armour_weight":
-		f.ArmourWeight = slug
+		f.ArmourWeights = v
 	case "class":
-		f.Class = slug
+		f.Classes = v
 	case "currency":
-		f.Currency = slug
+		f.Currencies = v
 	case "set":
-		f.Set = slug
+		f.Sets = v
 	default:
 		t.Fatalf("no filter for facet %q", param)
 	}
@@ -326,27 +330,27 @@ func TestFacetCountsAreTheRowsTheyPromise(t *testing.T) {
 
 	for label, f := range map[string]items.Filters{
 		"no filters":              {},
-		"one rarity":              {Rarity: topRarity},
-		"one slot":                {EquipLocation: firstSlot},
-		"one armour weight":       {ArmourWeight: firstWeight},
-		"one class":               {Class: secondClass},
+		"one rarity":              {Rarities: []string{topRarity}},
+		"one slot":                {EquipLocations: []string{firstSlot}},
+		"one armour weight":       {ArmourWeights: []string{firstWeight}},
+		"one class":               {Classes: []string{secondClass}},
 		"item level from 60":      {ILvlMin: i32(60)},
 		"required level up to 70": {ReqLvlMax: i32(70)},
 		"has a price":             {Price: &yes},
 		"has no price":            {Price: &no},
-		"one currency":            {Currency: firstCurrency},
-		"one set":                 {Set: "test-facet-set-alpha"},
+		"one currency":            {Currencies: []string{firstCurrency}},
+		"one set":                 {Sets: []string{"test-facet-set-alpha"}},
 		"a name search":           {Query: "Facet A"},
 		"pvp":                     {PvP: &yes},
-		"class and price":         {Class: secondClass, Price: &yes},
-		"set and currency":        {Set: "test-facet-set-alpha", Currency: firstCurrency},
+		"class and price":         {Classes: []string{secondClass}, Price: &yes},
+		"set and currency":        {Sets: []string{"test-facet-set-alpha"}, Currencies: []string{firstCurrency}},
 		// Each leaves only items with no level of the span's kind: the spans must vanish.
-		"only Eta's rarity":       {Rarity: etaRarity},
-		"only Eta's slot":         {EquipLocation: etaSlot},
-		"only Eta's weight":       {ArmourWeight: etaWeight},
-		"only Eta's class":        {Class: etaClass},
-		"only Eta's currency":     {Currency: etaCurrency},
-		"only Eta's set":          {Set: "test-facet-set-gamma"},
+		"only Eta's rarity":       {Rarities: []string{etaRarity}},
+		"only Eta's slot":         {EquipLocations: []string{etaSlot}},
+		"only Eta's weight":       {ArmourWeights: []string{etaWeight}},
+		"only Eta's class":        {Classes: []string{etaClass}},
+		"only Eta's currency":     {Currencies: []string{etaCurrency}},
+		"only Eta's set":          {Sets: []string{"test-facet-set-gamma"}},
 		"only Eta's name":         {Query: "Facet Eta"},
 		"only Theta's req level":  {ReqLvlMin: i32(30), ReqLvlMax: i32(40)},
 		"only Delta's item level": {ILvlMin: i32(45), ILvlMax: i32(55)},
@@ -354,8 +358,13 @@ func TestFacetCountsAreTheRowsTheyPromise(t *testing.T) {
 		"required level from 60":      {ReqLvlMin: i32(60)},
 		"required level up to 30":     {ReqLvlMax: i32(30)},
 		"item level up to 30":         {ILvlMax: i32(30)},
-		"no price, the top rarity":    {Price: &no, Rarity: topRarity},
+		"no price, the top rarity":    {Price: &no, Rarities: []string{topRarity}},
 		"a pvp item with a level cap": {PvP: &yes, ILvlMax: i32(50)},
+		// AOC-064: several values in a group — any of them — under the other groups.
+		"two rarities":                {Rarities: []string{topRarity, etaRarity}},
+		"two slots and a class":       {EquipLocations: []string{firstSlot, etaSlot}, Classes: []string{secondClass}},
+		"two weights, two currencies": {ArmourWeights: []string{firstWeight, etaWeight}, Currencies: []string{firstCurrency, etaCurrency}},
+		"two sets and a rarity":       {Sets: []string{"test-facet-set-alpha", "test-facet-set-gamma"}, Rarities: []string{topRarity}},
 	} {
 		if n := assertFacetsAreTheirRows(t, s, f, label); n == 0 {
 			t.Errorf("%s: nothing was checked", label)
@@ -420,5 +429,74 @@ func TestAZeroIsListedAndPriceMeansAnySource(t *testing.T) {
 	}
 	if sp := res.Facets.RequiresLevel; sp == nil || sp.Min != 10 || sp.Max != 80 {
 		t.Errorf("reqlvl span = %+v, want 10–80", sp)
+	}
+}
+
+// AOC-064: a group takes several values, any of them. For a facet that holds one value per item
+// (rarity, armour weight, set), ticking several gives EXACTLY the sum of their counts — the number
+// beside each box is what ticking it adds. For every facet, exactly the union, by id, of what each
+// value gives alone.
+func TestSeveralValuesInAGroupAreAnyOfThem(t *testing.T) {
+	s, _ := facetService(t)
+	ctx := context.Background()
+	for _, base := range []items.Filters{{}, {ILvlMin: i32(40)}} {
+		res, err := s.List(ctx, items.Filters{WithFacets: true, Limit: 1, ILvlMin: base.ILvlMin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range []struct {
+			param     string
+			group     items.FacetGroup
+			exclusive bool
+		}{{"rarity", res.Facets.Rarity, true}, {"armour_weight", res.Facets.ArmourWeight, true}, {"set", res.Facets.Set, true},
+			{"equip_location", res.Facets.EquipLocation, false}, {"class", res.Facets.Class, false}, {"currency", res.Facets.Currency, false}} {
+			var picked []string
+			var sum int64
+			for _, v := range g.group.Values {
+				if v.Count > 0 && len(picked) < 2 {
+					picked = append(picked, v.Slug)
+					sum += v.Count
+				}
+			}
+			if len(picked) < 2 {
+				continue
+			}
+			f := base
+			switch g.param {
+			case "rarity":
+				f.Rarities = picked
+			case "armour_weight":
+				f.ArmourWeights = picked
+			case "set":
+				f.Sets = picked
+			case "equip_location":
+				f.EquipLocations = picked
+			case "class":
+				f.Classes = picked
+			case "currency":
+				f.Currencies = picked
+			}
+			got := total(t, s, f)
+			if g.exclusive && got != sum {
+				t.Errorf("%s %v under %+v: %d items, want exactly the sum of their counts, %d", g.param, picked, base, got, sum)
+			}
+			// Every facet: exactly the union of the items each value alone gives, counted by id — a
+			// bound is not enough (a filter that read only the first value passed one, AOC-064 mutant).
+			union := map[int32]bool{}
+			for _, one := range picked {
+				alone := withFacet(t, base, g.param, one)
+				alone.Limit = items.MaxLimit // every row, not the first page: the fixture is far smaller
+				r, err := s.List(ctx, alone)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, it := range r.Items {
+					union[it.ID] = true
+				}
+			}
+			if got != int64(len(union)) {
+				t.Errorf("%s %v under %+v: %d items, want the union of what each gives alone, %d", g.param, picked, base, got, len(union))
+			}
+		}
 	}
 }

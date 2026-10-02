@@ -18,7 +18,7 @@ func TestArmoryRendersTheTableWithoutJavaScript(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		"<table", "Test Item 1", `<form method="get" action="/armory"`, "120 items", "of 120",
-		`href="/armory?p=2"`, "page 1 of 3", `aria-current="page"`,
+		`href="/armory?p=2"`, "rows 1–50 of 120", `aria-current="page"`,
 		`style="color: var(--color-rarity-epic)"`, // the rarity comes as a token, never a slug in a class
 		`<link rel="canonical" href="https://aoc-codex.app/armory">`,
 	} {
@@ -46,7 +46,7 @@ func TestArmoryRendersTheTableWithoutJavaScript(t *testing.T) {
 func TestArmoryPhoneRowNeverLeadsWithASeparator(t *testing.T) {
 	h := router(t)
 	one := get(t, h, http.MethodGet, "/armory?q=Item+120", nil, "").Body.String()
-	if got := regexp.MustCompile(`<strong class="text-paper">([^<]*)</strong>`).FindStringSubmatch(one); got == nil || got[1] != "1 item" {
+	if got := regexp.MustCompile(`font-semibold text-paper">([^<]*)</span>`).FindStringSubmatch(one); got == nil || got[1] != "1 item" {
 		t.Errorf("one match is written as %q, want \"1 item\"", got)
 	}
 	body := get(t, h, http.MethodGet, "/armory?q=5", nil, "").Body.String()
@@ -73,9 +73,9 @@ func TestArmoryPhoneRowNeverLeadsWithASeparator(t *testing.T) {
 func TestArmoryEveryStateIsAURL(t *testing.T) {
 	h := router(t)
 	for path, want := range map[string][]string{
-		"/armory?p=2":               {"page 2 of 3", `href="/armory"`, `href="/armory?p=3"`, `href="https://aoc-codex.app/armory?p=2"`},
+		"/armory?p=2":               {"rows 51–100 of 120", `href="/armory"`, `href="/armory?p=3"`, `href="https://aoc-codex.app/armory?p=2"`},
 		"/armory?p=1":               {`href="https://aoc-codex.app/armory">`}, // p=1 canonicalises to no p
-		"/armory?q=Item+7":          {"Test Item 7", "Test Item 70", "clear search", `value="Item 7"`},
+		"/armory?q=Item+7":          {"Test Item 7", "Test Item 70", `aria-label="Remove the filter q: Item 7"`, `value="Item 7"`},
 		"/armory?q=7":               {"Test Item 7"}, // an id
 		"/armory?sort=name":         {`href="https://aoc-codex.app/armory?sort=name">`, `aria-current="true"`},
 		"/armory?q=zzz-nothing-zzz": {"No items match", "Item ids run 1–123", "3 ids in that range are absent", "Clear the search"},
@@ -119,7 +119,7 @@ func TestArmoryHTMXGetsTheRowsFragment(t *testing.T) {
 	if strings.Contains(body, "<html") || strings.Contains(body, "<form") {
 		t.Error("an HTMX request got the whole page, not the rows fragment")
 	}
-	if !strings.Contains(body, "page 2 of 3") {
+	if !strings.Contains(body, "rows 51–100 of 120") {
 		t.Error("the fragment is not the requested page")
 	}
 	if v := rr.Header().Get("Vary"); !strings.Contains(v, "HX-Request") {

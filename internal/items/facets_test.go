@@ -196,3 +196,27 @@ func TestAnEmptyRangeIsRefusedByTheService(t *testing.T) {
 		t.Errorf("reqlvl 80..70 = %v, want ErrInvalid", err)
 	}
 }
+
+// AOC-064: an empty facet list is no filter. It must reach SQL as NULL: an empty slice arrives as
+// '{}', and `x = ANY('{}')` is false for every row — an unticked group would empty the whole list.
+// The page builds lists by removing values (a chip's ×), so an empty non-nil slice is reachable.
+func TestAnEmptyFacetListReachesSQLAsNoFilter(t *testing.T) {
+	q := sharedItem()
+	empty := []string{}
+	if _, err := NewService(q).List(context.Background(), Filters{
+		Rarities: empty, EquipLocations: empty, ArmourWeights: empty, Classes: empty, Currencies: empty, Sets: empty,
+		WithFacets: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p := q.firstArgs()
+	for name, v := range map[string][]string{"rarities": p.Rarities, "equip_locations": p.EquipLocations, "armour_weights": p.ArmourWeights,
+		"classes": p.Classes, "currencies": p.Currencies, "sets": p.Sets} {
+		if v != nil {
+			t.Errorf("%s reached SQL as %#v, want nil — '{}' matches nothing", name, v)
+		}
+	}
+	if f := q.facetArgs[0]; f.Rarities != nil || f.Sets != nil {
+		t.Error("the facet query got an empty list where it needs NULL")
+	}
+}

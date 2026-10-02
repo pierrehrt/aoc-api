@@ -123,7 +123,7 @@ func (q *Queries) ListBindings(ctx context.Context) ([]Binding, error) {
 const listClasses = `-- name: ListClasses :many
 SELECT c.id, c.slug, c.name, c.short_name, c.archetype_id, a.name AS archetype_name, c.max_armour_weight
 FROM classes c JOIN archetypes a ON a.id = c.archetype_id
-ORDER BY a.name, c.name
+ORDER BY c.sort_order NULLS LAST, c.name
 `
 
 type ListClassesRow struct {
@@ -136,6 +136,7 @@ type ListClassesRow struct {
 	MaxArmourWeight *int32
 }
 
+// In classes.sort_order (AOC-065): Soldier, Rogue, Priest, Mage (Pierre), the design's order within.
 func (q *Queries) ListClasses(ctx context.Context) ([]ListClassesRow, error) {
 	rows, err := q.db.Query(ctx, listClasses)
 	if err != nil {

@@ -221,7 +221,8 @@ CREATE TABLE public.classes (
     slug character varying(64) NOT NULL,
     name character varying(64) NOT NULL,
     max_armour_weight integer,
-    short_name character varying(8)
+    short_name character varying(8),
+    sort_order integer
 );
 
 

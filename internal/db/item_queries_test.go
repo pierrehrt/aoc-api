@@ -72,8 +72,8 @@ func TestListItemsFindsOneHandersWhenAskedForOffHand(t *testing.T) {
 	q, _ := queriesOn(t)
 
 	rows, err := q.ListItems(context.Background(), sqlcgen.ListItemsParams{
-		EquipLocation: strPtr("off-hand"),
-		PageSize:      50,
+		EquipLocations: []string{"off-hand"},
+		PageSize:       50,
 	})
 	if err != nil {
 		t.Fatalf("ListItems: %v", err)
@@ -98,7 +98,7 @@ func TestListItemsFindsOneHandersWhenAskedForOffHand(t *testing.T) {
 	// single finger must still find it, which is what slot_fit 'either' means.
 	for _, slot := range []string{"left-finger", "right-finger"} {
 		rows, err := q.ListItems(context.Background(), sqlcgen.ListItemsParams{
-			EquipLocation: strPtr(slot), PageSize: 50,
+			EquipLocations: []string{slot}, PageSize: 50,
 		})
 		if err != nil {
 			t.Fatalf("ListItems(%s): %v", slot, err)
@@ -110,7 +110,7 @@ func TestListItemsFindsOneHandersWhenAskedForOffHand(t *testing.T) {
 
 	// And an unknown slug is an empty list, not an error and not everything.
 	rows, err = q.ListItems(context.Background(), sqlcgen.ListItemsParams{
-		EquipLocation: strPtr("no-such-slot"), PageSize: 50,
+		EquipLocations: []string{"no-such-slot"}, PageSize: 50,
 	})
 	if err != nil {
 		t.Fatalf("ListItems(unknown slot): %v", err)

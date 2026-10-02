@@ -36,6 +36,18 @@ func get(t *testing.T, q Querier, path string) (*httptest.ResponseRecorder, map[
 	return rec, body
 }
 
+func eqList(got []string, want ...string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // Every filter reaches SQL as the value that was asked for. A filter that is silently dropped
 // returns a page the caller did not ask for and cannot tell is wrong.
 func TestEveryFilterReachesTheQuery(t *testing.T) {
@@ -44,15 +56,19 @@ func TestEveryFilterReachesTheQuery(t *testing.T) {
 		check func(sqlcgen.ListItemsParams) bool
 		what  string
 	}{
-		{"rarity=epic", func(p sqlcgen.ListItemsParams) bool { return p.Rarity != nil && *p.Rarity == "epic" }, "rarity"},
+		{"rarity=epic", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Rarities, "epic") }, "rarity"},
+		// AOC-064: a facet takes several values — repeated, comma-separated, or both; each once.
+		{"rarity=epic&rarity=legendary", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Rarities, "epic", "legendary") }, "two rarities, repeated"},
+		{"rarity=epic,legendary", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Rarities, "epic", "legendary") }, "two rarities, comma-separated"},
+		{"rarity=epic&rarity=epic,,legendary&rarity=", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Rarities, "epic", "legendary") }, "a repeat and empties are dropped"},
 		{"item_type=ring", func(p sqlcgen.ListItemsParams) bool { return p.ItemType != nil && *p.ItemType == "ring" }, "item_type"},
-		{"equip_location=off-hand", func(p sqlcgen.ListItemsParams) bool {
-			return p.EquipLocation != nil && *p.EquipLocation == "off-hand"
+		{"equip_location=off-hand&equip_location=head", func(p sqlcgen.ListItemsParams) bool {
+			return eqList(p.EquipLocations, "off-hand", "head")
 		}, "equip_location"},
-		{"armour_weight=heavy", func(p sqlcgen.ListItemsParams) bool {
-			return p.ArmourWeight != nil && *p.ArmourWeight == "heavy"
+		{"armour_weight=heavy,light", func(p sqlcgen.ListItemsParams) bool {
+			return eqList(p.ArmourWeights, "heavy", "light")
 		}, "armour_weight"},
-		{"class=conqueror", func(p sqlcgen.ListItemsParams) bool { return p.Class != nil && *p.Class == "conqueror" }, "class"},
+		{"class=test-class&class=test-other", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Classes, "test-class", "test-other") }, "class"},
 		{"region=cimmeria", func(p sqlcgen.ListItemsParams) bool { return p.Region != nil && *p.Region == "cimmeria" }, "region"},
 		{"tier=pve-6", func(p sqlcgen.ListItemsParams) bool { return p.Tier != nil && *p.Tier == "pve-6" }, "tier"},
 		{"place=test-cave", func(p sqlcgen.ListItemsParams) bool {
@@ -77,16 +93,18 @@ func TestEveryFilterReachesTheQuery(t *testing.T) {
 		}, "required level range, 0 a value and not an absence"},
 		{"price=1", func(p sqlcgen.ListItemsParams) bool { return p.Price != nil && *p.Price }, "price=1"},
 		{"price=false", func(p sqlcgen.ListItemsParams) bool { return p.Price != nil && !*p.Price }, "price=false"},
-		{"currency=test-token", func(p sqlcgen.ListItemsParams) bool { return p.Currency != nil && *p.Currency == "test-token" }, "currency"},
-		{"set=test-set", func(p sqlcgen.ListItemsParams) bool { return p.Set != nil && *p.Set == "test-set" }, "set"},
+		{"currency=test-token&currency=test-coin", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Currencies, "test-token", "test-coin") }, "currency"},
+		{"set=test-set", func(p sqlcgen.ListItemsParams) bool { return eqList(p.Sets, "test-set") }, "set"},
 		// An empty field is what a JS-off form submits for a control left alone: no filter.
 		{"ilvl_min=&ilvl_max=&currency=&set=&price=", func(p sqlcgen.ListItemsParams) bool {
-			return p.IlvlMin == nil && p.IlvlMax == nil && p.Currency == nil && p.Set == nil && p.Price == nil
+			return p.IlvlMin == nil && p.IlvlMax == nil && p.Currencies == nil && p.Sets == nil && p.Price == nil
 		}, "empty form fields are no filter"},
 		// Absence must stay absent: a zero value here would filter on the empty string.
 		{"", func(p sqlcgen.ListItemsParams) bool {
-			return p.Rarity == nil && p.Pvp == nil && p.Unchained == nil && p.Region == nil && len(p.PlaceSlugs) == 0 &&
-				p.IlvlMin == nil && p.ReqlvlMax == nil && p.Price == nil && p.Currency == nil && p.Set == nil
+			// nil, not empty: an empty slice reaches SQL as '{}' and matches nothing (listArg).
+			return p.Rarities == nil && p.EquipLocations == nil && p.ArmourWeights == nil && p.Classes == nil &&
+				p.Pvp == nil && p.Unchained == nil && p.Region == nil && p.PlaceSlugs == nil &&
+				p.IlvlMin == nil && p.ReqlvlMax == nil && p.Price == nil && p.Currencies == nil && p.Sets == nil
 		}, "no filters at all"},
 	} {
 		t.Run(tc.what, func(t *testing.T) {
@@ -107,7 +125,7 @@ func TestFiltersCombine(t *testing.T) {
 	q := sharedItem()
 	get(t, q, "/v1/items?rarity=epic&armour_weight=heavy&class=conqueror&pvp=true&tier=pve-6")
 	p := q.firstArgs()
-	if p.Rarity == nil || p.ArmourWeight == nil || p.Class == nil || p.Pvp == nil || p.Tier == nil {
+	if p.Rarities == nil || p.ArmourWeights == nil || p.Classes == nil || p.Pvp == nil || p.Tier == nil {
 		t.Fatalf("a combined query lost a filter: %+v", p)
 	}
 }

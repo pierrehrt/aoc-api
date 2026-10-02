@@ -34,17 +34,28 @@ func TestFacetCountsAreTheRowsTheyPromiseOnTheRealCorpus(t *testing.T) {
 		}
 		return best.Slug
 	}
+	twoBusiest := func(g items.FacetGroup) []string {
+		a := busiest(g)
+		best := items.FacetValue{}
+		for _, v := range g.Values {
+			if v.Slug != a && v.Count > best.Count {
+				best = v
+			}
+		}
+		return []string{a, best.Slug}
+	}
 	fc := res.Facets
 	yes := true
 	top := fc.ItemLevel.Max
 	for label, f := range map[string]items.Filters{
 		"no filters":                   {},
-		"the busiest rarity":           {Rarity: busiest(fc.Rarity)},
-		"slot and weight":              {EquipLocation: busiest(fc.EquipLocation), ArmourWeight: busiest(fc.ArmourWeight)},
-		"class and currency":           {Class: busiest(fc.Class), Currency: busiest(fc.Currency)},
-		"has a price, the busiest set": {Price: &yes, Set: busiest(fc.Set)},
+		"the busiest rarity":           {Rarities: []string{busiest(fc.Rarity)}},
+		"slot and weight":              {EquipLocations: []string{busiest(fc.EquipLocation)}, ArmourWeights: []string{busiest(fc.ArmourWeight)}},
+		"class and currency":           {Classes: []string{busiest(fc.Class)}, Currencies: []string{busiest(fc.Currency)}},
+		"has a price, the busiest set": {Price: &yes, Sets: []string{busiest(fc.Set)}},
 		"the top ten levels":           {ILvlMin: i32(top - 9)},
 		"name, required level and pvp": {Query: "of", ReqLvlMax: i32(50), PvP: &yes},
+		"two rarities, two slots":      {Rarities: twoBusiest(fc.Rarity), EquipLocations: twoBusiest(fc.EquipLocation)},
 	} {
 		n := assertFacetsAreTheirRows(t, s, f, label)
 		t.Logf("%s: %d numbers checked", label, n)

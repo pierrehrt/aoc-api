@@ -8,37 +8,46 @@ import (
 	"html"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// Criterion "a value with 0 is shown greyed, never hidden": for EVERY radio on the rail, the label
+// Criterion "a value with 0 is shown greyed, never hidden": for EVERY chip on the rail, the label
 // is muted exactly when its count is 0 and it is not the reader's own choice — a non-zero value is
 // never greyed, and a zero is never dropped.
-func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
+func TestEveryChipIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
+	// AOC-065: the choices are drawn as the design's rows and chips; each input carries its count
+	// (data-count), and what follows it up to the next input is how it is drawn. Muted (text-faint)
+	// exactly when the count is 0 and it is not chosen — never hidden.
+	in := regexp.MustCompile(`<input type="(?:radio|checkbox)" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)? data-count="(\d+)"[^>]*>`)
 	for _, path := range []string{"/armory", "/armory?rarity=test-rarity-dull", "/armory?class=test-class&price=false"} {
 		body := get(t, router(t), http.MethodGet, path, nil, "").Body.String()
-		re := regexp.MustCompile(`(?s)<input type="radio" id="([^"]+)" name="[^"]+" value="[^"]*"( checked)?[^>]*>\s*<label for="[^"]+"[^>]*class="([^"]*)">.*?<span class="font-mono text-xs text-muted">(\d+)</span>`)
-		ms := re.FindAllStringSubmatch(body, -1)
-		if len(ms) == 0 {
-			t.Fatalf("%s: no radio found", path)
+		locs := in.FindAllStringSubmatchIndex(body, -1)
+		if len(locs) == 0 {
+			t.Fatalf("%s: no choice found", path)
 		}
 		zeros := 0
-		for _, m := range ms {
-			n, _ := strconv.Atoi(m[4])
-			checked := m[2] != ""
-			muted := false
-			for _, c := range strings.Fields(m[3]) {
-				if c == "text-muted" {
-					muted = true
-				}
+		for i, l := range locs {
+			id, checked, count := body[l[2]:l[3]], l[4] >= 0, body[l[6]:l[7]]
+			end := len(body)
+			if i+1 < len(locs) {
+				end = locs[i+1][0]
 			}
-			if n == 0 {
+			seg := body[l[1]:end]
+			if j := strings.Index(seg, "</fieldset>"); j >= 0 {
+				seg = seg[:j]
+			}
+			// A rarity row keeps its colour at 0 (the design's "name in its colour", AOC-065 verify
+			// round 1); only chips mute.
+			if strings.HasPrefix(id, "f-rarity-") {
+				continue
+			}
+			muted := strings.Contains(seg, "text-faint")
+			if count == "0" && !checked {
 				zeros++
 			}
-			if want := n == 0 && !checked; muted != want {
-				t.Errorf("%s: %s (count %d, checked %v) muted=%v, want %v", path, m[1], n, checked, muted, want)
+			if want := count == "0" && !checked; muted != want {
+				t.Errorf("%s: %s (count %s, chosen %v) muted=%v, want %v", path, id, count, checked, muted, want)
 			}
 		}
 		if zeros == 0 {
@@ -47,36 +56,10 @@ func TestEveryRadioIsMutedExactlyWhenItsCountIsZero(t *testing.T) {
 	}
 }
 
-// Criterion "v1 lists the 24 currencies flat": the picker is one flat <select> — no <optgroup>, no
-// grouping invented in the page — holding Any and then every currency the service returned, in the
-// service's order, each with its count.
-func TestTheCurrencyPickerIsFlatAndHoldsEveryValueInOrder(t *testing.T) {
-	body := get(t, router(t), http.MethodGet, "/armory", nil, "").Body.String()
-	sel := regexp.MustCompile(`(?s)<select id="f-currency" name="currency"[^>]*>(.*?)</select>`).FindStringSubmatch(body)
-	if sel == nil {
-		t.Fatal("no currency select")
-	}
-	if strings.Contains(sel[1], "<optgroup") {
-		t.Error("the currency picker groups its values — no grouping column exists (design open question 4)")
-	}
-	var got []string
-	for _, o := range regexp.MustCompile(`<option value="([^"]*)"[^>]*>[^<]*\(\d+\)</option>`).FindAllStringSubmatch(sel[1], -1) {
-		got = append(got, html.UnescapeString(o[1]))
-	}
-	var want []string
-	want = append(want, "") // Any
-	for _, r := range fakeFacetRows {
-		if r.Facet == "currency" {
-			want = append(want, r.Slug)
-		}
-	}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("currency options = %v, want %v (Any, then the service's values in its order)", got, want)
-	}
-}
+// Superseded (Pierre, 2026-10-01, AOC-065): the filter pane is exactly the validated design's five
+// sections, so the currency picker this test pinned (AOC-049 criterion 3) left the pane. Currency
+// still filters by link and /v1 — TestTheOtherFiltersStillApplyAsPills pins that.
 
-// Criterion "every state is a URL", JS off: a plain form submit sends every field, the untouched
-// ones empty (`?q=&equip_location=&…`). That URL must still be the same state — its canonical, its
 // pager and its chips are the clean URL of that state, never the raw query string.
 func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 	dirty := "/armory?q=&rarity=epic&equip_location=&armour_weight=&class=&price=&ilvl_min=&ilvl_max=&reqlvl_min=&reqlvl_max=&currency=&set="
@@ -95,7 +78,7 @@ func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 			t.Errorf("a link on the page carries an empty field: %s", u)
 		}
 	}
-	if !strings.Contains(body, "Rarity: Test Epic") {
+	if !strings.Contains(body, "rarity: Test Epic") {
 		t.Error("the one real filter of the dirty submit is not a chip")
 	}
 	if !strings.Contains(body, `<span id="filter-count"> · 1</span>`) {
@@ -103,21 +86,22 @@ func TestAJSOffSubmitWithEmptyFieldsHasTheCleanStatesURLs(t *testing.T) {
 	}
 }
 
-// An unknown slug on a RADIO facet (a mistyped link) is not malformed: it stays the chosen value at
+// An unknown slug on a facet (a mistyped link) is not malformed: it stays the chosen value at
 // 0, named by a chip, and the page answers 200 — the rule build decision 3 sets for every facet.
-func TestAnUnknownRadioSlugStaysChosenAndNamed(t *testing.T) {
+func TestAnUnknownSlugStaysChosenAndNamed(t *testing.T) {
 	rr := get(t, router(t), http.MethodGet, "/armory?rarity=not-a-rarity", nil, "")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `<input type="radio" id="f-rarity-unknown" name="rarity" value="not-a-rarity" checked`) {
-		t.Error("the unknown rarity is not kept as the chosen radio — a submit would silently drop it")
+	// AOC-064: rarity is a checkbox group; the unknown value stays a ticked box.
+	if !strings.Contains(body, `<input type="checkbox" id="f-rarity-unknown-0" name="rarity" value="not-a-rarity" checked`) {
+		t.Error("the unknown rarity is not kept as a ticked choice — a submit would silently drop it")
 	}
 	if strings.Contains(body, `id="f-rarity-any" name="rarity" value="" checked`) {
 		t.Error("Any is checked while the URL names a rarity")
 	}
-	if !strings.Contains(body, "Rarity: not-a-rarity") {
+	if !strings.Contains(body, "rarity: not-a-rarity") {
 		t.Error("no chip names the unknown rarity")
 	}
 }

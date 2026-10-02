@@ -52,6 +52,7 @@ type Class struct {
 	Name            string
 	MaxArmourWeight *int32
 	ShortName       *string
+	SortOrder       *int32
 }
 
 type ConfidenceLevel struct {

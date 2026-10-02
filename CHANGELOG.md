@@ -8,6 +8,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-02
+
+The Armory list in the validated design: a full-window app whose table and filter panes scroll on
+their own, and filters that take several values, so Epic and Legendary, or Head and Shoulder, show in
+one list.
+
+### Added
+
+- Several values per filter group: rarity is a list of checkboxes, and slot, armour weight and class
+  are toggle chips. Within a group a row matches any of them, across groups all of them; each value
+  gets its own pill that removes only that value, and every state is a URL. `/v1/items` takes several
+  values for `rarity`, `equip_location`, `armour_weight`, `class`, `currency` and `set`, repeated or
+  comma-separated, as `place` always has (AOC-064)
+- The header's AA's, Feats, DJ/Raids and More tabs, each leading to a "Coming Soon" page that is
+  `noindex` and kept out of the sitemap (AOC-065)
+
+### Changed
+
+- The Armory list follows the validated design: its colours, fonts, spacing and header on every page;
+  from desktop widths a full-window app with no page scroll, where the table (sticky header, pager
+  bar at the bottom) and the filter pane each scroll on their own and the pane folds to a strip; a
+  search block with ⌘K, Copy link and the active filters as pills with "clear all"; on a phone, the
+  filter sheet with Cancel and "Show N items" (AOC-065)
+- The filter pane shows the design's five groups: rarity, slot, armour weight, class restriction and
+  item level, the level as two sliders (number inputs without JavaScript). Vendor price, required
+  level, currency and set have no control there any more; they still apply from a link and show as
+  pills (AOC-065)
+- Classes are listed Soldier, Rogue, Priest, Mage, in the design's order within each, on the list,
+  the item page and in `/v1`: `/v1/taxonomies`, the class facet of `/v1/items?facets=1` and an item's
+  `classes` in `/v1/items/{slug}` (AOC-065)
+- On the Armory list the search shows as a pill like the filters, and "clear all" clears it too (it
+  used to keep the search); one sort button steps through the orders, and the Item and iLvl headers
+  sort; Back and Forward reload the state from the server (AOC-065)
+- ⚠️ `/v1/items`: a repeated value of those six filters used to take the first and ignore the rest,
+  and a comma in a value matched nothing; both now mean any of the values. The response shape is
+  unchanged (AOC-064)
+- Every request has a 10-second deadline: a database that hangs gives an error and an ERROR log line,
+  where a page used to wait until the reader or Cloudflare gave up. A request the reader abandons,
+  including an Armory update a newer change replaced, is logged as 499 at Info, not as a server error
+  (AOC-065)
+
+### Fixed
+
+- A filter changed while the Armory list was still updating, such as a second choice made on a slow
+  connection, is no longer lost (AOC-065)
+- A filter changed while a link's update was in flight (a pill's ×, a sort, "clear all") no longer
+  drops the link (AOC-065)
+
+### Migration
+
+- `20261001120000_class_order`: adds `classes.sort_order` and fills it with the design's order — run
+  against production **before** this deploy with `scripts/release-migrate.sh`. The 0.4.0 binary reads
+  no such column, so it runs unchanged on the migrated schema. The `import` service is not
+  redeployed: it never writes `classes` (AOC-065)
+
 ## [0.4.0] - 2026-10-01
 
 The Armory list gets its filter rail, and beside every choice is the number of items it would

@@ -1,11 +1,13 @@
 package httpx
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -47,7 +49,23 @@ func NewRouterWithAPI(b Build, site SiteRoutes, assets http.Handler, v1 V1Routes
 // RouterOption adjusts the router newRouter builds.
 type RouterOption func(*routerOpts)
 
-type routerOpts struct{ canonical *url.URL }
+type routerOpts struct {
+	canonical *url.URL
+	deadline  time.Duration
+}
+
+// RequestDeadline bounds the work of every request (AOC-065 delta verify 7, N11). A database that
+// hangs without resetting held a request until the reader, or Cloudflare at 100 s, gave up; that
+// cancellation is a reader gone (ClientGone: 499, Info), so the hang never reached the error log,
+// and /health, which touches no database, stayed 200. At the deadline the query fails with
+// DeadlineExceeded instead: a 500 and an ERROR line. 10 s is far beyond the slowest page's
+// queries (tens of milliseconds) and well inside Cloudflare's 100 s.
+const RequestDeadline = 10 * time.Second
+
+// WithRequestDeadline replaces RequestDeadline — for tests, which cannot wait ten seconds.
+func WithRequestDeadline(d time.Duration) RouterOption {
+	return func(o *routerOpts) { o.deadline = d }
+}
 
 // WithCanonicalHost makes every request under another host a 301 to the same path on this origin
 // (AOC-025) — inside the router, so the 404 and 405 pages, /v1 and the assets are covered, and the
@@ -73,7 +91,7 @@ func NewRouterWithSite(b Build, site SiteRoutes, assets http.Handler) *chi.Mux {
 }
 
 func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes, opts ...RouterOption) *chi.Mux {
-	var o routerOpts
+	o := routerOpts{deadline: RequestDeadline}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -102,6 +120,7 @@ func newRouter(b Build, site SiteRoutes, assets http.Handler, mountV1 V1Routes, 
 		r.Use(canonicalHost(o.canonical))
 	}
 	r.Use(Recover)
+	r.Use(deadline(o.deadline))
 
 	// ⭐ HEAD. chi's r.Get registers GET only, so every public page answered HEAD with 405
 	// — on a site whose entire purpose is being crawled and linked, where uptime monitors,
@@ -227,3 +246,14 @@ margin:0;display:grid;place-items:center;min-height:100vh}a{color:#fcd34d}</styl
 
 // compile-time assurance that the router satisfies http.Handler.
 var _ http.Handler = (*chi.Mux)(nil)
+
+// deadline gives every request's context a deadline of d (RequestDeadline).
+func deadline(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

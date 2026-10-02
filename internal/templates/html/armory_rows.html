@@ -1,65 +1,79 @@
 {{/* A row's Slot and Type cells (AOC-062, Pierre: "Slot / type should be in two different column").
      What each holds is templates.SlotNames and templates.TypeLabel; the phone line under a row's
      name is templates.PhoneLine. The template only prints them. */}}
-{{define "armory_slot"}}{{with slotNames .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
-{{define "armory_type"}}{{with typeLabel .}}{{.}}{{else}}<span class="text-muted">—</span>{{end}}{{end}}
+{{define "armory_slot"}}{{with slotNames .}}{{.}}{{else}}<span class="text-faint">—</span>{{end}}{{end}}
+{{define "armory_type"}}{{with typeLabel .}}{{.}}{{else}}<span class="text-faint">—</span>{{end}}{{end}}
+{{/* The table pane (AOC-065, the validated design): the count bar, the table scrolling inside the pane
+     with its header sticky, and the pager bar pinned at the bottom. Swapped whole by HTMX (#results). */}}
 {{define "armory_rows"}}
-{{if .Chips}}<div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
-  <span class="text-xs uppercase tracking-wide text-muted">Filters</span>
-  {{range .Chips}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" aria-label="Remove the filter {{.Label}}" class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-xs text-paper hover:border-link">{{.Label}} <span aria-hidden="true" class="text-muted">×</span></a>
-  {{end}}<a href="{{.ClearAll}}" hx-get="{{.ClearAll}}" hx-target="#results" hx-push-url="true" class="text-xs text-link">clear all</a>
-</div>{{end}}
-<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm text-muted">
-  <p>{{if .Result.Total}}<strong class="text-paper">{{.Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</strong> of {{.Span.Total}}{{else}}<strong class="text-paper">0 items</strong> of {{.Span.Total}}{{end}}{{if .Query}} · for “{{.Query}}” · <a href="{{.Clear}}" class="text-link">clear search</a>{{end}}</p>
-  <p class="flex gap-3">sort{{range .Sorts}} <a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true"{{if .Current}} aria-current="true" class="text-paper underline"{{else}} class="text-link"{{end}}>{{.Label}}</a>{{end}}</p>
+<div class="flex min-h-[42px] flex-none flex-wrap items-center gap-x-[14px] gap-y-1 border-b border-line px-4 py-2 lg:flex-nowrap lg:py-0">
+  <span class="text-[13px] font-semibold text-paper">{{num .Result.Total}} {{if eq .Result.Total 1}}item{{else}}items{{end}}</span>
+  <span class="font-mono text-[12px] text-faint">of {{num .Span.Total}}</span>
+  <span class="flex-1"></span>
+  <span class="font-mono text-[11.5px] text-faint">sort</span>
+  <a href="{{.NextSort}}" hx-get="{{.NextSort}}" hx-target="#results" hx-push-url="true" title="Change the order" class="whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-[12px] font-medium text-paper hover:border-link">{{.SortLabel}}</a>
 </div>
+<div class="relative lg:min-h-0 lg:flex-1 lg:overflow-auto">
 {{if .Result.Items}}
-<table class="mt-3 w-full border-collapse text-sm">
-  <thead class="text-left text-xs uppercase tracking-wide text-muted">
-    <tr class="border-b border-line">
-      <th scope="col" class="py-2 pr-3 font-medium">Item</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Slot</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Type</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">iLvl</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium md:table-cell">Class</th>
-      <th scope="col" class="hidden py-2 pr-3 font-medium lg:table-cell">Source</th>
-      <th scope="col" class="hidden py-2 font-medium lg:table-cell">Price</th>
+{{/* From lg the design's fixed grid: Item 1.5fr (≥180px), Slot 108, Type 104, iLvl 52, Class 112, a
+     flexible Source and Price, 12px between, one line per row with an ellipsis (AOC-065).
+     The lines are on the cells, with separate borders: a collapsed table gives half of each line to
+     the next row (a 30.5px header, every row half a pixel off the design's 31/37), and its sticky
+     header's line scrolls away. */}}
+<table class="w-full border-separate border-spacing-0 lg:min-w-[860px] lg:table-fixed">
+  <colgroup class="hidden lg:table-column-group">
+    <col class="lg:w-[30%]"><col class="lg:w-[120px]"><col class="lg:w-[116px]"><col class="lg:w-[64px]"><col class="lg:w-[124px]"><col><col class="lg:w-[18%]">
+  </colgroup>
+  <thead class="sticky top-0 z-[2] bg-ink-pane text-left font-mono text-[10.5px] font-medium uppercase leading-[14px] tracking-[0.06em] text-faint">
+    <tr>
+      {{/* Item and iLvl sort, as in the design. */}}
+      <th scope="col" class="border-b border-line py-2 pl-4 pr-3 font-medium">{{range .Sorts}}{{if eq .Key "name"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>Item</a>{{end}}{{end}}</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Slot</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Type</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">{{range .Sorts}}{{if eq .Key "ilvl"}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="hover:text-paper"{{if .Current}} aria-current="true"{{end}}>iLvl</a>{{end}}{{end}}</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium md:table-cell">Class</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-3 font-medium lg:table-cell">Source</th>
+      <th scope="col" class="border-b border-line hidden py-2 pr-4 font-medium lg:table-cell">Price</th>
     </tr>
   </thead>
   <tbody>
   {{range .Result.Items}}
-    <tr class="border-b border-line align-top">
-      <td class="py-2 pr-3">
-        <a href="/armory/{{.Slug}}" class="font-medium hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
+    <tr data-row class="align-top hover:bg-ink-hover lg:align-middle">
+      <td class="border-b border-line-row py-[9px] pl-4 pr-3 text-[13.5px] lg:truncate">
+        <a href="/armory/{{.Slug}}" class="text-[13.5px] font-medium text-paper hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
-        {{with phoneLine .}}<div class="mt-0.5 font-mono text-xs text-muted md:hidden">{{.}}</div>{{end}}
+        {{with phoneLine .}}<div data-line="phone" class="mt-0.5 font-mono text-[11.5px] text-muted md:hidden">{{.}}</div>{{end}}
         {{/* place · price, or either alone — a price with no place must not lead with the separator (verify round 1: 1,378 items). */}}
-        {{if or .Place .Places .Price}}<div class="mt-0.5 font-mono text-xs text-muted lg:hidden">
-          {{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}{{if .Price}}{{if or .Place .Places}} · {{end}}{{.Price}}{{end}}
+        {{if or .Place .Places .Price}}<div data-line="where" class="mt-0.5 font-mono text-[11.5px] text-muted lg:hidden">
+          {{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}{{if .Price}}{{if or .Place .Places}} · {{end}}<span class="text-link">{{.Price}}</span>{{end}}
         </div>{{end}}
       </td>
-      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{template "armory_slot" .}}</td>
-      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{template "armory_type" .}}</td>
-      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{if .ItemLevel}}{{.ItemLevel}}{{else}}<span class="text-muted">—</span>{{end}}</td>
-      <td class="hidden py-2 pr-3 font-mono text-xs md:table-cell">{{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}</td>
-      <td class="hidden py-2 pr-3 font-mono text-xs lg:table-cell">{{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}</td>
-      <td class="hidden py-2 font-mono text-xs text-link lg:table-cell">{{if .Price}}{{.Price}}{{else}}<span class="text-muted">—</span>{{end}}</td>
+      <td data-col="slot" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_slot" .}}</td>
+      <td data-col="type" class="hidden border-b border-line-row py-[9px] pr-3 text-[12.5px] text-muted md:table-cell lg:truncate">{{template "armory_type" .}}</td>
+      <td data-col="ilvl" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[12.5px] text-muted md:table-cell">{{if .ItemLevel}}{{.ItemLevel}}{{else}}<span class="text-faint">—</span>{{end}}</td>
+      <td data-col="class" class="hidden border-b border-line-row py-[9px] pr-3 font-mono text-[11.5px] font-medium text-muted md:table-cell lg:truncate">{{range $i, $c := .Classes}}{{if $i}}/{{end}}{{if $c.ShortName}}{{$c.ShortName}}{{else}}{{$c.Name}}{{end}}{{end}}</td>
+      <td data-col="source" class="hidden border-b border-line-row py-[9px] pr-3 text-[12px] text-muted lg:table-cell lg:truncate">{{if .Place}}{{.Place.Name}}{{else}}{{range $i, $p := .Places}}{{if $i}}; {{end}}{{$p.Name}}{{end}}{{end}}</td>
+      <td data-col="price" class="hidden border-b border-line-row py-[9px] pr-4 font-mono text-[12px] lg:table-cell lg:truncate">{{if .Price}}<span class="text-link">{{.Price}}</span>{{else}}<span class="text-faint">—</span>{{end}}</td>
     </tr>
   {{end}}
   </tbody>
 </table>
-<nav aria-label="Pages" class="mt-4 flex flex-wrap items-center gap-2 text-sm">
-  {{if .Prev}}<a href="{{.Prev}}" hx-get="{{.Prev}}" hx-target="#results" hx-push-url="true" class="rounded border border-line px-3 py-1 text-link">‹ Prev</a>{{end}}
-  {{range .Pager}}{{if .Current}}<span aria-current="page" class="rounded border border-link px-3 py-1 text-paper">{{.N}}</span>{{else}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="rounded border border-line px-3 py-1 text-link">{{.N}}</a>{{end}}{{end}}
-  {{if .Next}}<a href="{{.Next}}" hx-get="{{.Next}}" hx-target="#results" hx-push-url="true" class="rounded border border-line px-3 py-1 text-link">Next ›</a>{{end}}
-  <span class="ml-auto font-mono text-xs text-muted">page {{.Page}} of {{.Pages}} · {{.Result.Limit}} / page</span>
-</nav>
 {{else}}
-<div class="mt-6 rounded border border-line bg-ink-2 p-4 text-sm">
-  <p class="font-medium text-paper">No items match.</p>
-  <p class="mt-2 text-muted">Item ids run {{.Span.MinID}}–{{.Span.MaxID}}; {{.Span.Absent}} ids in that range are absent from the data. If you typed one of those, the item is missing here, not missing from the game.</p>
-  {{if .Query}}<p class="mt-2"><a href="{{.Clear}}" class="text-link">Clear the search</a></p>{{end}}
-  {{if .Chips}}<p class="mt-2 text-muted">Remove a filter above, or <a href="{{.ClearAll}}" class="text-link">clear them all</a>.</p>{{end}}
+<div class="flex max-w-[620px] flex-col gap-[14px] px-[22px] py-[34px]">
+  <p class="text-[18px] font-semibold text-paper">No items match.</p>
+  <p class="text-[13.5px] leading-[1.6] text-paper-2">Item ids run {{.Span.MinID}}–{{.Span.MaxID}}; {{.Span.Absent}} ids in that range are absent from the data. If you typed one of those, the item is missing here, not missing from the game.</p>
+  {{if .Query}}<p class="text-[13.5px]"><a href="{{.Clear}}" class="text-link hover:text-link-hover">Clear the search</a></p>{{end}}
+  {{if .Chips}}<p class="text-[13.5px] text-paper-2">Remove a filter above, or <a href="{{.ClearAll}}" class="text-link hover:text-link-hover">clear them all</a>.</p>{{end}}
 </div>
+{{end}}
+</div>
+{{if .Result.Items}}
+<nav aria-label="Pages" class="flex min-h-[44px] flex-none items-center gap-2 overflow-hidden border-t border-line px-4 font-mono text-[12px] font-medium text-muted">
+  {{if .Prev}}<a href="{{.Prev}}" hx-get="{{.Prev}}" hx-target="#results" hx-push-url="true" class="flex-none whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-muted hover:border-link">‹ Prev</a>{{else}}<span class="flex-none whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-faint">‹ Prev</span>{{end}}
+  {{range .Pager}}{{if .Current}}<span aria-current="page" class="flex-none rounded-[5px] border border-link bg-ink-selected px-[9px] py-1 text-paper">{{.N}}</span>{{else}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#results" hx-push-url="true" class="flex-none rounded-[5px] border border-line-control px-[9px] py-1 text-muted hover:border-link">{{.N}}</a>{{end}}{{end}}
+  {{if .Next}}<a href="{{.Next}}" hx-get="{{.Next}}" hx-target="#results" hx-push-url="true" class="flex-none whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-muted hover:border-link">Next ›</a>{{else}}<span class="flex-none whitespace-nowrap rounded-[5px] border border-line-control px-[9px] py-1 text-faint">Next ›</span>{{end}}
+  <span class="flex-1"></span>
+  <span class="min-w-0 truncate text-faint max-sm:hidden">rows {{num .RowsFrom}}–{{num .RowsTo}} of {{num .Result.Total}} · {{.Result.Limit}} / page</span>
+</nav>
 {{end}}
 {{end}}

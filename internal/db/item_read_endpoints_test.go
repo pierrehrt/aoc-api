@@ -182,7 +182,7 @@ func TestTheNewFiltersMatchRealRows(t *testing.T) {
 		name string
 		f    items.Filters
 	}{
-		{"armour_weight", items.Filters{ArmourWeight: "heavy", Limit: 1}},
+		{"armour_weight", items.Filters{ArmourWeights: []string{"heavy"}, Limit: 1}},
 		{"tier", items.Filters{Tier: "pve-6", Limit: 1}},
 		{"pvp", items.Filters{PvP: &yes, Limit: 1}},
 		{"unchained", items.Filters{Unchained: &yes, Limit: 1}},

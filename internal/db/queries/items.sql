@@ -71,7 +71,8 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.name;
+-- one order for classes everywhere (AOC-065)
+ORDER BY cl.sort_order NULLS LAST, cl.name;
 
 -- name: ListItemSources :many
 -- An item page's "where does this come from". 237 items have more than one place — 8 with two and
@@ -141,6 +142,7 @@ JOIN currencies cu ON cu.id = ic.currency_id
 WHERE ic.item_source_id = ANY($1::bigint[])
 ORDER BY ic.item_source_id, cu.name;
 
+-- name: ListItems :many
 -- ⭐ THE FILTER RULES ARE WRITTEN ONCE (AOC-049). Every query that filters the armory list starts with
 -- the same `filtered` CTE, byte for byte: one row per item, carrying one boolean per filter -- a
 -- flag per facet of the rail, and `in_base` for the filters that have none. The list keeps the
@@ -152,8 +154,7 @@ ORDER BY ic.item_source_id, cu.name;
 -- ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 -- difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 -- Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
-
--- name: ListItems :many
+--
 -- The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 -- which keeps one query behind every combination the page offers rather than building SQL by hand.
 --
@@ -214,19 +215,20 @@ WITH filtered AS (
            AND (sqlc.narg('pvp')::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
+         (sqlc.narg('rarities')::varchar[] IS NULL OR r.slug = ANY(sqlc.narg('rarities')::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         (sqlc.narg('equip_location')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('equip_locations')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = sqlc.narg('equip_location')::varchar)) AS in_slot,
-         coalesce(sqlc.narg('armour_weight')::varchar IS NULL OR aw.slug = sqlc.narg('armour_weight')::varchar, false) AS in_weight,
-         (sqlc.narg('class')::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY(sqlc.narg('equip_locations')::varchar[]))) AS in_slot,
+         coalesce(sqlc.narg('armour_weights')::varchar[] IS NULL OR aw.slug = ANY(sqlc.narg('armour_weights')::varchar[]), false) AS in_weight,
+         (sqlc.narg('classes')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = sqlc.narg('class')::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY(sqlc.narg('classes')::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce((sqlc.narg('ilvl_min')::integer IS NULL OR i.item_level >= sqlc.narg('ilvl_min')::integer)
               AND (sqlc.narg('ilvl_max')::integer IS NULL OR i.item_level <= sqlc.narg('ilvl_max')::integer), false) AS in_ilvl,
@@ -235,12 +237,12 @@ WITH filtered AS (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          (sqlc.narg('price')::boolean IS NULL OR pr.priced = sqlc.narg('price')::boolean) AS in_price,
-         (sqlc.narg('currency')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('currencies')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = sqlc.narg('currency')::varchar)) AS in_currency,
-         coalesce(sqlc.narg('set')::varchar IS NULL OR st.slug = sqlc.narg('set')::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY(sqlc.narg('currencies')::varchar[]))) AS in_currency,
+         coalesce(sqlc.narg('sets')::varchar[] IS NULL OR st.slug = ANY(sqlc.narg('sets')::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -339,19 +341,20 @@ WITH filtered AS MATERIALIZED (
            AND (sqlc.narg('pvp')::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
+         (sqlc.narg('rarities')::varchar[] IS NULL OR r.slug = ANY(sqlc.narg('rarities')::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         (sqlc.narg('equip_location')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('equip_locations')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = sqlc.narg('equip_location')::varchar)) AS in_slot,
-         coalesce(sqlc.narg('armour_weight')::varchar IS NULL OR aw.slug = sqlc.narg('armour_weight')::varchar, false) AS in_weight,
-         (sqlc.narg('class')::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY(sqlc.narg('equip_locations')::varchar[]))) AS in_slot,
+         coalesce(sqlc.narg('armour_weights')::varchar[] IS NULL OR aw.slug = ANY(sqlc.narg('armour_weights')::varchar[]), false) AS in_weight,
+         (sqlc.narg('classes')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = sqlc.narg('class')::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY(sqlc.narg('classes')::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce((sqlc.narg('ilvl_min')::integer IS NULL OR i.item_level >= sqlc.narg('ilvl_min')::integer)
               AND (sqlc.narg('ilvl_max')::integer IS NULL OR i.item_level <= sqlc.narg('ilvl_max')::integer), false) AS in_ilvl,
@@ -360,12 +363,12 @@ WITH filtered AS MATERIALIZED (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          (sqlc.narg('price')::boolean IS NULL OR pr.priced = sqlc.narg('price')::boolean) AS in_price,
-         (sqlc.narg('currency')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('currencies')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = sqlc.narg('currency')::varchar)) AS in_currency,
-         coalesce(sqlc.narg('set')::varchar IS NULL OR st.slug = sqlc.narg('set')::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY(sqlc.narg('currencies')::varchar[]))) AS in_currency,
+         coalesce(sqlc.narg('sets')::varchar[] IS NULL OR st.slug = ANY(sqlc.narg('sets')::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -402,13 +405,12 @@ LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity
 GROUP BY aw.id
 UNION ALL
 SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
-       row_number() OVER (ORDER BY a.name, cl.name),
+       row_number() OVER (ORDER BY cl.sort_order NULLS LAST, cl.name),
        count(DISTINCT f.item_id)
 FROM classes cl
-JOIN archetypes a ON a.id = cl.archetype_id
 LEFT JOIN item_classes ic ON ic.class_id = cl.id
 LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
-GROUP BY cl.id, a.name
+GROUP BY cl.id
 UNION ALL
 SELECT 'currency', cu.slug, cu.name, '', '',
        row_number() OVER (ORDER BY cu.name),
@@ -486,19 +488,20 @@ WITH filtered AS MATERIALIZED (
            AND (sqlc.narg('pvp')::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = sqlc.narg('pvp')::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         (sqlc.narg('rarity')::varchar IS NULL OR r.slug = sqlc.narg('rarity')::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as `place` always has; NULL is no filter, never '{}'.
+         (sqlc.narg('rarities')::varchar[] IS NULL OR r.slug = ANY(sqlc.narg('rarities')::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         (sqlc.narg('equip_location')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('equip_locations')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = sqlc.narg('equip_location')::varchar)) AS in_slot,
-         coalesce(sqlc.narg('armour_weight')::varchar IS NULL OR aw.slug = sqlc.narg('armour_weight')::varchar, false) AS in_weight,
-         (sqlc.narg('class')::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY(sqlc.narg('equip_locations')::varchar[]))) AS in_slot,
+         coalesce(sqlc.narg('armour_weights')::varchar[] IS NULL OR aw.slug = ANY(sqlc.narg('armour_weights')::varchar[]), false) AS in_weight,
+         (sqlc.narg('classes')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = sqlc.narg('class')::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY(sqlc.narg('classes')::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce((sqlc.narg('ilvl_min')::integer IS NULL OR i.item_level >= sqlc.narg('ilvl_min')::integer)
               AND (sqlc.narg('ilvl_max')::integer IS NULL OR i.item_level <= sqlc.narg('ilvl_max')::integer), false) AS in_ilvl,
@@ -507,12 +510,12 @@ WITH filtered AS MATERIALIZED (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          (sqlc.narg('price')::boolean IS NULL OR pr.priced = sqlc.narg('price')::boolean) AS in_price,
-         (sqlc.narg('currency')::varchar IS NULL OR EXISTS (
+         (sqlc.narg('currencies')::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = sqlc.narg('currency')::varchar)) AS in_currency,
-         coalesce(sqlc.narg('set')::varchar IS NULL OR st.slug = sqlc.narg('set')::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY(sqlc.narg('currencies')::varchar[]))) AS in_currency,
+         coalesce(sqlc.narg('sets')::varchar[] IS NULL OR st.slug = ANY(sqlc.narg('sets')::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -556,7 +559,8 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY(sqlc.arg('item_ids')::integer[])
-ORDER BY ic.item_id, cl.id;
+-- one order for classes everywhere (AOC-065)
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id;
 
 -- name: ListItemPageCosts :many
 -- A page's vendor prices in one round trip: every cost of every source, grouped by the caller.

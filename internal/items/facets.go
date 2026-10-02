@@ -36,7 +36,7 @@ type Facets struct {
 
 // FacetGroup is one facet: EVERY value of its vocabulary, 0 counts included (a hidden value teaches
 // nothing; a 0 says why), in the order the rail shows them, and Any — the count with this facet
-// unset, which is what its "Any" choice leaves.
+// unset, which is what ticking none of its values leaves.
 type FacetGroup struct {
 	Any    int64        `json:"any"`
 	Values []FacetValue `json:"values"`
@@ -67,25 +67,25 @@ type LevelSpan struct {
 // make impossible. TestTheFacetQueriesTakeEveryListFilter fails on a field this misses.
 func facetParams(p sqlcgen.ListItemsParams) sqlcgen.CountItemFacetsParams {
 	return sqlcgen.CountItemFacetsParams{
-		ItemType:      p.ItemType,
-		NameQuery:     p.NameQuery,
-		IDQuery:       p.IDQuery,
-		PlaceSlugs:    p.PlaceSlugs,
-		Region:        p.Region,
-		Tier:          p.Tier,
-		Unchained:     p.Unchained,
-		Pvp:           p.Pvp,
-		Rarity:        p.Rarity,
-		EquipLocation: p.EquipLocation,
-		ArmourWeight:  p.ArmourWeight,
-		Class:         p.Class,
-		IlvlMin:       p.IlvlMin,
-		IlvlMax:       p.IlvlMax,
-		ReqlvlMin:     p.ReqlvlMin,
-		ReqlvlMax:     p.ReqlvlMax,
-		Price:         p.Price,
-		Currency:      p.Currency,
-		Set:           p.Set,
+		ItemType:       p.ItemType,
+		NameQuery:      p.NameQuery,
+		IDQuery:        p.IDQuery,
+		PlaceSlugs:     p.PlaceSlugs,
+		Region:         p.Region,
+		Tier:           p.Tier,
+		Unchained:      p.Unchained,
+		Pvp:            p.Pvp,
+		Rarities:       p.Rarities,
+		EquipLocations: p.EquipLocations,
+		ArmourWeights:  p.ArmourWeights,
+		Classes:        p.Classes,
+		IlvlMin:        p.IlvlMin,
+		IlvlMax:        p.IlvlMax,
+		ReqlvlMin:      p.ReqlvlMin,
+		ReqlvlMax:      p.ReqlvlMax,
+		Price:          p.Price,
+		Currencies:     p.Currencies,
+		Sets:           p.Sets,
 	}
 }
 

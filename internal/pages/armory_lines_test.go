@@ -14,7 +14,8 @@ import (
 // item here — reads "· iLvl 80". One guard over every phone line, on every state the page offers.
 func TestArmoryNoPhoneLineLeadsOrTrailsWithASeparator(t *testing.T) {
 	h := router(t)
-	line := regexp.MustCompile(`(?s)<div class="mt-0\.5 font-mono text-xs text-muted (?:md|lg):hidden">\s*(.*?)\s*</div>`)
+	line := regexp.MustCompile(`(?s)<div data-line="(?:phone|where)"[^>]*>\s*(.*?)\s*</div>`)
+	tags := regexp.MustCompile(`<[^>]+>`)
 	for _, path := range []string{"/armory", "/armory?sort=name", "/armory?q=Item+2", "/armory?p=3"} {
 		body := get(t, h, http.MethodGet, path, nil, "").Body.String()
 		lines := line.FindAllStringSubmatch(body, -1)
@@ -22,7 +23,7 @@ func TestArmoryNoPhoneLineLeadsOrTrailsWithASeparator(t *testing.T) {
 			t.Fatalf("%s: no phone lines found — the row markup moved, update the regexp", path)
 		}
 		for _, m := range lines {
-			text := m[1]
+			text := strings.TrimSpace(tags.ReplaceAllString(m[1], ""))
 			if strings.HasPrefix(text, "·") || strings.HasSuffix(text, "·") {
 				t.Errorf("%s: a phone line leads or trails with the separator: %q", path, text)
 				break

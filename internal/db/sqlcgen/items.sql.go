@@ -65,19 +65,20 @@ WITH filtered AS MATERIALIZED (
            AND ($8::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         ($9::varchar IS NULL OR r.slug = $9::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
+         ($9::varchar[] IS NULL OR r.slug = ANY($9::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($10::varchar IS NULL OR EXISTS (
+         ($10::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = $10::varchar)) AS in_slot,
-         coalesce($11::varchar IS NULL OR aw.slug = $11::varchar, false) AS in_weight,
-         ($12::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($10::varchar[]))) AS in_slot,
+         coalesce($11::varchar[] IS NULL OR aw.slug = ANY($11::varchar[]), false) AS in_weight,
+         ($12::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = $12::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($12::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
               AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
@@ -86,12 +87,12 @@ WITH filtered AS MATERIALIZED (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
-         ($18::varchar IS NULL OR EXISTS (
+         ($18::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = $18::varchar)) AS in_currency,
-         coalesce($19::varchar IS NULL OR st.slug = $19::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($18::varchar[]))) AS in_currency,
+         coalesce($19::varchar[] IS NULL OR st.slug = ANY($19::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -128,13 +129,12 @@ LEFT JOIN filtered f ON f.armour_weight_id = aw.id AND f.in_base AND f.in_rarity
 GROUP BY aw.id
 UNION ALL
 SELECT 'class', cl.slug, cl.name, coalesce(cl.short_name, ''), '',
-       row_number() OVER (ORDER BY a.name, cl.name),
+       row_number() OVER (ORDER BY cl.sort_order NULLS LAST, cl.name),
        count(DISTINCT f.item_id)
 FROM classes cl
-JOIN archetypes a ON a.id = cl.archetype_id
 LEFT JOIN item_classes ic ON ic.class_id = cl.id
 LEFT JOIN filtered f ON f.item_id = ic.item_id AND f.in_base AND f.in_rarity AND f.in_slot AND f.in_weight AND f.in_ilvl AND f.in_reqlvl AND f.in_price AND f.in_currency AND f.in_set
-GROUP BY cl.id, a.name
+GROUP BY cl.id
 UNION ALL
 SELECT 'currency', cu.slug, cu.name, '', '',
        row_number() OVER (ORDER BY cu.name),
@@ -155,25 +155,25 @@ ORDER BY facet, ord
 `
 
 type CountItemFacetsParams struct {
-	ItemType      *string
-	NameQuery     *string
-	IDQuery       *int32
-	PlaceSlugs    []string
-	Region        *string
-	Tier          *string
-	Unchained     *bool
-	Pvp           *bool
-	Rarity        *string
-	EquipLocation *string
-	ArmourWeight  *string
-	Class         *string
-	IlvlMin       *int32
-	IlvlMax       *int32
-	ReqlvlMin     *int32
-	ReqlvlMax     *int32
-	Price         *bool
-	Currency      *string
-	Set           *string
+	ItemType       *string
+	NameQuery      *string
+	IDQuery        *int32
+	PlaceSlugs     []string
+	Region         *string
+	Tier           *string
+	Unchained      *bool
+	Pvp            *bool
+	Rarities       []string
+	EquipLocations []string
+	ArmourWeights  []string
+	Classes        []string
+	IlvlMin        *int32
+	IlvlMax        *int32
+	ReqlvlMin      *int32
+	ReqlvlMax      *int32
+	Price          *bool
+	Currencies     []string
+	Sets           []string
 }
 
 type CountItemFacetsRow struct {
@@ -201,17 +201,17 @@ func (q *Queries) CountItemFacets(ctx context.Context, arg CountItemFacetsParams
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
-		arg.Rarity,
-		arg.EquipLocation,
-		arg.ArmourWeight,
-		arg.Class,
+		arg.Rarities,
+		arg.EquipLocations,
+		arg.ArmourWeights,
+		arg.Classes,
 		arg.IlvlMin,
 		arg.IlvlMax,
 		arg.ReqlvlMin,
 		arg.ReqlvlMax,
 		arg.Price,
-		arg.Currency,
-		arg.Set,
+		arg.Currencies,
+		arg.Sets,
 	)
 	if err != nil {
 		return nil, err
@@ -423,19 +423,20 @@ WITH filtered AS MATERIALIZED (
            AND ($8::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $8::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         ($9::varchar IS NULL OR r.slug = $9::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
+         ($9::varchar[] IS NULL OR r.slug = ANY($9::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($10::varchar IS NULL OR EXISTS (
+         ($10::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = $10::varchar)) AS in_slot,
-         coalesce($11::varchar IS NULL OR aw.slug = $11::varchar, false) AS in_weight,
-         ($12::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($10::varchar[]))) AS in_slot,
+         coalesce($11::varchar[] IS NULL OR aw.slug = ANY($11::varchar[]), false) AS in_weight,
+         ($12::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = $12::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($12::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce(($13::integer IS NULL OR i.item_level >= $13::integer)
               AND ($14::integer IS NULL OR i.item_level <= $14::integer), false) AS in_ilvl,
@@ -444,12 +445,12 @@ WITH filtered AS MATERIALIZED (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          ($17::boolean IS NULL OR pr.priced = $17::boolean) AS in_price,
-         ($18::varchar IS NULL OR EXISTS (
+         ($18::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = $18::varchar)) AS in_currency,
-         coalesce($19::varchar IS NULL OR st.slug = $19::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($18::varchar[]))) AS in_currency,
+         coalesce($19::varchar[] IS NULL OR st.slug = ANY($19::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -481,25 +482,25 @@ FROM filtered f
 `
 
 type ItemFacetTotalsParams struct {
-	ItemType      *string
-	NameQuery     *string
-	IDQuery       *int32
-	PlaceSlugs    []string
-	Region        *string
-	Tier          *string
-	Unchained     *bool
-	Pvp           *bool
-	Rarity        *string
-	EquipLocation *string
-	ArmourWeight  *string
-	Class         *string
-	IlvlMin       *int32
-	IlvlMax       *int32
-	ReqlvlMin     *int32
-	ReqlvlMax     *int32
-	Price         *bool
-	Currency      *string
-	Set           *string
+	ItemType       *string
+	NameQuery      *string
+	IDQuery        *int32
+	PlaceSlugs     []string
+	Region         *string
+	Tier           *string
+	Unchained      *bool
+	Pvp            *bool
+	Rarities       []string
+	EquipLocations []string
+	ArmourWeights  []string
+	Classes        []string
+	IlvlMin        *int32
+	IlvlMax        *int32
+	ReqlvlMin      *int32
+	ReqlvlMax      *int32
+	Price          *bool
+	Currencies     []string
+	Sets           []string
 }
 
 type ItemFacetTotalsRow struct {
@@ -534,17 +535,17 @@ func (q *Queries) ItemFacetTotals(ctx context.Context, arg ItemFacetTotalsParams
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
-		arg.Rarity,
-		arg.EquipLocation,
-		arg.ArmourWeight,
-		arg.Class,
+		arg.Rarities,
+		arg.EquipLocations,
+		arg.ArmourWeights,
+		arg.Classes,
 		arg.IlvlMin,
 		arg.IlvlMax,
 		arg.ReqlvlMin,
 		arg.ReqlvlMax,
 		arg.Price,
-		arg.Currency,
-		arg.Set,
+		arg.Currencies,
+		arg.Sets,
 	)
 	var i ItemFacetTotalsRow
 	err := row.Scan(
@@ -592,7 +593,7 @@ SELECT cl.id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = $1
-ORDER BY cl.name
+ORDER BY cl.sort_order NULLS LAST, cl.name
 `
 
 type ListItemClassesRow struct {
@@ -602,6 +603,7 @@ type ListItemClassesRow struct {
 	ShortName *string
 }
 
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemClasses(ctx context.Context, itemID int32) ([]ListItemClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemClasses, itemID)
 	if err != nil {
@@ -700,7 +702,7 @@ SELECT ic.item_id, cl.slug, cl.name, cl.short_name
 FROM item_classes ic
 JOIN classes cl ON cl.id = ic.class_id
 WHERE ic.item_id = ANY($1::integer[])
-ORDER BY ic.item_id, cl.id
+ORDER BY ic.item_id, cl.sort_order NULLS LAST, cl.id
 `
 
 type ListItemPageClassesRow struct {
@@ -711,6 +713,7 @@ type ListItemPageClassesRow struct {
 }
 
 // A page's class restrictions in one round trip, with the short names the row shows (AOC-046).
+// one order for classes everywhere (AOC-065)
 func (q *Queries) ListItemPageClasses(ctx context.Context, itemIds []int32) ([]ListItemPageClassesRow, error) {
 	rows, err := q.db.Query(ctx, listItemPageClasses, itemIds)
 	if err != nil {
@@ -1151,7 +1154,6 @@ func (q *Queries) ListItemStats(ctx context.Context, itemID int32) ([]ListItemSt
 }
 
 const listItems = `-- name: ListItems :many
-
 WITH filtered AS (
   SELECT i.item_id, i.rarity_id, i.armour_weight_id, i.set_id, i.item_level, i.requires_level,
          pr.priced,
@@ -1205,19 +1207,20 @@ WITH filtered AS (
            AND ($11::boolean IS NULL
                 OR (i.pvp_source OR i.has_pvp_stats OR i.pvp_penalty) = $11::boolean),
            false) AS in_base,
-         -- One flag per facet (AOC-049). Each is the whole of that filter's rule.
-         ($12::varchar IS NULL OR r.slug = $12::varchar) AS in_rarity,
+         -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
+         -- (AOC-064): any of its values, as ` + "`" + `place` + "`" + ` always has; NULL is no filter, never '{}'.
+         ($12::varchar[] IS NULL OR r.slug = ANY($12::varchar[])) AS in_rarity,
          -- ⭐ The slot goes through the join, so 'off-hand' finds the 389 one-handers (they fit either
          -- hand) as well as the 141 off-hand-only items -- 530, not 141 (AOC-058).
-         ($13::varchar IS NULL OR EXISTS (
+         ($13::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_equip_locations iel
            JOIN equip_locations el ON el.id = iel.equip_location_id
-           WHERE iel.item_id = i.item_id AND el.slug = $13::varchar)) AS in_slot,
-         coalesce($14::varchar IS NULL OR aw.slug = $14::varchar, false) AS in_weight,
-         ($15::varchar IS NULL OR EXISTS (
+           WHERE iel.item_id = i.item_id AND el.slug = ANY($13::varchar[]))) AS in_slot,
+         coalesce($14::varchar[] IS NULL OR aw.slug = ANY($14::varchar[]), false) AS in_weight,
+         ($15::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_classes ic
            JOIN classes cl ON cl.id = ic.class_id
-           WHERE ic.item_id = i.item_id AND cl.slug = $15::varchar)) AS in_class,
+           WHERE ic.item_id = i.item_id AND cl.slug = ANY($15::varchar[]))) AS in_class,
          -- A bound excludes an item with no level: it cannot be shown to be inside the range.
          coalesce(($16::integer IS NULL OR i.item_level >= $16::integer)
               AND ($17::integer IS NULL OR i.item_level <= $17::integer), false) AS in_ilvl,
@@ -1226,12 +1229,12 @@ WITH filtered AS (
          -- "Has a vendor price" matches ANY occurrence: the list shows items, not occurrences, and an
          -- item free from a boss and sold by a vendor (689 of them) has a price.
          ($20::boolean IS NULL OR pr.priced = $20::boolean) AS in_price,
-         ($21::varchar IS NULL OR EXISTS (
+         ($21::varchar[] IS NULL OR EXISTS (
            SELECT 1 FROM item_sources src
            JOIN item_costs ico ON ico.item_source_id = src.id
            JOIN currencies cu ON cu.id = ico.currency_id
-           WHERE src.item_id = i.item_id AND cu.slug = $21::varchar)) AS in_currency,
-         coalesce($22::varchar IS NULL OR st.slug = $22::varchar, false) AS in_set
+           WHERE src.item_id = i.item_id AND cu.slug = ANY($21::varchar[]))) AS in_currency,
+         coalesce($22::varchar[] IS NULL OR st.slug = ANY($22::varchar[]), false) AS in_set
   FROM items i
   JOIN rarities r ON r.id = i.rarity_id
   LEFT JOIN item_types it ON it.id = i.item_type_id
@@ -1269,28 +1272,28 @@ LIMIT $3::integer OFFSET $2::integer
 `
 
 type ListItemsParams struct {
-	SortBy        string
-	PageOffset    int32
-	PageSize      int32
-	ItemType      *string
-	NameQuery     *string
-	IDQuery       *int32
-	PlaceSlugs    []string
-	Region        *string
-	Tier          *string
-	Unchained     *bool
-	Pvp           *bool
-	Rarity        *string
-	EquipLocation *string
-	ArmourWeight  *string
-	Class         *string
-	IlvlMin       *int32
-	IlvlMax       *int32
-	ReqlvlMin     *int32
-	ReqlvlMax     *int32
-	Price         *bool
-	Currency      *string
-	Set           *string
+	SortBy         string
+	PageOffset     int32
+	PageSize       int32
+	ItemType       *string
+	NameQuery      *string
+	IDQuery        *int32
+	PlaceSlugs     []string
+	Region         *string
+	Tier           *string
+	Unchained      *bool
+	Pvp            *bool
+	Rarities       []string
+	EquipLocations []string
+	ArmourWeights  []string
+	Classes        []string
+	IlvlMin        *int32
+	IlvlMax        *int32
+	ReqlvlMin      *int32
+	ReqlvlMax      *int32
+	Price          *bool
+	Currencies     []string
+	Sets           []string
 }
 
 type ListItemsRow struct {
@@ -1326,6 +1329,7 @@ type ListItemsRow struct {
 // ItemFacetTotals. TestTheFilterCTEIsOneDefinition (internal/db) reads this file and fails on any
 // difference -- sqlc has no way to share a fragment between queries, so the identity is a test.
 // Every flag is two-valued (NULL is coalesced to false), so "all but one" never meets a NULL.
+//
 // The Armory list page. Every filter is optional: a NULL argument means "do not filter on this",
 // which keeps one query behind every combination the page offers rather than building SQL by hand.
 //
@@ -1350,17 +1354,17 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.Tier,
 		arg.Unchained,
 		arg.Pvp,
-		arg.Rarity,
-		arg.EquipLocation,
-		arg.ArmourWeight,
-		arg.Class,
+		arg.Rarities,
+		arg.EquipLocations,
+		arg.ArmourWeights,
+		arg.Classes,
 		arg.IlvlMin,
 		arg.IlvlMax,
 		arg.ReqlvlMin,
 		arg.ReqlvlMax,
 		arg.Price,
-		arg.Currency,
-		arg.Set,
+		arg.Currencies,
+		arg.Sets,
 	)
 	if err != nil {
 		return nil, err

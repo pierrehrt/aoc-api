@@ -92,17 +92,18 @@ func ParseFilters(r *http.Request) (Filters, error) { return parseFilters(r) }
 func parseFilters(r *http.Request) (Filters, error) {
 	q := r.URL.Query()
 	f := Filters{
-		Rarity:        strings.TrimSpace(q.Get("rarity")),
-		ItemType:      strings.TrimSpace(q.Get("item_type")),
-		EquipLocation: strings.TrimSpace(q.Get("equip_location")),
-		ArmourWeight:  strings.TrimSpace(q.Get("armour_weight")),
-		Class:         strings.TrimSpace(q.Get("class")),
-		Region:        strings.TrimSpace(q.Get("region")),
-		Tier:          strings.TrimSpace(q.Get("tier")),
-		Currency:      strings.TrimSpace(q.Get("currency")),
-		Set:           strings.TrimSpace(q.Get("set")),
-		Query:         strings.TrimSpace(q.Get("q")),
-		Sort:          strings.TrimSpace(q.Get("sort")),
+		// The six facets are lists (AOC-064), read like `place`: repeated, comma-separated, or both.
+		Rarities:       list(q, "rarity"),
+		EquipLocations: list(q, "equip_location"),
+		ArmourWeights:  list(q, "armour_weight"),
+		Classes:        list(q, "class"),
+		Currencies:     list(q, "currency"),
+		Sets:           list(q, "set"),
+		ItemType:       strings.TrimSpace(q.Get("item_type")),
+		Region:         strings.TrimSpace(q.Get("region")),
+		Tier:           strings.TrimSpace(q.Get("tier")),
+		Query:          strings.TrimSpace(q.Get("q")),
+		Sort:           strings.TrimSpace(q.Get("sort")),
 	}
 	if !validSort(f.Sort) {
 		return Filters{}, fmt.Errorf("%w: sort must be one of %s, got %q", httpx.ErrInvalid, strings.Join(Sorts, ", "), f.Sort)
@@ -110,13 +111,7 @@ func parseFilters(r *http.Request) (Filters, error) {
 
 	// `place` may repeat: ?place=a&place=b is "these two dungeons", which is exactly the case
 	// where a shared item must appear under each.
-	for _, p := range q["place"] {
-		for _, one := range strings.Split(p, ",") {
-			if one = strings.TrimSpace(one); one != "" {
-				f.Places = append(f.Places, one)
-			}
-		}
-	}
+	f.Places = list(q, "place")
 
 	var err error
 	if f.PvP, err = optionalBool(q, "pvp"); err != nil {
@@ -188,20 +183,23 @@ func (f Filters) Values() url.Values {
 			v.Set(k, strconv.Itoa(int(*n)))
 		}
 	}
+	many := func(k string, xs []string) {
+		for _, x := range xs {
+			v.Add(k, x)
+		}
+	}
 	str("q", f.Query)
-	str("rarity", f.Rarity)
+	many("rarity", f.Rarities)
 	str("item_type", f.ItemType)
-	str("equip_location", f.EquipLocation)
-	str("armour_weight", f.ArmourWeight)
-	str("class", f.Class)
+	many("equip_location", f.EquipLocations)
+	many("armour_weight", f.ArmourWeights)
+	many("class", f.Classes)
 	str("region", f.Region)
 	str("tier", f.Tier)
-	str("currency", f.Currency)
-	str("set", f.Set)
+	many("currency", f.Currencies)
+	many("set", f.Sets)
 	str("sort", f.Sort)
-	for _, p := range f.Places {
-		v.Add("place", p)
-	}
+	many("place", f.Places)
 	boolean("pvp", f.PvP)
 	boolean("unchained", f.Unchained)
 	boolean("price", f.Price)
@@ -210,6 +208,23 @@ func (f Filters) Values() url.Values {
 	level("reqlvl_min", f.ReqLvlMin)
 	level("reqlvl_max", f.ReqLvlMax)
 	return v
+}
+
+// list reads a parameter that takes several values: repeated (?rarity=a&rarity=b), comma-separated
+// (?rarity=a,b) or both, trimmed, empties dropped, each value once in first-seen order. nil when
+// none — never an empty slice (listArg's trap).
+func list(q map[string][]string, key string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range q[key] {
+		for _, one := range strings.Split(raw, ",") {
+			if one = strings.TrimSpace(one); one != "" && !seen[one] {
+				seen[one] = true
+				out = append(out, one)
+			}
+		}
+	}
+	return out
 }
 
 // optionalLevel reads a level bound: absent or empty is no bound; anything but a whole number from
