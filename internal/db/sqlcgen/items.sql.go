@@ -94,10 +94,14 @@ WITH filtered AS MATERIALIZED (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND ($13::varchar[] IS NULL OR CASE WHEN $13::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($13::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
-                   AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
-                   AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
-                   AND ($17::varchar IS NULL OR sct.slug = $17::varchar)
+                   AND ($15::varchar IS NULL OR (sv.slug = $15::varchar AND src.boss_id IS NULL))
+                   AND ($16::varchar IS NULL OR (sq.slug = $16::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND ($17::varchar IS NULL OR (sct.slug = $17::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND ($18::varchar IS NULL OR sag.slug = $18::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -552,10 +556,14 @@ WITH filtered AS MATERIALIZED (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND ($13::varchar[] IS NULL OR CASE WHEN $13::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($13::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND ($14::varchar IS NULL OR sb.slug = $14::varchar)
-                   AND ($15::varchar IS NULL OR sv.slug = $15::varchar)
-                   AND ($16::varchar IS NULL OR sq.slug = $16::varchar)
-                   AND ($17::varchar IS NULL OR sct.slug = $17::varchar)
+                   AND ($15::varchar IS NULL OR (sv.slug = $15::varchar AND src.boss_id IS NULL))
+                   AND ($16::varchar IS NULL OR (sq.slug = $16::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND ($17::varchar IS NULL OR (sct.slug = $17::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND ($18::varchar IS NULL OR sag.slug = $18::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -1421,10 +1429,14 @@ WITH filtered AS (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND ($16::varchar[] IS NULL OR CASE WHEN $16::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($16::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND ($17::varchar IS NULL OR sb.slug = $17::varchar)
-                   AND ($18::varchar IS NULL OR sv.slug = $18::varchar)
-                   AND ($19::varchar IS NULL OR sq.slug = $19::varchar)
-                   AND ($20::varchar IS NULL OR sct.slug = $20::varchar)
+                   AND ($18::varchar IS NULL OR (sv.slug = $18::varchar AND src.boss_id IS NULL))
+                   AND ($19::varchar IS NULL OR (sq.slug = $19::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND ($20::varchar IS NULL OR (sct.slug = $20::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND ($21::varchar IS NULL OR sag.slug = $21::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -2085,10 +2097,14 @@ WITH filtered AS (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND ($14::varchar[] IS NULL OR CASE WHEN $14::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY($14::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND ($15::varchar IS NULL OR sb.slug = $15::varchar)
-                   AND ($16::varchar IS NULL OR sv.slug = $16::varchar)
-                   AND ($17::varchar IS NULL OR sq.slug = $17::varchar)
-                   AND ($18::varchar IS NULL OR sct.slug = $18::varchar)
+                   AND ($16::varchar IS NULL OR (sv.slug = $16::varchar AND src.boss_id IS NULL))
+                   AND ($17::varchar IS NULL OR (sq.slug = $17::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND ($18::varchar IS NULL OR (sct.slug = $18::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND ($19::varchar IS NULL OR sag.slug = $19::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST

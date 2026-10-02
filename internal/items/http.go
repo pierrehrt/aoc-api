@@ -150,6 +150,12 @@ func parseFilters(r *http.Request) (Filters, error) {
 	if src.Group, err = parseGroup(q.Get("get")); err != nil {
 		return Filters{}, err
 	}
+	// A half is of a branch (verify round 1, F6). Refused here, by the one parser, so the page answers
+	// it with its 400 like any malformed filter (verify round 2, F10: it was a 500 there); the
+	// service refuses it too, for a caller that builds Filters itself.
+	if src.Group != "" && src.String() == "" {
+		return Filters{}, fmt.Errorf("%w: get picks a half of a source; name the source too", httpx.ErrInvalid)
+	}
 	f.Source = src
 
 	if f.PvP, err = optionalBool(q, "pvp"); err != nil {

@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -30,21 +31,7 @@ var sortLabels = map[string]string{items.SortILvl: "Item level ↓", items.SortN
 func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f, err := items.ParseFilters(r)
 	if err != nil {
-		// The parser's reason is shown: it names only parameters and the reader's own input
-		// ("ilvl_min (80) is above ilvl_max (60)"), never anything internal.
-		reason := strings.TrimPrefix(err.Error(), httpx.ErrInvalid.Error()+": ")
-		if templates.IsHTMX(r) {
-			// A live change from the rail (AOC-049 review): a 400 that HTMX swapped nowhere left the
-			// rail silently dead. The message goes where the rows were; the rail is not redrawn, so
-			// the bad value stays where the reader can fix it, and no URL is pushed — "false" says so
-			// explicitly, or htmx pushes the request's own URL (measured in a browser).
-			w.Header().Set("HX-Push-Url", "false")
-			if err := h.tpl.FragmentStatus(w, http.StatusBadRequest, "armory_invalid", templates.InvalidSearch{Reason: reason}); err != nil {
-				h.fail(w, r, err)
-			}
-			return
-		}
-		httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
+		h.invalidSearch(w, r, err)
 		return
 	}
 	page := 1
@@ -64,6 +51,12 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	f.WithFacets = true
 
 	res, err := h.items.List(r.Context(), f)
+	if errors.Is(err, httpx.ErrInvalid) {
+		// The service refuses what the parser cannot see on its own: a 400, never a 500 and an
+		// ERROR line (AOC-050 verify round 2, F10).
+		h.invalidSearch(w, r, err)
+		return
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -165,6 +158,25 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	v := h.view(title, desc, armoryURL(f, page))
 	v.App = true // the validated design's full-window app, from lg up (AOC-065)
 	h.render(w, r, "armory", v, d)
+}
+
+// invalidSearch answers a search the parser or the service refused (ErrInvalid) with a 400 naming
+// the reason, which names only parameters and the reader's own input ("ilvl_min (80) is above
+// ilvl_max (60)"), never anything internal.
+func (h *Handler) invalidSearch(w http.ResponseWriter, r *http.Request, err error) {
+	reason := strings.TrimPrefix(err.Error(), httpx.ErrInvalid.Error()+": ")
+	if templates.IsHTMX(r) {
+		// A live change from the rail (AOC-049 review): a 400 that HTMX swapped nowhere left the
+		// rail silently dead. The message goes where the rows were; the rail is not redrawn, so
+		// the bad value stays where the reader can fix it, and no URL is pushed — "false" says so
+		// explicitly, or htmx pushes the request's own URL (measured in a browser).
+		w.Header().Set("HX-Push-Url", "false")
+		if err := h.tpl.FragmentStatus(w, http.StatusBadRequest, "armory_invalid", templates.InvalidSearch{Reason: reason}); err != nil {
+			h.fail(w, r, err)
+		}
+		return
+	}
+	httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
 }
 
 // itemCount is "1 item", "7 items" — the meta description said "1 items" (AOC-047 verify round 3).

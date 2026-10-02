@@ -244,10 +244,14 @@ WITH filtered AS (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
-                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
-                   AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
-                   AND (sqlc.narg('source_container')::varchar IS NULL OR sct.slug = sqlc.narg('source_container')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -405,10 +409,14 @@ WITH filtered AS MATERIALIZED (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
-                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
-                   AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
-                   AND (sqlc.narg('source_container')::varchar IS NULL OR sct.slug = sqlc.narg('source_container')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -587,10 +595,14 @@ WITH filtered AS MATERIALIZED (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
-                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
-                   AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
-                   AND (sqlc.narg('source_container')::varchar IS NULL OR sct.slug = sqlc.narg('source_container')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST
@@ -878,10 +890,14 @@ WITH filtered AS (
                    -- the place alone when a boss, vendor, quest giver or container follows it, or
                    -- '{-}' for no place at all.
                    AND (sqlc.narg('source_places')::varchar[] IS NULL OR CASE WHEN sqlc.narg('source_places')::varchar[] = ARRAY['-']::varchar[] THEN p.id IS NULL ELSE p.slug = ANY(sqlc.narg('source_places')::varchar[]) END)
+                   -- A row's location is its FIRST kind, in the tree's order: boss, vendor, quest giver,
+                   -- container (verify round 2, F8: 11 rows have a quest giver and a container, and the
+                   -- tree draws them under the quest giver). So a later kind matches only a row with no
+                   -- earlier one.
                    AND (sqlc.narg('source_boss')::varchar IS NULL OR sb.slug = sqlc.narg('source_boss')::varchar)
-                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR sv.slug = sqlc.narg('source_vendor')::varchar)
-                   AND (sqlc.narg('source_quest')::varchar IS NULL OR sq.slug = sqlc.narg('source_quest')::varchar)
-                   AND (sqlc.narg('source_container')::varchar IS NULL OR sct.slug = sqlc.narg('source_container')::varchar)
+                   AND (sqlc.narg('source_vendor')::varchar IS NULL OR (sv.slug = sqlc.narg('source_vendor')::varchar AND src.boss_id IS NULL))
+                   AND (sqlc.narg('source_quest')::varchar IS NULL OR (sq.slug = sqlc.narg('source_quest')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL))
+                   AND (sqlc.narg('source_container')::varchar IS NULL OR (sct.slug = sqlc.narg('source_container')::varchar AND src.boss_id IS NULL AND src.vendor_id IS NULL AND src.quest_id IS NULL))
                    AND (sqlc.narg('source_group')::varchar IS NULL OR sag.slug = sqlc.narg('source_group')::varchar))),
            false) AS in_base,
          -- One flag per facet (AOC-049). Each is the whole of that filter's rule. A facet takes a LIST

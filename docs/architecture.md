@@ -1193,6 +1193,9 @@ Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
     branch for a `-`.
   - **A place is drawn under every place above it**, from `ListPlaceHierarchy`, at any depth, like
     AOC-038's expansion (F2).
+  - **A row's location is its first kind** (boss, vendor, quest giver, container), in the tree and
+    in the predicate alike (verify round 2, F8). **The place chain is bounded by `maxPlaces`**
+    (32), shared by the parser and the walk (F9).
   - **A path's places are checked:** each must be the parent of the next, or the path names
     nothing (F3). The last place is expanded when the path ends there, and exact when a location
     follows, because that is how the tree counts it.
