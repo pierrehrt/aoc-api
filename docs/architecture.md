@@ -899,6 +899,12 @@ Three structural facts the rest of the app inherits:
    that redundancy safe. An Unchained dungeon is **its own row**, not a flag on its twin — the
    two share no loot at all.
 
+   **Asking for a place means everything inside it (AOC-038).** The list's `place` filter goes
+   through `Service.expandPlaces`: one recursive query (`ExpandPlaces`) adds every place under each
+   named one, at any depth, and a named place that contained something makes the view collapsed
+   (each item once), like any view of several dungeons. The named slugs are always kept, so a name
+   no place has still matches nothing instead of emptying the list into "no filter".
+
    ⛔ **A source does not repeat a geography its place already supplies (AOC-037).**
    `item_sources.region_id` / `map_id` are written **only when the place cannot supply them** —
    no `place_id` at all, or a place with no map. They exist for the 1,732 sources that have a

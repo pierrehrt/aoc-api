@@ -148,6 +148,14 @@ mode therefore follows the filters and cannot be asked for:
 | nothing, or `region` / `tier` — an **aggregate** view | one per item, with `places[]` as context | `true` |
 | one `place` | one per item, each carrying `place` | `false` |
 | several `place` values | **one per item per named place**, so a shared item appears under each | `false` |
+| a `place` that **contains places** (a raid and its wings), alone or with others | the place's items **and every place inside it**, at any depth, **one per item**, with `places[]` as context | `true` |
+
+**A place that contains places** (AOC-038, Pierre 2026-09-29). House of Crom's loot is recorded against
+its two wings and Warmonk Monastery's against its three, so `place=house-of-crom` used to answer 0
+items. It now answers all 152, each once: asking for the raid means everything in it. Naming two
+wings of one raid is still two dungeons (the row above). Which places a place contains is
+`places.parent_place_id`, read by the service, never a list in code. A `place` value no place has
+still matches nothing; it is never dropped, which would remove the filter.
 
 An item that matches the filters but is in **none** of the named places does not appear. It is not
 emitted without a place: a row missing from a place view is visible, a place-less row in one is not
