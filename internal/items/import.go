@@ -482,6 +482,9 @@ func countNulls(ctx context.Context, tx pgx.Tx, rep *Report) error {
 		{"item_sources", "place_id"}, {"item_sources", "boss_id"}, {"item_sources", "vendor_id"},
 		{"item_sources", "quest_id"}, {"item_sources", "map_id"}, {"item_sources", "region_id"},
 		{"item_sources", "coords"}, {"item_sources", "open_question"},
+		// AOC-050: every row's section. 0 on a full import; the line itself tells an importer from
+		// before it (which prints none) from this one, on a dry run of the deployed service.
+		{"item_sources", "section_id"},
 	} {
 		var n int
 		q := fmt.Sprintf("SELECT count(*) FROM %s WHERE %s IS NULL", c.table, c.col) // #nosec G201

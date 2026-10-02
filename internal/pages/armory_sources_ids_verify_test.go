@@ -256,9 +256,10 @@ func TestTheFirstTabNamedIsTheArrivalStatesPage(t *testing.T) {
 		t.Fatal("no branch on arrival")
 	}
 	branch, _ := url.Parse(rows[0].href)
-	// Three states with results: arrival, a non-default sort, a branch of the first tab with a filter.
-	// (The empty state's "Clear the search" link is left out: verify round 2 records it, O1.)
-	for _, q := range []string{"", "sort=name", branch.RawQuery + "&rarity=epic"} {
+	// Three states with results — arrival, a non-default sort, a branch of the first tab with a filter —
+	// and a search that matches nothing, whose empty state links "Clear the search" (the 0.6.0
+	// pre-merge review, F2: that link was the half of O1 no test held).
+	for _, q := range []string{"", "sort=name", branch.RawQuery + "&rarity=epic", "q=zzqqxx-no-such-item"} {
 		plain := "/armory"
 		if q != "" {
 			plain += "?" + q

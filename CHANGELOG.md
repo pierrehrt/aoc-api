@@ -15,23 +15,25 @@ shows where items come from, each branch with its count.
 
 ### Added
 
-- The Armory's sources panel (AOC-068):
-  - **Tabs:** the main categories PVE, PVP, Region, Faction, Onslaught and Other, under the
-    search, one active at a time.
-  - **Tree:** on the left, the active category's AoC>TV sections, zones, places, bosses and
-    vendors. Each branch shows how many items picking it would leave, with a 0 listed, never
-    hidden. End branches split into "loot / drops" and "quest / vendor".
-  - **Picking a branch** narrows the list and shows as a "source: …" pill.
-  - **The selected-source box** shows the branch's path and count, plus "· map (x,y)" when the
-    branch is one point.
-  - **Layout:** the pane folds to a strip. On a phone, a Sources sheet holds it. With JavaScript
-    off, every tab and branch is a link.
-- AoC>TV's 39 armory sections as data, each in one of the six categories (AOC-050).
+- The Armory's sources panel: the main categories (PVE, PVP, Region, Faction, Onslaught, Other)
+  under the search, one active at a time, and on the left the active one's tree of where items come
+  from, by section or region, zone, place, and boss, vendor, quest giver or container (AOC-068)
+- Each branch of the panel shows how many items picking it would leave, under every other filter: a
+  0 is listed, never hidden, and end branches split into "loot / drops" and "quest / vendor"
+  (AOC-068)
+- Picking a branch narrows the list and shows as a "source: …" pill. The selected-source box gives
+  the branch's path and count, and "· map (x,y)" when every row of it has the same coordinates
+  (AOC-068)
+- The panel folds to a strip; on a phone it opens as a Sources sheet; with JavaScript off every tab
+  and branch is a link (AOC-068)
+- AoC>TV's 39 armory sections as data, each in one of the six categories (AOC-050)
 - `/v1/items` takes `tab`, `source` and `get`, which pick a node of the panel, matched on one source
-  row. Without them, the answer is unchanged (AOC-050).
+  row. Without them, the answer is unchanged. A `tab` alone filters nothing. A malformed `source`,
+  `tab` or `get`, or `get` without `source`, is a 400 (AOC-050)
 - `/v1/sources/tree?tab=`: a category's tree, each branch counted under every other filter, with
-  its halves and, when it is one point, its coordinates (AOC-050, AOC-068).
-- `/v1/taxonomies` gains `source_tabs` (AOC-050).
+  its halves and, when it is one point, its coordinates. An unknown tab is a 404, as it is on
+  `/armory` (AOC-050, AOC-068)
+- `/v1/taxonomies` gains `source_tabs` (AOC-050)
 
 ### Changed
 
