@@ -20,7 +20,7 @@ type SourceNode struct {
 	Section   string
 	Region    string
 	Map       string
-	Places    []string // the location and, under it, its wing; the LAST is the one matched
+	Places    []string // the location's places, each the parent of the next; the LAST is the one matched
 	Boss      string
 	Vendor    string
 	Quest     string
@@ -74,8 +74,10 @@ func (s SourceNode) String() string {
 }
 
 // ParseSource reads a `source` value. Malformed is a 400: an unknown kind, a segment that is not
-// kind:slug, a level named twice, more than a location and its wing. An unknown SLUG is not
-// malformed — it matches nothing, as an unknown rarity does (parseFilters' rule).
+// kind:slug, a level named twice (places aside: a chain of them), more than eight places. "-" is a
+// level the row does not have, for a region, a map, or the place before a location with none
+// ("p:-", alone). An unknown SLUG is not malformed — it matches nothing, as an unknown rarity does
+// (parseFilters' rule).
 func ParseSource(raw string) (SourceNode, error) {
 	var s SourceNode
 	raw = strings.TrimSpace(raw)
@@ -85,7 +87,9 @@ func ParseSource(raw string) (SourceNode, error) {
 	seen := map[string]bool{}
 	for _, seg := range strings.Split(raw, ".") {
 		kind, slug, ok := strings.Cut(seg, ":")
-		if !ok || !slugRe.MatchString(slug) {
+		if ok && slug == absent && (kind == "r" || kind == "m" || kind == "p") {
+			// a level the row lacks; for a place, only as the one place named
+		} else if !ok || !slugRe.MatchString(slug) {
 			return SourceNode{}, fmt.Errorf("%w: source is levels like s:<section>.p:<place>, each kind:slug; got %q", httpx.ErrInvalid, seg)
 		}
 		if kind != "p" && seen[kind] {
@@ -100,8 +104,11 @@ func ParseSource(raw string) (SourceNode, error) {
 		case "m":
 			s.Map = slug
 		case "p":
-			if len(s.Places) == 2 {
-				return SourceNode{}, fmt.Errorf("%w: source names a place, its wing and a third place", httpx.ErrInvalid)
+			if len(s.Places) == 8 {
+				return SourceNode{}, fmt.Errorf("%w: source names more than eight places", httpx.ErrInvalid)
+			}
+			if slug == absent && len(s.Places) > 0 || len(s.Places) == 1 && s.Places[0] == absent {
+				return SourceNode{}, fmt.Errorf("%w: source's p:- (no place) stands alone", httpx.ErrInvalid)
 			}
 			s.Places = append(s.Places, slug)
 		case "b":

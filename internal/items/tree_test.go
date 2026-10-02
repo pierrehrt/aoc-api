@@ -20,6 +20,8 @@ func TestASourcePathRoundTrips(t *testing.T) {
 		"s:test-tier",
 		"s:test-tier.p:test-raid.b:test-boss-alpha",
 		"r:test-region.m:test-map.p:test-complex.p:test-wing",
+		"r:test-region.m:test-map.p:test-complex.p:test-hall.p:test-vault",
+		"s:test-cat.r:-.p:-.v:test-vendor",
 		"s:test-faction.m:test-map.v:test-vendor",
 		"s:test-cat.q:test-quest",
 		"s:test-cat.c:test-chest",
@@ -44,12 +46,16 @@ func TestASourcePathRoundTrips(t *testing.T) {
 
 func TestAMalformedSourceIsRefused(t *testing.T) {
 	for _, raw := range []string{
-		"test-tier",           // no kind
-		"x:test-tier",         // unknown kind
-		"s:Test-Tier",         // not a slug
-		"s:a.s:b",             // a level twice
-		"s:a..p:b",            // an empty segment
-		"p:a.p:b.p:c",         // more than a location and its wing
+		"test-tier",                           // no kind
+		"x:test-tier",                         // unknown kind
+		"s:Test-Tier",                         // not a slug
+		"s:a.s:b",                             // a level twice
+		"s:a..p:b",                            // an empty segment
+		"p:a.p:b.p:c.p:d.p:e.p:f.p:g.p:h.p:i", // more than eight places
+		"s:-",                                 // a section is never absent
+		"b:-",                                 // nor a boss
+		"p:-.p:test-place",                    // "no place" stands alone
+		"p:test-place.p:-",
 		"s:a.p:b%2Cc",         // not a slug
 		"s:",                  // no slug
 		"s:test tier",         // a space
@@ -147,7 +153,7 @@ func TestTheTreeCountsDistinctItemsPerBranch(t *testing.T) {
 		// Item 3 is in a section with no location at all: it counts at the section, no deeper.
 		treeRow(3, "test-tier-a", func(r *sqlcgen.ListSourceTreeRowsRow) { r.SectionSort = 10 }),
 	}
-	tr := buildTree(tab, rows, testGroups)
+	tr := buildTree(tab, rows, testGroups, nil)
 
 	if tr.Total != 3 {
 		t.Errorf("Total = %d, want 3 distinct items", tr.Total)
@@ -179,22 +185,29 @@ func TestTheTreeCountsDistinctItemsPerBranch(t *testing.T) {
 	}
 }
 
-// A tab's groups decide its levels, and a level a row does not have is skipped, never "Unknown".
+// A tab's groups decide its levels. A level a row does not have is not drawn ("Unknown" is never
+// shown), but it IS in the path as "-": the branch below it holds only the rows that lack it
+// (AOC-050 verify round 1, F1). A place is drawn under every place above it (F2).
 func TestATabsGroupsDecideItsLevels(t *testing.T) {
 	tab := SourceTab{Slug: "test-tab", Groups: []string{"region", "map"}}
+	h := map[string]placeInfo{
+		"test-complex": {name: "Test Complex"},
+		"test-hall":    {name: "Test Hall", parent: "test-complex"},
+		"test-vault":   {name: "Test Vault", parent: "test-hall"},
+	}
 	rows := []sqlcgen.ListSourceTreeRowsRow{
 		treeRow(1, "test-section", func(r *sqlcgen.ListSourceTreeRowsRow) {
 			r.RegionSlug, r.RegionName, r.RegionSort = "test-region", "Test Region", 10
 			r.MapSlug, r.MapName = "test-map", "Test Map"
-			r.PlaceSlug, r.PlaceName, r.WingSlug, r.WingName = "test-complex", "Test Complex", "test-wing", "Test Wing"
+			r.PlaceSlug, r.PlaceName = "test-vault", "Test Vault" // two places down
 		}),
-		// No map: the vendor hangs off the region.
+		// No map: the vendor hangs off the region, and its path says "no map".
 		treeRow(2, "test-section", func(r *sqlcgen.ListSourceTreeRowsRow) {
 			r.RegionSlug, r.RegionName, r.RegionSort = "test-region", "Test Region", 10
 			r.VendorSlug, r.VendorName = "test-vendor", "Test Vendor"
 		}),
 	}
-	tr := buildTree(tab, rows, testGroups)
+	tr := buildTree(tab, rows, testGroups, h)
 	if len(tr.Nodes) != 1 || tr.Nodes[0].Kind != "region" {
 		t.Fatalf("top level = %v, want the one region (the section is not one of this tab's levels)", names(tr.Nodes))
 	}
@@ -203,12 +216,17 @@ func TestATabsGroupsDecideItsLevels(t *testing.T) {
 		t.Fatalf("under the region: %v, want the map and the vendor", names(reg.Children))
 	}
 	m := reg.Children[0]
-	if m.Kind != "map" || m.Children[0].Source != "r:test-region.m:test-map.p:test-complex" ||
-		m.Children[0].Children[0].Source != "r:test-region.m:test-map.p:test-complex.p:test-wing" {
+	complex := m.Children[0]
+	if m.Kind != "map" || complex.Source != "r:test-region.m:test-map.p:test-complex" ||
+		complex.Children[0].Source != "r:test-region.m:test-map.p:test-complex.p:test-hall" ||
+		complex.Children[0].Children[0].Source != "r:test-region.m:test-map.p:test-complex.p:test-hall.p:test-vault" {
 		t.Errorf("map branch = %+v", m)
 	}
-	if v := reg.Children[1]; v.Kind != "vendor" || v.Source != "r:test-region.v:test-vendor" {
-		t.Errorf("vendor = %+v", v)
+	if v := reg.Children[1]; v.Kind != "vendor" || v.Source != "r:test-region.m:-.p:-.v:test-vendor" {
+		t.Errorf("vendor = %+v, want its path to say no map and no place", v)
+	}
+	if tr.Attribution != Attribution || len(tr.Halves) != 2 {
+		t.Errorf("attribution %q, halves %v", tr.Attribution, tr.Halves)
 	}
 }
 
@@ -254,9 +272,49 @@ func TestATabAloneFiltersNothingAndANodeDefaultsToTheFirstTab(t *testing.T) {
 	if deref(p.SourceSection) != "test-cat" || deref(p.SourceBoss) != "test-boss-alpha" || deref(p.SourceGroup) != "vendor" {
 		t.Errorf("section/boss/group = %v/%v/%v", p.SourceSection, p.SourceBoss, p.SourceGroup)
 	}
-	// A place node is the place and everything inside it (AOC-038).
-	if !reflect.DeepEqual(p.SourcePlaces, []string{"test-complex", "test-wing"}) {
-		t.Errorf("source_places = %v", p.SourcePlaces)
+	// With a boss after it, the place is exact: the tree counts those rows under the place itself
+	// (verify round 1, F1/F2).
+	if !reflect.DeepEqual(p.SourcePlaces, []string{"test-complex"}) {
+		t.Errorf("source_places = %v, want the place alone when a boss follows", p.SourcePlaces)
+	}
+
+	// A path that ends at the place is the place and everything inside it (AOC-038).
+	q = treeQ()
+	q.inside = map[string][]string{"test-complex": {"test-wing"}}
+	src, _ = ParseSource("s:test-cat.p:test-complex")
+	if _, err := NewService(q).List(context.Background(), Filters{Source: src}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.firstArgs().SourcePlaces; !reflect.DeepEqual(got, []string{"test-complex", "test-wing"}) {
+		t.Errorf("source_places = %v, want the place and its wing", got)
+	}
+}
+
+// A chain whose places are not each other's parents names nothing (verify round 1, F3), and "p:-"
+// is "no place"; a half without a source is refused (F6).
+func TestAPlaceChainIsCheckedAndAHalfNeedsASource(t *testing.T) {
+	for raw, want := range map[string][]string{
+		"s:test-cat.p:test-complex.p:test-wing": {"test-wing"},
+		"s:test-cat.p:test-wing.p:test-complex": nothing,
+		"s:test-cat.p:test-nope.p:test-wing":    nothing,
+		"s:test-cat.p:-.b:test-boss-alpha":      {"-"},
+	} {
+		q := treeQ()
+		q.inside = map[string][]string{"test-complex": {"test-wing"}}
+		src, err := ParseSource(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		if _, err := NewService(q).List(context.Background(), Filters{Source: src}); err != nil {
+			t.Fatal(err)
+		}
+		if got := q.firstArgs().SourcePlaces; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: source_places = %q, want %q", raw, got, want)
+		}
+	}
+	_, err := NewService(treeQ()).List(context.Background(), Filters{Source: SourceNode{Group: "drop"}})
+	if !errors.Is(err, httpx.ErrInvalid) {
+		t.Errorf("get with no source: err = %v, want ErrInvalid", err)
 	}
 }
 
@@ -296,7 +354,7 @@ func TestABranchTheFiltersEmptyIsListedWithZero(t *testing.T) {
 			r.PlaceSlug, r.PlaceName = "test-raid", "Test Raid"
 		}),
 	}
-	tr := buildTree(tab, rows, testGroups)
+	tr := buildTree(tab, rows, testGroups, nil)
 	if tr.Total != 1 {
 		t.Errorf("Total = %d, want only the matching item", tr.Total)
 	}
@@ -312,7 +370,7 @@ func TestABranchTheFiltersEmptyIsListedWithZero(t *testing.T) {
 	if emptied.Count != 0 || len(emptied.Children) != 1 || emptied.Children[0].Count != 0 {
 		t.Errorf("the emptied branch reads %+v; want 0, its raid listed at 0", emptied)
 	}
-	// Its half is listed too, at 0 (AOC-068): the panel draws a location under each half it has.
+	// Its half is listed too, at 0 (verify round 1, F4): a half the filters empty is not hidden.
 	if want := []GroupCount{{"drop", "test drops", 0}}; !reflect.DeepEqual(emptied.Children[0].Groups, want) {
 		t.Errorf("the emptied raid's halves = %v, want %v", emptied.Children[0].Groups, want)
 	}

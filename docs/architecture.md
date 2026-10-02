@@ -1211,14 +1211,22 @@ Pierre's regrouping of AoC>TV's 39 armory sections**, so the structure is data:
   same way and stops on a name it was never told about. Both new FKs are nullable like every
   lookup: a row with no section is in no tab.
 - **A tab's levels.** `groups` is the levels drawn above the location (`section`, `region`, `map`;
-  a CHECK holds the vocabulary). Then every tab draws the location: the row's place and its wing,
+  a CHECK holds the vocabulary). Then every tab draws the location: the row's place under every place above it,
   then the boss, or else its vendor, quest giver, container or boss. `items.rowPath` is that rule,
   and the only code that knows level names, which are our own columns, like the sort keys.
+  - **Every level is in the path, `-` where the row has none** (verify round 1, F1). A branch
+    under a skipped level would otherwise list the rows that do have it too. The panel draws no
+    branch for a `-`.
+  - **A place is drawn under every place above it**, from `ListPlaceHierarchy`, at any depth, like
+    AOC-038's expansion (F2).
+  - **A path's places are checked:** each must be the parent of the next, or the path names
+    nothing (F3). The last place is expanded when the path ends there, and exact when a location
+    follows, because that is how the tree counts it.
 - **A node matches ONE source row** (`Filters.Source`, `items.SourceNode`). Its levels go into the
   shared CTE's `in_base` as one `EXISTS` over `item_sources`, every level on the same row. The
   older `tier=` and `place=` are separate `EXISTS` and may match different rows of one item. That
   is right for them and wrong for a node, where a tier's raid would count an item that is in the
-  tier only elsewhere. A place node is expanded to its descendants (AOC-038's `expandPlaces`).
+  tier only elsewhere. A place node is expanded to its descendants (AOC-038's `expandPlaces`) when the path ends there.
   **The tab alone filters nothing**: `source_tab` is set only when a node is picked.
 - **Counts: one query, shape from every row.** `ListSourceTreeRows` (the fourth copy of the CTE)
   returns every source row of the tab with its levels and a `matches` flag: every other filter, the

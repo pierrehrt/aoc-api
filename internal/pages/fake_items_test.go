@@ -72,6 +72,10 @@ func (f *fakeItems) ListAcquisitionGroups(context.Context) ([]sqlcgen.ListAcquis
 	return nil, nil
 }
 
+func (f *fakeItems) ListPlaceHierarchy(context.Context) ([]sqlcgen.ListPlaceHierarchyRow, error) {
+	return nil, nil
+}
+
 func (f *fakeItems) ExpandPlaces(context.Context, []string) ([]sqlcgen.ExpandPlacesRow, error) {
 	return nil, nil
 }
