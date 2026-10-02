@@ -67,41 +67,36 @@ func TestAMalformedSourceIsRefused(t *testing.T) {
 	}
 }
 
-// The parser reads exactly as many places as the tree's walk draws (verify round 2, F9).
-func TestThePlaceBoundIsTheTreesBound(t *testing.T) {
-	path := func(n int) string {
-		var segs []string
-		for i := 0; i < n; i++ {
-			segs = append(segs, "p:test-place-"+strconv.Itoa(i))
-		}
-		return strings.Join(segs, ".")
-	}
-	if _, err := ParseSource(path(maxPlaces)); err != nil {
-		t.Errorf("%d places: %v, want accepted", maxPlaces, err)
-	}
-	if _, err := ParseSource(path(maxPlaces + 1)); !errors.Is(err, httpx.ErrInvalid) {
-		t.Errorf("%d places: err = %v, want ErrInvalid", maxPlaces+1, err)
-	}
-	// A hierarchy deeper than the bound: the row's chain is cut to maxPlaces, and still parses.
+// One depth rule (verify round 3, F11): the tree draws a row's whole ancestry, however deep, and
+// the parser reads any chain it draws — the hierarchy is the only bound.
+func TestADeepChainIsDrawnWholeAndItsPathParses(t *testing.T) {
+	const depth = 40
 	h := map[string]placeInfo{}
-	for i := 0; i < maxPlaces+5; i++ {
+	for i := 0; i < depth; i++ {
 		info := placeInfo{name: "Test Place " + strconv.Itoa(i)}
 		if i > 0 {
 			info.parent = "test-place-" + strconv.Itoa(i-1)
 		}
 		h["test-place-"+strconv.Itoa(i)] = info
 	}
-	deepest := "test-place-" + strconv.Itoa(maxPlaces+4)
+	deepest := "test-place-" + strconv.Itoa(depth-1)
 	levels := rowPath([]string{"section"}, sqlcgen.ListSourceTreeRowsRow{SectionSlug: "test-tier", PlaceSlug: deepest, PlaceName: "Test Deep"}, h)
-	if got := len(levels) - 1; got != maxPlaces {
-		t.Fatalf("the chain has %d places, want %d", got, maxPlaces)
+	if got := len(levels) - 1; got != depth {
+		t.Fatalf("the chain has %d places, want all %d", got, depth)
+	}
+	if levels[1].slug != "test-place-0" {
+		t.Errorf("the chain starts at %q, want the top place", levels[1].slug)
 	}
 	var segs []string
 	for _, l := range levels {
 		segs = append(segs, segment[l.kind]+":"+l.slug)
 	}
-	if _, err := ParseSource(strings.Join(segs, ".")); err != nil {
-		t.Errorf("the tree's own path for a deep place is refused: %v", err)
+	src, err := ParseSource(strings.Join(segs, "."))
+	if err != nil {
+		t.Fatalf("the tree's own path for a place %d levels down is refused: %v", depth, err)
+	}
+	if len(src.Places) != depth {
+		t.Errorf("parsed %d places, want %d", len(src.Places), depth)
 	}
 }
 

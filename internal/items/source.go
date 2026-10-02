@@ -44,11 +44,6 @@ func (s SourceNode) Place() string {
 	return s.Places[len(s.Places)-1]
 }
 
-// maxPlaces bounds a path's chain of places, in the parser and in the tree's walk alike (verify
-// round 2, F9: the walk went deeper than the parser read, so a deep branch's own source was a 400).
-// The hierarchy is one level deep today; 32 is room, not a limit anyone meets.
-const maxPlaces = 32
-
 // The path's segment kinds, in the order String writes them.
 var sourceKinds = []string{"s", "r", "m", "p", "b", "v", "q", "c"}
 
@@ -79,7 +74,8 @@ func (s SourceNode) String() string {
 }
 
 // ParseSource reads a `source` value. Malformed is a 400: an unknown kind, a segment that is not
-// kind:slug, a level named twice (places aside: a chain of them), more than maxPlaces places. "-" is a
+// kind:slug, a level named twice (places aside: a chain of them, as deep as the hierarchy, which is
+// its only bound: each must be the parent of the next, or the path names nothing). "-" is a
 // level the row does not have, for a region, a map, or the place before a location with none
 // ("p:-", alone). An unknown SLUG is not malformed — it matches nothing, as an unknown rarity does
 // (parseFilters' rule).
@@ -109,9 +105,6 @@ func ParseSource(raw string) (SourceNode, error) {
 		case "m":
 			s.Map = slug
 		case "p":
-			if len(s.Places) == maxPlaces {
-				return SourceNode{}, fmt.Errorf("%w: source names more than %d places", httpx.ErrInvalid, maxPlaces)
-			}
 			if slug == absent && len(s.Places) > 0 || len(s.Places) == 1 && s.Places[0] == absent {
 				return SourceNode{}, fmt.Errorf("%w: source's p:- (no place) stands alone", httpx.ErrInvalid)
 			}
