@@ -20,6 +20,9 @@ import (
 type fakeQ struct {
 	items  []sqlcgen.ListItemsRow
 	places []sqlcgen.ListItemPlacesRow
+	// inside is the place hierarchy ExpandPlaces answers from: a named place -> the places in it
+	// (AOC-038). A place not listed contains nothing.
+	inside map[string][]string
 	// args records EVERY call, not the last: an empty page makes a second "total probe" call, and
 	// keeping only the last one recorded the probe's parameters instead of the request's.
 	args  []sqlcgen.ListItemsParams
@@ -60,6 +63,17 @@ func (f *fakeQ) ListItems(_ context.Context, a sqlcgen.ListItemsParams) ([]sqlcg
 
 func (f *fakeQ) ListItemPlaces(context.Context, []int32) ([]sqlcgen.ListItemPlacesRow, error) {
 	return f.places, nil
+}
+
+func (f *fakeQ) ExpandPlaces(_ context.Context, slugs []string) ([]sqlcgen.ExpandPlacesRow, error) {
+	var out []sqlcgen.ExpandPlacesRow
+	for _, n := range slugs {
+		out = append(out, sqlcgen.ExpandPlacesRow{Named: n, Slug: n})
+		for _, c := range f.inside[n] {
+			out = append(out, sqlcgen.ExpandPlacesRow{Named: n, Slug: c})
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeQ) GetItemBySlug(context.Context, string) (int32, error) { return 0, pgx.ErrNoRows }

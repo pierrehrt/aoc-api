@@ -614,6 +614,25 @@ WHERE src.item_id = ANY(sqlc.arg('item_ids')::integer[])
 GROUP BY src.item_id, p.slug, p.name
 ORDER BY p.name;
 
+-- name: ExpandPlaces :many
+-- A place that CONTAINS places (AOC-038): House of Crom's loot is recorded against its two wings,
+-- Warmonk Monastery's against its three, so the place itself holds almost none of it. Asking for the
+-- place means everything in it (Pierre, 2026-09-29, DECISIONS.md), so the service hands SQL the named
+-- places AND every place under them, at any depth, and reads off whether anything named contained
+-- something. One row per (named, place inside it), the named place included as its own row.
+-- UNION, not UNION ALL: a cycle in parent_place_id would repeat a row, and UNION stops there.
+WITH RECURSIVE inside AS (
+    SELECT p.slug AS named, p.id, p.slug
+    FROM places p
+    WHERE p.slug = ANY(sqlc.arg('slugs')::varchar[])
+  UNION
+    SELECT inside.named, c.id, c.slug
+    FROM places c JOIN inside ON c.parent_place_id = inside.id
+)
+SELECT inside.named::varchar AS named, inside.slug::varchar AS slug
+FROM inside
+ORDER BY inside.named, inside.slug;
+
 -- name: ListItemsByPlace :many
 -- The reverse lookup, and the one Pierre asked for first: "what drops here?" on a place page.
 SELECT DISTINCT i.item_id, i.slug, i.name, r.slug AS rarity, r.sort_order AS rarity_sort,

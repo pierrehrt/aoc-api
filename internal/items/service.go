@@ -37,6 +37,7 @@ const (
 type Querier interface {
 	ListItems(ctx context.Context, arg sqlcgen.ListItemsParams) ([]sqlcgen.ListItemsRow, error)
 	ListItemPlaces(ctx context.Context, itemIds []int32) ([]sqlcgen.ListItemPlacesRow, error)
+	ExpandPlaces(ctx context.Context, slugs []string) ([]sqlcgen.ExpandPlacesRow, error)
 	GetItemBySlug(ctx context.Context, slug string) (int32, error)
 	GetItem(ctx context.Context, itemID int32) (sqlcgen.GetItemRow, error)
 	ListItemStats(ctx context.Context, itemID int32) ([]sqlcgen.ListItemStatsRow, error)
@@ -144,13 +145,51 @@ func idQuery(q string) *int32 {
 	return &id
 }
 
-// Aggregate reports whether this view is one that CONTAINS several places rather than being one.
+// Aggregate reports whether this view is one that CONTAINS several places rather than being one,
+// as far as the filters alone can say: it names no place.
 //
 // ⭐ Pierre's rule, DECISIONS.md 2026-09-13: one dungeon shows its loot as it is; anything that
 // contains several dungeons shows each item once. So the mode is a consequence of the filters, not
 // a parameter -- there is no flag for a caller to get wrong, which is the point, because a client
 // that forgets it renders a visibly broken page (CLAUDE.md rule 5b).
+//
+// A named place that itself CONTAINS places (a raid and its wings, AOC-038) is aggregate too, but
+// only the database knows which places those are: List adds that half (expandPlaces), so a caller
+// never decides it either.
 func (f Filters) Aggregate() bool { return len(f.Places) == 0 }
+
+// expandPlaces is the named places and every place inside them, at any depth (AOC-038), and whether
+// any named place contained one. Asking for House of Crom means its two wings' loot (Pierre,
+// 2026-09-29); its own row holds none of it.
+//
+// ⚠️ The named slugs are ALWAYS kept, known or not. A name no place has expands to nothing, and an
+// empty list reaches SQL as no filter at all (listArg): place=a-typo would answer the whole armory
+// instead of nothing. Keeping it makes the typo match nothing, which is what it did before.
+func (s *Service) expandPlaces(ctx context.Context, named []string) ([]string, bool, error) {
+	if len(named) == 0 {
+		return nil, false, nil
+	}
+	rows, err := s.q.ExpandPlaces(ctx, named)
+	if err != nil {
+		return nil, false, fmt.Errorf("expand places: %w", err)
+	}
+	out := append([]string{}, named...)
+	seen := map[string]bool{}
+	for _, n := range named {
+		seen[n] = true
+	}
+	contains := false
+	for _, r := range rows {
+		if r.Slug != r.Named {
+			contains = true
+		}
+		if !seen[r.Slug] {
+			seen[r.Slug] = true
+			out = append(out, r.Slug)
+		}
+	}
+	return out, contains, nil
+}
 
 // Place is where an item comes from, as shown next to it in a list.
 type PlaceRef struct {
@@ -266,7 +305,17 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 	// listArg is nil exactly when Places is empty — exactly when Aggregate() is true — so the
 	// collapsing mode and the predicate are one condition. The six facet lists take the same road
 	// (AOC-064): one spelling for all seven.
-	placeSlugs := listArg(f.Places)
+	//
+	// The places SQL sees are the named ones and everything inside them (AOC-038); expandPlaces
+	// keeps every named slug, so the list is still empty exactly when Places is.
+	expanded, contains, err := s.expandPlaces(ctx, f.Places)
+	if err != nil {
+		return ListResult{}, err
+	}
+	placeSlugs := listArg(expanded)
+	// Collapsed when nothing is named, or when something named contains places: a raid shows each
+	// item once, like any view of several dungeons. Two sibling wings named stay expanded.
+	collapsed := f.Aggregate() || contains
 
 	if err := f.validRanges(); err != nil {
 		return ListResult{}, err
@@ -306,7 +355,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		Items:       make([]ListItem, 0, len(rows)),
 		Limit:       limit,
 		Offset:      offset,
-		Collapsed:   f.Aggregate(),
+		Collapsed:   collapsed,
 		Attribution: Attribution,
 	}
 	if f.WithFacets {
@@ -415,7 +464,7 @@ func (s *Service) List(ctx context.Context, f Filters) (ListResult, error) {
 		}
 		places := byItem[r.ItemID]
 
-		if f.Aggregate() {
+		if collapsed {
 			// Collapsed: the item appears ONCE, and the places it drops in ride along as context.
 			base.Places = places
 			out.Items = append(out.Items, base)
