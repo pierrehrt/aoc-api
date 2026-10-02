@@ -569,6 +569,32 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   `lg`. From `lg` up the same pane **collapses to a 34px strip** through another unnamed checkbox
   (`#filters-collapsed`), as the design's ›. Not `<details>`: a closed `<details>` hides its content
   at every width, so the desktop rail would need a second copy of the form.
+- **The sources pane is the same pattern on the left** (AOC-068; the data is § The source tree).
+  - **What it shows.** The main categories (`items.Service.Tabs`) are links under the search. The
+    active tab's tree (`items.Service.Tree`, counted under every other filter) goes in a 288px pane
+    left of the table. `pages.buildSources` turns the tree into rows, and the templates only print
+    them.
+  - **Links, not controls.** Every tab and every branch is a link built from the whole state, so the
+    pane works without JavaScript. A tab link drops the pick and keeps the filters. The picked branch
+    and every branch above it are open: the open branches derive from the pick, never from stored
+    state. A picked, open branch links to the branch above it, which is the design's toggle. A set
+    of end branches is split under the design's halves ("loot / drops", "quest / vendor"), each
+    branch counted for that half and linking with `get=`.
+  - **The state rides in the form.** `tab`, `source` and `get` are hidden inputs in the rail
+    (`buildRail`), so a filter changed in the pane keeps the pick. The page's script copies a link's
+    URL into the form as it goes, the same as for a pill. The pick is a pill ("source: …", the
+    design's second, after the search). "Clear all" keeps the tab, because the tab is not a filter.
+  - **One answer redraws it.** `armory_update` carries the tabs, the pane's head, the tree, the
+    selected-source box and both of its counts out of band. The tree's scroll box is never swapped
+    itself, so it keeps its scroll position.
+  - **It folds like the filter pane:** an unnamed checkbox (`#sources-collapsed`) folds it to a 34px
+    strip on the left. Below `lg` it is a second CSS-only sheet (`#sources-sheet`), opened by
+    "Sources · 1" beside "Filters · N" (the design's mobile rule: only filters and the source tree
+    are behind a sheet). Its "Show N items" closes it, since every pick has already applied.
+  - **AA:** a row under the pointer sits on `ink-tree-hover` (#1a1816, the design's). There `faint`
+    is 4.34:1, so the caret and count turn `muted-2` (4.85:1). The theme test measures every pair
+    written on it.
+  - **An unknown `tab` is a 404**: it names no panel, like a page past the end.
 - **A live request that the parser rejects says why** (AOC-049 review). htmx discards every 4xx by
   default, so the 400 for an empty range left the rail looking dead. `base.html` carries an
   `htmx-config` meta tag that adds one rule, "a 400 is swapped" (other 4xx/5xx stay unswapped), and
