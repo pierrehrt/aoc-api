@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/pages"
@@ -32,11 +33,16 @@ func routerWith(t *testing.T, q *fakeItems, sitemapMax int) http.Handler {
 	if err != nil {
 		t.Fatalf("templates.New: %v", err)
 	}
-	h := pages.New(tpl, set, base, items.NewService(q))
+	h := pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 	if sitemapMax > 0 {
 		h.SetSitemapMax(sitemapMax)
 	}
 	return httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
+}
+
+// newSite is the site over a fake corpus: one fake behind both services, as one database is in production.
+func newSite(tpl *templates.Engine, set *assets.Set, q *fakeItems) *pages.Handler {
+	return pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 }
 
 func get(t *testing.T, h http.Handler, method, path string, hdr map[string]string, body string) *httptest.ResponseRecorder {
@@ -346,7 +352,7 @@ func TestAssetPathsStayJSONEvenWithNoAssetHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	// site mounted, assets deliberately NOT mounted
-	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, items.NewService(newFakeItems(120))).Routes, nil)
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, newSite(tpl, set, newFakeItems(120)).Routes, nil)
 
 	rr := get(t, h, http.MethodGet, "/assets/app.css", nil, "")
 	if rr.Code != http.StatusNotFound {
@@ -380,7 +386,7 @@ func TestAFailedRenderIsA500ThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture engine should start cleanly: %v", err)
 	}
-	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, items.NewService(newFakeItems(120))).Routes, set.Handler())
+	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, newSite(tpl, set, newFakeItems(120)).Routes, set.Handler())
 
 	rr := get(t, h, http.MethodGet, "/", nil, "")
 	if rr.Code != http.StatusInternalServerError {

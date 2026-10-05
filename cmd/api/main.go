@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
@@ -95,6 +96,9 @@ func run() error {
 	q := sqlcgen.New(pool)
 	itemsSvc := items.NewService(q)
 	itemsAPI := items.NewHandler(itemsSvc, items.NewTaxonomyService(q))
+	// The gear builder (AOC-051): one service for the Armory page and /v1/builds/compute.
+	buildsSvc := builds.NewService(q)
+	buildsAPI := builds.NewHandler(buildsSvc)
 	// PUBLIC_BASE_URL is the origin of every canonical URL and of the host redirect (AOC-025).
 	// ⛔ Required in production and parsed strictly: unset, it would default to localhost and every
 	// canonical would point there; malformed, the redirect would send the whole site elsewhere. Both
@@ -110,7 +114,7 @@ func run() error {
 	if canonical != nil {
 		routerOpts = append(routerOpts, httpx.WithCanonicalHost(canonical))
 	}
-	site := pages.New(tpl, assetSet, baseURL, itemsSvc)
+	site := pages.New(tpl, assetSet, baseURL, itemsSvc, buildsSvc)
 
 	srv := &http.Server{
 		Addr: addr,
@@ -118,6 +122,7 @@ func run() error {
 			v1.Mount("/items", itemsAPI.Routes())
 			v1.Mount("/taxonomies", itemsAPI.TaxonomyRoutes())
 			v1.Mount("/sources", itemsAPI.SourceRoutes())
+			v1.Mount("/builds", buildsAPI.Routes())
 		}, routerOpts...),
 		// A server with no timeouts will eventually be held open by a slow or dead
 		// client until it runs out of file descriptors. These are the three that

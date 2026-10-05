@@ -38,6 +38,11 @@
         <input type="checkbox" id="filter-sheet" class="peer sr-only">
         <label for="filter-sheet" class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Filters<span id="filter-count">{{template "armory_filter_count" $d}}</span></label>
       </span>
+      {{/* The gear builder's sheet (AOC-051; Pierre, 2026-10-05: on phones too). */}}
+      <span class="inline-flex">
+        <input type="checkbox" id="gear-sheet" class="peer sr-only">
+        <label for="gear-sheet" data-gear-open class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Builder<span id="gear-count">{{template "armory_gear_count" $d}}</span></label>
+      </span>
     </div>
     <div id="armory-chips" class="flex flex-wrap items-center gap-2">
 {{template "armory_chips" $d}}
@@ -100,8 +105,36 @@
         </div>
       </div>
     </aside>
+
+    {{/* The gear builder (AOC-051, the design's pane right of the filters, 352px). Open and folded are
+         this unnamed checkbox, like the filter pane's; it opens on load when the URL carries a build.
+         The builder and the filters fold each other, as the design's toggles do (app.css): while the
+         builder is open the filters show as their strip, and that strip folds the builder. */}}
+    <label for="gear-open" class="filters-strip-gear hidden w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-pane py-3 hover:bg-ink-pane-hover" title="Show the filters">
+      <span class="font-mono text-[12px] font-medium text-link">‹</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-faint [writing-mode:vertical-rl]">Filters <span id="strip-active-gear">{{template "armory_active" $d}}</span></span>
+    </label>
+    <input type="checkbox" id="gear-open" class="sr-only max-lg:hidden" aria-label="Open the gear builder"{{if .Data.Gear.Open}} checked{{end}}>
+    <label for="gear-open" data-gear-open class="gear-strip hidden w-[34px] flex-none cursor-pointer flex-col items-center gap-3 border-l border-line bg-ink-strip py-3 hover:bg-ink-strip-hover" title="Open the gear builder">
+      <span class="font-mono text-[12px] font-medium text-link">‹</span>
+      <span class="font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-muted [writing-mode:vertical-rl]">Gear builder<span id="gear-strip-count">{{template "armory_gear_count" $d}}</span></span>
+      <span class="flex-1"></span>
+      <span aria-hidden="true" class="size-[6px] flex-none rotate-45 bg-link"></span>
+    </label>
+    <aside aria-label="Gear builder" id="gear-pane" data-island="gear" class="gear-sheet gear-pane relative hidden lg:min-w-[296px] lg:flex-[0_1_352px] lg:flex-col lg:border-l lg:border-line lg:bg-ink-pane">
+      <input type="checkbox" id="gear-stats-folded" class="sr-only" aria-label="Fold the combined stats">
+      <div id="gear-body" class="flex min-h-0 flex-1 flex-col">
+{{template "armory_gear" $d}}
+      </div>
+      {{/* The phone sheet's way out: every change has applied already; this closes the sheet. */}}
+      <div class="flex flex-none items-center border-t border-line bg-ink-header px-4 pb-5 pt-3 lg:hidden">
+        <label for="gear-sheet" id="gear-show" class="flex h-[46px] flex-1 cursor-pointer items-center justify-center rounded-[8px] bg-link text-[13.5px] font-semibold text-ink hover:bg-link-hover">{{template "armory_sources_show" $d}}</label>
+      </div>
+    </aside>
   </div>
 </form>
+{{/* The gear builder's island (AOC-051): dragging, copying the link, the builds kept in the browser. */}}
+<script type="module" src="{{asset "gear.js"}}"></script>
 {{/* Enhancements only: without them, and without JavaScript, the page works.
      - The level sliders write their hidden input; a slider at its end is no bound (AOC-065).
      - A link's or Cancel's request sets the form to its state as it goes; a pane an answer draws
@@ -148,7 +181,9 @@ var aocPane = document.getElementById("armory-facets"), aocScroll = aocPane.pare
 // no control for (the sort, say) rides along as a hidden input until the answer redraws the pane.
 function aocFormFrom(url) {
   var left = [], form = aocPane.closest("form");
-  new URLSearchParams(url.split("?")[1] || "").forEach(function (v, k) { if (k !== "p") left.push([k, v]); });
+  // Not `p` (a change starts again at page 1), and not `add`: an action, which the answer turns into
+  // its state (AOC-051) — kept in the form, the next change would send it again.
+  new URLSearchParams(url.split("?")[1] || "").forEach(function (v, k) { if (k !== "p" && k !== "add") left.push([k, v]); });
   var take = function (name, value) { // the first pair left with this name (and value), consumed
     for (var j = 0; j < left.length; j++) {
       if (left[j][0] === name && (value === undefined || left[j][1] === value)) return left.splice(j, 1)[0][1];

@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/pages"
@@ -60,8 +61,11 @@ func TestTheRailIsAFormThatWorksWithoutJavaScript(t *testing.T) {
 	if strings.Join(legends, " | ") != "Rarity | Slot | Armour weight | Class restriction | Item level" {
 		t.Errorf("the pane's sections are %v, want exactly the design's five", legends)
 	}
+	// The filter pane only: the gear builder's class picker is a <select>, as its design draws it (AOC-051).
+	pane := body[strings.Index(body, `<aside aria-label="Filters"`):]
+	pane = pane[:strings.Index(pane, `</aside>`)]
 	for _, gone := range []string{`name="price"`, `name="reqlvl_min"`, `<select`, "Vendor price", "Required level"} {
-		if strings.Contains(body, gone) {
+		if strings.Contains(pane, gone) {
 			t.Errorf("the pane still carries %q — not in the design", gone)
 		}
 	}
@@ -274,9 +278,10 @@ func TestThePageAndTheJSONShowTheSameCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := items.NewService(newFakeItems(120))
+	q := newFakeItems(120)
+	svc := items.NewService(q)
 	api := items.NewHandler(svc, stubTaxonomies{})
-	h := httpx.NewRouterWithAPI(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, svc).Routes, set.Handler(),
+	h := httpx.NewRouterWithAPI(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, pages.New(tpl, set, base, svc, builds.NewService(q)).Routes, set.Handler(),
 		func(v1 chi.Router) { v1.Mount("/items", api.Routes()) })
 
 	for _, state := range []string{"", "rarity=epic&price=false&ilvl_min=10"} {

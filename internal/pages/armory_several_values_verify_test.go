@@ -110,7 +110,9 @@ func TestASelectsFurtherValuesRideAlongAsHiddenInputsAndChips(t *testing.T) {
 	// EVERY chosen currency rides along as a hidden input (once each), and each is its own chip.
 	body := get(t, router(t), http.MethodGet, "/armory?currency=test-token&currency=test-coin&sort=name", nil, "").Body.String()
 	form := body[strings.Index(body, `<form method="get"`):strings.Index(body, `</form>`)]
-	if strings.Contains(form, `<select`) {
+	// The filter pane only: the gear builder's class picker is a <select>, as its design draws it (AOC-051).
+	pane := form[strings.Index(form, `<aside aria-label="Filters"`):]
+	if pane = pane[:strings.Index(pane, `</aside>`)]; strings.Contains(pane, `<select`) {
 		t.Error("a currency select is back in the pane — the design has none")
 	}
 	for _, v := range []string{"test-token", "test-coin"} {

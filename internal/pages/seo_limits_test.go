@@ -12,7 +12,7 @@ import (
 // URL. (A slug of other characters would escape to up to three bytes each; the importer never writes
 // one, and a writer that could, EP-06's edits, must re-prove this.)
 func TestAFullChunkOfTheLongestURLsStaysUnder50MB(t *testing.T) {
-	if h := New(nil, nil, "", nil); sitemapProtocolMax != 50000 || h.sitemapMax != sitemapProtocolMax {
+	if h := New(nil, nil, "", nil, nil); sitemapProtocolMax != 50000 || h.sitemapMax != sitemapProtocolMax {
 		t.Fatalf("limit %d, a new handler's %d; the protocol's is 50,000", sitemapProtocolMax, h.sitemapMax)
 	}
 	loc := sitemapLoc{Loc: "https://aoc-codex.app/armory/" + strings.Repeat("x", 160)}

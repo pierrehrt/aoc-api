@@ -37,7 +37,10 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	// added here on purpose, so that a text colour cannot be excused by being misnamed.
 	surfaces := map[string]bool{"ink": true, "ink-header": true, "ink-pane": true, "ink-strip": true, "ink-hover": true,
 		"ink-selected": true, "ink-nav": true, "ink-nav-hover": true, "ink-pill": true, "ink-pane-hover": true, "ink-tree-hover": true,
-		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true}
+		"line": true, "line-row": true, "line-control": true, "line-chip": true, "line-soft": true, "line-box": true,
+		// The gear builder (AOC-051): its surfaces, measured below with the text each carries, and its bars.
+		"ink-strip-hover": true, "ink-field": true, "ink-drop": true, "ink-drop-over": true, "warn": true,
+		"line-equipped": true, "line-conflict": true, "warn-line": true}
 	// AOC-065: text sits on every pane of the full-window layout, not only on the page colour — each
 	// pair is measured. (On ink-selected, only paper is ever written; it is measured below.)
 	backgrounds := []string{"ink", "ink-header", "ink-pane", "ink-strip", "ink-hover", "ink-pane-hover"}
@@ -64,7 +67,15 @@ func TestThemeTextTokensPassAA(t *testing.T) {
 	// its caret and count in muted-2 — never faint, which is 4.34:1 there. A selected row carries
 	// paper and link on ink-selected.
 	for _, pair := range [][2]string{{"paper", "ink-selected"}, {"paper", "ink-nav"}, {"paper", "ink-pill"}, {"paper", "ink-nav-hover"}, {"muted-2", "ink-nav-hover"},
-		{"muted", "ink-tree-hover"}, {"muted-2", "ink-tree-hover"}, {"paper", "ink-tree-hover"}, {"link", "ink-tree-hover"}, {"link", "ink-selected"}} {
+		{"muted", "ink-tree-hover"}, {"muted-2", "ink-tree-hover"}, {"paper", "ink-tree-hover"}, {"link", "ink-tree-hover"}, {"link", "ink-selected"},
+		// The gear builder (AOC-051): its folded strip under the pointer (label and caret), the class picker
+		// and a build's dot, a refusal, and a slot while a row is dragged over it (every text a slot holds;
+		// its number turns muted there, since faint is 4.34:1 and 3.98:1 — app.css).
+		{"muted", "ink-strip-hover"}, {"link", "ink-strip-hover"}, {"paper", "ink-field"}, {"muted", "ink-field"}, {"link-hover", "warn"},
+		{"muted", "ink-drop"}, {"link", "ink-drop"}, {"link-hover", "ink-drop"}, {"paper", "ink-drop"},
+		{"muted", "ink-drop-over"}, {"link", "ink-drop-over"}, {"link-hover", "ink-drop-over"}, {"paper", "ink-drop-over"},
+		{"rarity-legendary", "ink-drop"}, {"rarity-epic", "ink-drop"}, {"rarity-rare", "ink-drop"},
+		{"rarity-legendary", "ink-drop-over"}, {"rarity-epic", "ink-drop-over"}, {"rarity-rare", "ink-drop-over"}} {
 		if r := contrast(tokens[pair[0]], tokens[pair[1]]); r < 4.5 {
 			t.Errorf("%s on %s is %.2f:1 — below AA's 4.5:1", pair[0], pair[1], r)
 		}

@@ -1,0 +1,77 @@
+{{/* The gear builder (AOC-051), the validated design's right-hand pane (discovery/design/armory-2026-10-01,
+     the prototype's builder). What each part holds is built in internal/pages (buildGear) from
+     builds.Service; the template only prints. Every control is a link or a form field, so the pane is
+     complete without JavaScript; gear.js (the island) adds dragging, copying the link and the builds
+     kept in the browser — the parts marked js-only, drawn empty here and filled by it. */}}
+{{define "armory_gear_count"}} · {{.Gear.Filled}}/{{.Gear.Total}}{{end}}
+{{define "armory_gear"}}{{$g := .Gear}}
+{{range $g.Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}<div class="flex flex-none flex-col gap-[9px] border-b border-line px-[14px] pb-[10px] pt-3">
+  <div class="flex items-center gap-1.5">
+    <button type="button" data-gear-prev aria-label="The previous build" class="js-only flex size-6 flex-none items-center justify-center rounded-[5px] border border-line-control font-mono text-[12px] font-medium text-muted hover:border-link max-lg:size-9">‹</button>
+    <h2 class="min-w-0 flex-auto text-center text-[14px] font-semibold tracking-[-0.01em] text-paper">Armor builder<span data-gear-number></span></h2>
+    <button type="button" data-gear-next aria-label="The next build" class="js-only flex size-6 flex-none items-center justify-center rounded-[5px] border border-line-control font-mono text-[12px] font-medium text-muted hover:border-link max-lg:size-9">›</button>
+    <label for="gear-open" title="Fold the builder" class="flex size-6 flex-none cursor-pointer items-center justify-center font-mono text-[13px] font-medium text-faint hover:text-paper max-lg:hidden">›|</label>
+    <label for="gear-sheet" class="flex min-h-9 flex-none cursor-pointer items-center px-2 text-[13px] text-link lg:hidden">Close</label>
+  </div>
+  {{/* 22px tall, as the design's row is with its Save, which is not built (EP-08) — the header keeps its 78px. */}}
+  <div class="flex min-h-[22px] items-center gap-1.5">
+    <div data-gear-dots class="js-only flex flex-wrap items-center gap-1.5"></div>
+    <span class="flex-1"></span>
+    {{if $g.Present}}<a href="{{$g.ClearURL}}" hx-get="{{$g.ClearURL}}" hx-target="#results" hx-push-url="true" class="font-mono text-[11px] text-faint underline hover:text-paper">clear</a>{{end}}
+  </div>
+</div>
+<div class="flex flex-none flex-col gap-[7px] border-b border-line bg-ink px-[14px] py-[11px]">
+  <div class="flex items-center gap-2">
+    <label for="gear-class" class="flex-none font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint">Class</label>
+    {{/* In the form, so a filter change keeps it; on its own change, the builder and the list redraw. */}}
+    <select id="gear-class" name="gear_class" hx-get="/armory" hx-trigger="change" hx-include="closest form" hx-target="#results" hx-push-url="true" class="h-7 min-w-0 flex-auto rounded-[5px] max-lg:h-9 border border-line-control bg-ink-field px-[7px] text-[12px] font-medium text-paper focus-visible:border-link focus-visible:outline-none">
+      <option value="">Any class — no restriction</option>
+      {{range $g.Classes}}<option value="{{.Slug}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+    <button type="submit" class="no-js-only h-7 flex-none rounded-[5px] border border-line-control px-2 text-[12px] font-medium text-muted hover:border-link">Apply</button>
+  </div>
+  {{if $g.Conflicts}}<a href="{{$g.DropConflictsURL}}" hx-get="{{$g.DropConflictsURL}}" hx-target="#results" hx-push-url="true" class="self-start rounded-[5px] border border-warn-line bg-warn px-2 py-1 font-mono text-[11px] font-medium text-link-hover hover:border-link">remove {{$g.Conflicts}} conflicting</a>{{end}}
+  {{with $g.Refusal}}<p role="status" class="rounded-[5px] border border-warn-line bg-warn px-2 py-1 font-mono text-[11px] leading-[1.5] text-link-hover">{{.}}</p>{{end}}
+</div>
+<div class="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+  <ol aria-label="Slots" class="flex flex-none flex-col">
+  {{range $g.Rows}}
+    <li data-gear-slot="{{.Slot}}" data-status="{{.Status}}" class="gear-slot grid grid-cols-[22px_74px_1fr_18px] max-lg:grid-cols-[22px_74px_1fr_36px] items-center gap-2 border-b border-l-2 border-b-line-row px-[14px] py-[7px] {{if eq .Status "equipped"}}border-l-line-equipped bg-ink-hover{{else if eq .Status "empty"}}border-l-transparent{{else}}border-l-line-conflict bg-ink-hover{{end}}">
+      <span class="font-mono text-[11px] text-faint">{{.N}}</span>
+      <span class="truncate text-[12px] text-muted">{{.Name}}</span>
+      {{/* The cell takes its content's size: inheriting 16px, its line box made every row 35px, not 30. */}}
+      <span class="gear-item min-w-0 truncate {{if .ItemSlug}}text-[12.5px]{{else}}font-mono text-[11.5px]{{end}}"{{with .Note}} title="{{.}}"{{end}}>
+        {{- if .ItemSlug}}<a href="/armory/{{.ItemSlug}}" class="text-[12.5px] font-medium hover:underline {{if eq .Status "equipped"}}text-paper{{else}}text-link-hover{{end}}"{{if eq .Status "equipped"}}{{with .Colour}} style="color: var(--color-{{.}})"{{end}}{{end}}>{{.ItemName}}</a>{{with .Note}} <span class="font-mono text-[11px] text-link-hover">{{.}}</span>{{end}}
+        {{- else if .Note}}<span class="font-mono text-[11.5px] {{if eq .Status "unknown"}}text-link-hover{{else}}text-faint{{end}}">{{.Note}}</span>
+        {{- else}}<span class="gear-empty font-mono text-[11.5px] text-faint">—</span>{{end -}}
+      </span>
+      {{if .RemoveURL}}<a href="{{.RemoveURL}}" hx-get="{{.RemoveURL}}" hx-target="#results" hx-push-url="true" aria-label="Empty the {{.Name}} slot" class="text-center font-mono text-[12px] font-medium text-faint hover:text-link-hover max-lg:-my-[9px] max-lg:flex max-lg:h-9 max-lg:items-center max-lg:justify-center">✕</a>{{else}}<span></span>{{end}}
+    </li>
+  {{end}}
+  </ol>
+  <div class="flex flex-none items-center gap-2 border-b border-line bg-ink-strip px-[14px] py-[10px]">
+    <span class="min-w-0 flex-auto font-mono text-[11px] leading-[1.5] text-faint">{{$g.Filled}}/{{$g.Total}} slots{{if $g.Conflicts}} · {{$g.Conflicts}} conflict{{if gt $g.Conflicts 1}}s{{end}}{{end}}</span>
+    {{/* The build alone, absolute: the link to send. A plain link without JavaScript (right-click to
+         copy it, as on AoC>TV); with it, a click copies it. */}}
+    <a href="{{$g.ShareURL}}" data-gear-copy class="flex-none font-mono text-[11px] font-medium text-link underline hover:text-link-hover">share armor link</a>
+  </div>
+  {{/* "Combined stats" folds through #gear-stats-folded, which sits outside this redrawn body (armory.html),
+       so a fold survives every answer — a <details> here would open again on each one. */}}
+  <div class="flex-none">
+    <label for="gear-stats-folded" class="flex cursor-pointer items-center gap-[7px] px-[14px] pb-1.5 pt-3 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint hover:text-paper">
+      <span aria-hidden="true" class="gear-caret w-[9px] flex-none text-link"></span>Combined stats
+    </label>
+    <div class="gear-stats">
+    <p class="px-[14px] pb-1.5 font-mono text-[11px] text-faint">{{$g.SumNote}}</p>
+    {{if $g.Lines}}<ul class="flex flex-col px-[14px] pb-[14px]">
+      {{range $g.Lines}}<li class="grid grid-cols-[66px_1fr] gap-[10px] border-b border-line-row py-[5px]"><span class="text-right font-mono text-[12.5px] font-medium text-paper">{{.Value}}</span> <span class="text-[12.5px] text-paper-2">{{.Label}}</span></li>
+      {{end}}
+    </ul>{{else}}<div class="mx-[14px] mb-[14px] flex flex-col gap-1.5 rounded-[7px] border border-dashed border-line-soft p-3">
+      <p class="text-[12px] leading-[1.6] text-paper-2">{{$g.EmptyText}}</p>
+    </div>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

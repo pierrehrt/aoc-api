@@ -17,10 +17,14 @@
 {{if .Result.Items}}
 {{/* From lg the design's fixed grid: Item 1.5fr (≥180px), Slot 108, Type 104, iLvl 52, Class 112, a
      flexible Source and Price, 12px between, one line per row with an ellipsis (AOC-065).
+     ≥ 1000px wide, scrolling inside its pane below that, as the design's table does (its grid never goes
+     under ~1,024px): at 860 the Source column fell to ~25px and its header ran into PRICE whenever the
+     pane was under ~900px — at 1440 once the gear builder's strip took its 34px (AOC-051), already at
+     1280 before. At 1000 Source keeps ~96px.
      The lines are on the cells, with separate borders: a collapsed table gives half of each line to
      the next row (a 30.5px header, every row half a pixel off the design's 31/37), and its sticky
      header's line scrolls away. */}}
-<table class="w-full border-separate border-spacing-0 lg:min-w-[860px] lg:table-fixed">
+<table class="w-full border-separate border-spacing-0 lg:min-w-[1000px] lg:table-fixed">
   <colgroup class="hidden lg:table-column-group">
     <col class="lg:w-[30%]"><col class="lg:w-[120px]"><col class="lg:w-[116px]"><col class="lg:w-[64px]"><col class="lg:w-[124px]"><col><col class="lg:w-[18%]">
   </colgroup>
@@ -37,10 +41,16 @@
     </tr>
   </thead>
   <tbody>
-  {{range .Result.Items}}
-    <tr data-row class="align-top hover:bg-ink-hover lg:align-middle">
-      <td class="border-b border-line-row py-[9px] pl-4 pr-3 text-[13.5px] lg:truncate">
+  {{range .Result.Items}}{{$it := .}}
+    {{/* A row with a slot carries what the gear builder's island reads to drag it (AOC-051); a row the
+         builder's class cannot wear is dimmed, as the design does. */}}
+    <tr data-row{{if .EquipLocations}} data-gear-id="{{.ID}}" data-gear-slots="{{range $i, $s := .EquipLocations}}{{if $i}} {{end}}{{$s.Slug}}{{end}}"{{end}} class="align-top hover:bg-ink-hover lg:align-middle{{if index $.Gear.Dim .ID}} opacity-[.34]{{end}}">
+      <td class="relative border-b border-line-row py-[9px] pl-4 pr-3 text-[13.5px] lg:truncate{{if index $.Gear.AddURLs .ID}} max-lg:pr-12{{end}}">
         <a href="/armory/{{.Slug}}" class="text-[13.5px] font-medium text-paper hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
+        {{- /* The builder's "+": a link, so it works without JavaScript; shown on hover and focus where
+             there is a pointer, always on a touch screen (app.css .gear-add). Not in the design: the
+             non-drag way to add, and a phone's only one (DECISIONS.md 2026-10-05). */}}
+        {{with index $.Gear.AddURLs .ID}}<a href="{{.}}" hx-get="{{.}}" hx-target="#results" hx-push-url="true" title="Add to the gear builder" aria-label="Add {{$it.Name}} to the gear builder" class="gear-add absolute right-2 top-1 flex size-9 items-center justify-center rounded-[5px] border border-line-control bg-ink-pane font-mono text-[13px] font-medium text-link hover:border-link lg:right-3 lg:top-1/2 lg:size-[22px] lg:-translate-y-1/2">+</a>{{end}}
         {{/* The phone row (design 1b): what the hidden columns say, on lines under the name. */}}
         {{with phoneLine .}}<div data-line="phone" class="mt-0.5 font-mono text-[11.5px] text-muted md:hidden">{{.}}</div>{{end}}
         {{/* place · price, or either alone — a price with no place must not lead with the separator (verify round 1: 1,378 items). */}}

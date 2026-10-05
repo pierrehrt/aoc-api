@@ -16,6 +16,9 @@ import (
 type fakeItems struct {
 	rows  []sqlcgen.ListItemsRow
 	slots []sqlcgen.ListItemPageEquipLocationsRow // the rows' slots, when a test needs them (AOC-062)
+	// The gear builder's view of the same rows (AOC-051), when a test needs it: classes and stats.
+	gearClasses map[int32][]string
+	gearStats   map[int32][]sqlcgen.ListBuildItemStatsRow
 }
 
 func newFakeItems(n int) *fakeItems {
