@@ -107,29 +107,45 @@ function mount() {
     return { gear: q.getAll("gear").length ? q.getAll("gear") : [""], gear_class: q.getAll("gear_class"), gear_id: [b.id] };
   }
 
-  // What the page shows is the build its URL names: written as that build. A build with no id came
-  // from elsewhere (a shared link; a page made without a script): it is a kept build already if one
-  // holds exactly it, otherwise a build of its own — it never overwrites one. It then gets its id in the
-  // address (a replace) and in the page's links (the same state asked again, which the server answers
-  // with HX-Replace-Url).
-  function adopt() {
-    const p = pageBuild();
-    if (!p) return;
-    if (p.id) {
-      keep(p.id, p.qs);
-      setTab(p.id);
-      return;
-    }
-    const same = empty(p.qs) ? null : list().find((b) => b.qs === p.qs);
+  // ⭐ Opening a page never writes a kept build; only a reader's action does (AOC-051 verify round 3, F7:
+  // a bookmark of an older state erased every edit made since, because each load wrote its URL's
+  // state). So `adopt` is told which it is:
+  //   - an ANSWER to an action (a "+", a drop, a ×, the class) writes its build, by id;
+  //   - a LOAD whose state equals the kept build only selects it; one from the tab's own history (Back,
+  //     Forward, reload) shows the older state and writes nothing — the next action writes it, which
+  //     is undo; any other load (a bookmark, a link, the address bar) with another state of a kept
+  //     build is a build of its own, so it never overwrites one;
+  //   - an id this browser does not keep is added: it overwrites nothing.
+  // A build arriving with no id (a shared link; a page made without a script) is a kept build if one
+  // holds exactly it, otherwise a build of its own. A new id goes into the address (a replace) and into
+  // the page's links (the same state asked again, which the server answers with HX-Replace-Url).
+  const norm = (qs) => (empty(qs) ? "" : qs);
+  function fork(qs) {
+    const same = empty(qs) ? null : list().find((b) => b.qs === qs);
     const id = same ? same.id : newId();
-    if (!same) keep(id, p.qs);
+    if (!same) keep(id, qs);
     setTab(id);
     const u = new URL(location.href);
     u.searchParams.set("gear_id", id);
     try { history.replaceState(history.state, "", u.pathname + "?" + u.searchParams.toString()); } catch (e) {}
     request({ gear_id: [id] });
   }
-  adopt();
+  function adopt(onLoad) {
+    const p = pageBuild();
+    if (!p) return;
+    if (!p.id) return fork(p.qs);
+    const k = list().find((x) => x.id === p.id);
+    if (!onLoad || !k) {
+      keep(p.id, p.qs);
+      setTab(p.id);
+      return;
+    }
+    if (norm(k.qs) === norm(p.qs)) return setTab(p.id);
+    const nav = (performance.getEntriesByType("navigation")[0] || {}).type;
+    if (nav === "back_forward" || nav === "reload") return setTab(p.id);
+    fork(p.qs);
+  }
+  adopt(true);
 
   // An add, named by the reader: a drop on a slot, or a row's "+". When the URL holds no build, this
   // tab's kept one goes with it, so a "+" on a fresh visit adds to that build, not to a new empty one.
@@ -207,7 +223,7 @@ function mount() {
   // names. After the settle, once every part of the answer is in.
   document.addEventListener("htmx:afterSettle", (e) => {
     if (!e.detail.target || e.detail.target.id !== "results") return;
-    adopt();
+    adopt(false);
     render();
     // A refused add says why in the pane: open it (the sheet on a phone), or nobody sees the reason.
     if (body() && body().querySelector('[role="status"]')) {

@@ -790,6 +790,13 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     Each guess let one tab write over another's build (F1, F4). A build that arrives without an id
     (a shared link, or a page made without a script) is a kept build if one holds exactly it, and
     otherwise a build of its own. It gets its id with one replace request.
+  - **Opening a page never writes a kept build; only a reader's action does** (verify round 3, F7: a
+    bookmark of an older state erased every edit since). An answer to an action writes its build. A
+    load whose state equals the kept build selects it. A load from the tab's own history (Back,
+    Forward, reload) shows the older state and writes nothing: the next action writes it, which is
+    undo. Any other load (a bookmark, a link, the address bar) with another state of a kept build is a
+    build of its own. An id this browser does not keep is added. The cost, accepted: an undo by Back
+    alone, with no action after it, is not kept.
   - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
     it back when a page with no build opens the strip.
 - **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates
