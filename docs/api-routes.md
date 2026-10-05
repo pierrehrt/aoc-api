@@ -43,6 +43,8 @@ page depends on no authenticated request.
 | `GET /v1/items` | the armory list, paginated and filtered | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
 | `GET /v1/items/{slug}` | one item with stats, sources, costs and set | `public, max-age=60, s-maxage=600`; a 404 `public, max-age=60, s-maxage=60` |
 | `GET /v1/taxonomies` | every filter vocabulary in one call | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
+| `GET /v1/sources/tree` | the Armory's source panel for one tab | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
+| `GET /v1/builds/compute` | the gear builder: a build's slots and combined stats (AOC-051) | `public, max-age=60, s-maxage=600` (the `/v1` policy) |
 
 **Why one window for all three.** These routes do not choose their own: every `/v1` GET gets the
 same policy from `httpx.Cache` (`docs/architecture.md` § Caching). A browser rechecks after a minute;
@@ -285,6 +287,60 @@ Its shape (counts inside a branch shown as 0 here, not measured values):
   - A tier whose every row is at one stronghold is that point, and has it.
 - Not paginated: a tab's tree is bounded by the data (the largest, Faction, has 230 branches).
 
+### `GET /v1/builds/compute`
+
+The gear builder (AOC-051): what the Armory page's builder shows for a build, from the **same
+parameters the page takes** and the same service (`internal/builds`), so the two cannot disagree
+(`TestThePageAndTheJSONShowTheSameBuild`).
+
+- `gear` — repeated, `<slot slug>:<item id>`: an `equip_locations.slug` and an `items.item_id`
+  (`gear=head:273&gear=left-finger:4355`). Comma-separated works too. An empty `gear=` is an empty
+  build.
+- `gear_class` — a `classes.slug`, or absent for any class.
+
+```json
+{
+  "class": {"slug": "…", "name": "…", "short_name": "…", "archetype": "…"},
+  "slots": [
+    {"slot": {"slug": "head", "name": "Head"}, "status": "equipped", "item_id": 273,
+     "item": {"id": 273, "slug": "…", "name": "…", "rarity_colour_token": "rarity-rare", "two_handed": false}},
+    {"slot": {"slug": "off-hand", "name": "Off Hand"}, "status": "held",
+     "held_by": {"id": 177, "…": "…", "two_handed": true}}
+  ],
+  "filled": 2, "conflicts": 0,
+  "armor": 934, "critigation": 263,
+  "stats": [{"stat": "Strength", "value": "223.00", "sign": 1, "unit": "flat", "pvp": false}],
+  "sum": "raw sum: no set bonuses, no diminishing returns",
+  "attribution": "AoC Codex — https://aoc-codex.app/info"
+}
+```
+
+- **`slots`** is every equipment slot, in order (`equip_locations`, 14 today). A slot's `status`:
+  - `empty`;
+  - `equipped` — worn and summed;
+  - `wrong_slot` — the item does not go in that slot (`item_equip_locations`);
+  - `held` — a two-hander in another hand takes this one. That is an `item_types.two_handed` type,
+    and the hands are the slots a one-handed weapon fits. The two-hander still allows its
+    `item_types.other_hand_type_id` beside it: a bow its ammunition (Pierre, 2026-10-05). `held_by`
+    names it;
+  - `conflict` — the picked class cannot wear it. An item can be worn when it lists no class or lists
+    that one, and its armour weight is within the class's `max_armour_weight` when one is recorded.
+- **Only `equipped` items are summed.** `armor` and `critigation` are the item page's base lines,
+  absent when no worn item has one. `stats` are the `item_stats` lines added per (stat, unit,
+  `damage_type`, `pvp`) in **exact decimals** (the column is `numeric(8,2)`). Each `value` is
+  unsigned, with `sign` apart, as on `/v1/items/{slug}`. A sum of 0 has sign 0. Lines come in the
+  order each first appears, slot by slot. **Spell effects and DPS are never summed.** `sum` says what
+  kind of sum it is.
+- `filled` counts the slots the request fills, whatever their status. `conflicts` counts the
+  `conflict` ones.
+- **400**:
+  - a malformed `gear` (no `:`, an id that is not a whole number from 1, a slot given twice);
+  - a slot or class no row has;
+  - **an item id no item has**. The page shows that last one as an "unknown item" row instead: a
+    caller that sends a build wants to be told it is wrong.
+- `add`, the page's action, is not read here.
+- Not paginated: a build is at most one item per slot.
+
 ### `GET /v1/items/{slug}`
 
 One item with everything its page shows, in one response: stats, every source (place, boss, region,
@@ -378,7 +434,7 @@ changed slug on an indexed page throws away its ranking and breaks every link ev
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` | Home page, HTML |
-| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049; since AOC-065 the pane is exactly the validated design's: rarity, slot, armour weight and class as checkboxes and toggle chips, several at once (AOC-064), and the item level as two sliders. Every other filter — required level, vendor price, currency, set, and the rest — rides along as a hidden input and shows as a pill, one per value, worded as the design's (`rarity: Epic`, `class: Conq`, `ilvl 60–90`, `q: …`)). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the pane, the pills and both active counts out of band — with `HX-Push-Url` set to the state's canonical URL (`HX-Replace-Url` instead when `HX-Current-URL` names the same state: one history entry per state); both answers send `Vary: HX-Request`. A request whose reader went away (an aborted live request: its own context canceled) is logged as 499, not an error; a database failure stays a 500. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state. **Since AOC-068 the sources panel**: `tab` (the active main category, absent = the first; it filters nothing), `source` and `get` (the picked branch, as `/v1/items` reads them). The tabs, the tree, the selected-source box and its counts come back out of band too, and the pick is a `source: …` pill. An unknown `tab` is a 404 |
+| GET | `/armory` | **The Armory list** (AOC-047): `q` (name or id), `sort` (`ilvl` default here, `name`, `id`), `p` (1-based, 50 rows), and **every `/v1/items` filter** (AOC-049; since AOC-065 the pane is exactly the validated design's: rarity, slot, armour weight and class as checkboxes and toggle chips, several at once (AOC-064), and the item level as two sliders. Every other filter — required level, vendor price, currency, set, and the rest — rides along as a hidden input and shows as a pill, one per value, worded as the design's (`rarity: Epic`, `class: Conq`, `ilvl 60–90`, `q: …`)). Same parser and service as `/v1/items`, always with the facet counts. Every link on the page (pager, sort, chips, canonical) carries the whole state; the default sort and `p=1` stay out of it. `HX-Request: true` gets `armory_update` — the rows, plus the pane, the pills and both active counts out of band — with `HX-Push-Url` set to the state's canonical URL (`HX-Replace-Url` instead when `HX-Current-URL` names the same state: one history entry per state); both answers send `Vary: HX-Request`. A request whose reader went away (an aborted live request: its own context canceled) is logged as 499, not an error; a database failure stays a 500. `p` past the end is 404; a bad `p`, `sort`, level or boolean, or an empty range, is 400 — as dependency-free HTML (`httpx.RejectHTML`) naming the reason; to an `HX-Request` a malformed filter is a **400 `armory_invalid` fragment** (the reason, for `#results`; `HX-Push-Url: false`). An unknown slug is not rejected: it shows as a chip, over the empty state. **Since AOC-068 the sources panel**: `tab` (the active main category, absent = the first; it filters nothing), `source` and `get` (the picked branch, as `/v1/items` reads them). The tabs, the tree, the selected-source box and its counts come back out of band too, and the pick is a `source: …` pill. An unknown `tab` is a 404. **Since AOC-051 the gear builder** rides on the same URL: `gear` and `gear_class` exactly as `/v1/builds/compute` reads them. The pane is the build's, opened on load when the URL carries one (`gear=` alone opens an empty one), and every link on the page carries it. **The canonical never does**: build URLs are not indexed apart from the list they sit on. A state with a build is titled "Gear build — Armory" with its items in the description. **`add`** is an action, not state: `add=<item id>` (the server picks the slot: the first free one the item fits, else the first it fits) or `add=<slot>:<item id>` (a drop). Accepted, a plain GET gets a **303** to the state's own URL; htmx gets the update with that URL in `HX-Push-Url`. Refused (no slot; does not go in that slot; the hand is held by a two-hander; the class cannot wear it), the unchanged state with the reason in the pane, which opens. A malformed or unknown slot, class or `add` is a 400 like any malformed filter |
 | GET | `/armory/{slug}` | **The item page** (AOC-048): one item from `items.Service.Get` — the call `/v1/items/{slug}` makes. Stats as text beside the tooltip image, the set with its other pieces linked, sources grouped by each row's own acquisition type. `<title>` "{name} — AoC Codex", canonical `/armory/{slug}`, `og:image` = the tooltip image with `twitter:card` `summary` (it is portrait), one JSON-LD `Thing`. An unknown slug is a **404** as dependency-free HTML, `s-maxage=60`. **The same bytes for every reader** — nothing is read from the Referer; the back link's "return to your search" happens in the browser. The list's rows link here |
 | GET | `/aa`, `/feats`, `/dj-raids`, `/more` | **Coming Soon pages** (Pierre, 2026-10-01): the design's header tabs, shown before their sections exist. Each says only that the section is not built. **`noindex`**, canonical to itself, **not in the sitemap**. A section that ships takes over its URL (or 301s it, rule 5c) |
 | GET | `/robots.txt` | **AOC-025.** `text/plain`: `User-agent: *`, `Disallow` for `/_smoke`, `/v1/` and `/health` (one list, `pages.robotsDisallow`), and the absolute `Sitemap:` URL. ⚠️ In production **Cloudflare prepends its managed "content signals" comment block** to it (measured 2026-09-30) — parse the rules, never compare the bytes |

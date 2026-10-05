@@ -644,7 +644,9 @@ CREATE TABLE public.item_types (
     name character varying(64) NOT NULL,
     default_equip_location_id integer,
     is_equipment boolean,
-    two_handed boolean
+    two_handed boolean,
+    other_hand_type_id integer,
+    CONSTRAINT item_types_other_hand_only_two_handed CHECK (((other_hand_type_id IS NULL) OR (two_handed IS TRUE)))
 );
 
 
@@ -2286,6 +2288,14 @@ ALTER TABLE ONLY public.item_stats
 
 ALTER TABLE ONLY public.item_types
     ADD CONSTRAINT item_types_default_equip_location_id_fkey FOREIGN KEY (default_equip_location_id) REFERENCES public.equip_locations(id);
+
+
+--
+-- Name: item_types item_types_other_hand_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.item_types
+    ADD CONSTRAINT item_types_other_hand_type_id_fkey FOREIGN KEY (other_hand_type_id) REFERENCES public.item_types(id);
 
 
 --
