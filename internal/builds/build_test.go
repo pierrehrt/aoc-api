@@ -3,6 +3,7 @@ package builds_test
 import (
 	"errors"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/builds"
@@ -46,12 +47,38 @@ func TestParseReadsSlotsTheClassAndPresence(t *testing.T) {
 	}
 }
 
+// gear_id names which of a browser's kept builds this is (verify round 2, F4): it makes a build on its
+// own, rides through Values, survives Without and WithClass, and is left out of a shared link.
+func TestTheBuildsIDRidesAlongButIsNotShared(t *testing.T) {
+	b := parse(t, "gear_id=abc123")
+	if !b.Present || b.ID != "abc123" {
+		t.Fatalf("an id alone is a build: %+v", b)
+	}
+	b = parse(t, "gear=test-head:1&gear_id=abc123")
+	if got := b.Without("test-head").Values().Encode(); got != "gear_id=abc123" {
+		t.Errorf("emptied, the build keeps its id: %q", got)
+	}
+	if got := b.WithClass("test-class-a").Values().Get(builds.ParamID); got != "abc123" {
+		t.Errorf("a class change keeps the id: %q", got)
+	}
+	if got := b.Shared().Values().Encode(); got != "gear=test-head%3A1" {
+		t.Errorf("the shared link carries the sender's id: %q", got)
+	}
+	for _, bad := range []string{"gear_id=ABC", "gear_id=a-b", "gear_id=" + strings.Repeat("a", 25)} {
+		q, _ := url.ParseQuery(bad)
+		if _, err := builds.Parse(q); !errors.Is(err, httpx.ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", bad, err)
+		}
+	}
+}
+
 func TestValuesIsParsesInverse(t *testing.T) {
 	for _, raw := range []string{
 		"gear=test-head%3A1&gear=test-main%3A3&gear_class=test-class-b",
 		"gear_class=test-class-a",
 		"gear=",
 		"gear=test-off%3A7",
+		"gear=test-head%3A1&gear_class=test-class-a&gear_id=x9",
 	} {
 		if got := parse(t, raw).Values().Encode(); got != raw {
 			t.Errorf("round trip of %q gave %q", raw, got)

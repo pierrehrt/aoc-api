@@ -19,16 +19,23 @@ const (
 	// ParamAdd is an ACTION, not state: <item id>, or <slot slug>:<item id> for a drop on that slot.
 	// A page answers it with the state's own URL, so no URL keeps it (DECISIONS.md 2026-10-05).
 	ParamAdd = "add"
+	// ParamID names WHICH of a browser's kept builds this is (AOC-051 verify round 2, F4): an opaque
+	// token the page's island makes, carried by every link like the build itself, so Back, reload and
+	// another tab can never mistake one kept build for another. It changes nothing the server computes,
+	// is never in the canonical nor in the share link, and without JavaScript there is none.
+	ParamID = "gear_id"
 )
 
 // Build is a gear build as a URL carries it.
 type Build struct {
 	// Class is a classes.slug, or "" for any class.
 	Class string
+	// ID is the browser's name for this build (ParamID), or "".
+	ID string
 	// Entries hold at most one item per slot. Compute and Add return them in the slots' order, so
 	// one build has one URL.
 	Entries []Entry
-	// Present says the URL names a build: a `gear` parameter, even an empty one, or a class. The page
+	// Present says the URL names a build: a `gear` parameter, even an empty one, a class or an id. The page
 	// opens its pane on load for a present build; `gear=` alone is an open, empty builder. An EMPTY
 	// `gear_class` is not a build: the class picker sits in the Armory's form, so every filter change
 	// sends one, and it would open the builder on every change.
@@ -48,7 +55,10 @@ type Add struct {
 	ItemID int32
 }
 
-var slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var (
+	slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	idRe   = regexp.MustCompile(`^[a-z0-9]{1,24}$`)
+)
 
 // Parse reads a build from a query string. Only the SHAPE is checked here — a slot or class slug no
 // row has is the service's to refuse, as items.ParseFilters leaves values to the database. A
@@ -60,8 +70,12 @@ func Parse(q url.Values) (Build, error) {
 	if b.Class != "" && !slugRe.MatchString(b.Class) {
 		return Build{}, fmt.Errorf("%w: %s must be a class slug, got %q", httpx.ErrInvalid, ParamClass, b.Class)
 	}
+	b.ID = strings.TrimSpace(q.Get(ParamID))
+	if b.ID != "" && !idRe.MatchString(b.ID) {
+		return Build{}, fmt.Errorf("%w: %s must be up to 24 lowercase letters and digits, got %q", httpx.ErrInvalid, ParamID, b.ID)
+	}
 	_, gear := q[ParamGear]
-	b.Present = gear || b.Class != ""
+	b.Present = gear || b.Class != "" || b.ID != ""
 	seen := map[string]bool{}
 	for _, raw := range q[ParamGear] {
 		for _, v := range strings.Split(raw, ",") {
@@ -127,6 +141,9 @@ func (b Build) Values() url.Values {
 	if b.Class != "" {
 		v.Set(ParamClass, b.Class)
 	}
+	if b.ID != "" {
+		v.Set(ParamID, b.ID)
+	}
 	if len(v) == 0 {
 		v.Set(ParamGear, "") // present and empty: the builder is open with nothing in it
 	}
@@ -156,7 +173,7 @@ func (b Build) Without(slots ...string) Build {
 	for _, s := range slots {
 		drop[s] = true
 	}
-	out := Build{Class: b.Class, Present: true}
+	out := Build{Class: b.Class, ID: b.ID, Present: true}
 	for _, e := range b.Entries {
 		if !drop[e.Slot] {
 			out.Entries = append(out.Entries, e)
@@ -170,6 +187,13 @@ func (b Build) WithClass(class string) Build {
 	out := b.Without()
 	out.Class = class
 	return out
+}
+
+// Shared is the build as a link to send carries it: without the sender's ID, which names a build in
+// the sender's browser and nothing in anyone else's.
+func (b Build) Shared() Build {
+	b.ID = ""
+	return b
 }
 
 // IDs are the build's item ids.

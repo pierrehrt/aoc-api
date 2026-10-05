@@ -10,8 +10,9 @@
 //   - drag a list row onto a slot → the request a "+" makes, naming the slot (add=<slot>:<id>);
 //   - "share armor link" copies the build's link (without a script it is a plain link);
 //   - several builds, as the design draws them (#1 … #5, ‹ ›, +), kept in this browser and shared by
-//     its tabs: the URL holds the tab's current one, the rest wait in localStorage. A shared link opens
-//     as a build of its own and never overwrites one; Back and reload edit the tab's own.
+//     its tabs. Each has an id that rides in the URL (gear_id), so a page only ever writes the build its
+//     URL names; the rest wait in localStorage. A shared link opens as a build of its own and never
+//     overwrites one.
 
 const KEY = "aoc-gear-builds";
 const MAX = 5; // the design's builds (maxBuilds)
@@ -25,8 +26,8 @@ if (pane) {
 function mount() {
   const body = () => document.getElementById("gear-body");
 
-  // The build the server drew: the pane's hidden `gear` inputs and the class picker. null when the
-  // URL carries no build (an empty one is `gear=`, which is a build).
+  // The build the server drew: the pane's hidden inputs (`gear`, `gear_id`) and the class picker, as
+  // {id, qs} — qs without the id. null when the URL carries no build.
   function pageBuild() {
     const b = body();
     if (!b) return null;
@@ -35,80 +36,60 @@ function mount() {
     gear.forEach((i) => q.append("gear", i.value));
     const c = b.querySelector('select[name="gear_class"]');
     if (c && c.value) q.set("gear_class", c.value);
-    return gear.length || (c && c.value) ? q.toString() : null;
+    const idIn = b.querySelector('input[type=hidden][name="gear_id"]');
+    const id = idIn ? idIn.value : "";
+    if (!gear.length && !(c && c.value) && !id) return null;
+    return { id: id, qs: q.toString() };
   }
   const items = (qs) => new URLSearchParams(qs).getAll("gear").filter((v) => v !== "").length;
   const empty = (qs) => !qs || (items(qs) === 0 && !new URLSearchParams(qs).get("gear_class"));
 
-  // The builds kept in this browser: [{id, qs}], shared by every tab through localStorage.
-  // ⭐ Every change re-reads the list and touches only its own build, by id. A tab never writes back a
-  // copy it holds: with two tabs open, the last one to act erased what the other had kept (AOC-051
-  // verify round 1, F1). Which build THIS tab is on is the tab's own (sessionStorage). Every access is
-  // guarded: with storage blocked or full, the builder still works on the one build its URL holds.
+  // The builds kept in this browser: [{id, qs, t}], shared by every tab through localStorage.
+  // ⭐ WHICH build a page is, is in its URL: `gear_id`, carried by every link like the build itself
+  // (AOC-051 verify round 2, F4). So a page only ever writes the build its URL names, and nothing is
+  // guessed: Back, reload, a history jump and another tab each change that build alone. Guessing — by
+  // a tab's memory, by "the first one", by the kind of navigation — let one tab write over another's
+  // build in rounds 1 and 2. Every write re-reads the list first (F1). Every access is guarded: with
+  // storage blocked or full, the builder still works on the one build its URL holds.
   const CUR = "aoc-gear-current";
-  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const newId = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).slice(0, 24);
   let held = []; // the list as this tab last read it: all there is when storage is blocked
   function list() {
     try {
       const s = JSON.parse(localStorage.getItem(KEY));
-      if (s && Array.isArray(s.builds) && s.builds.length && s.builds.every((b) => b && typeof b.id === "string" && typeof b.qs === "string")) held = s.builds;
+      if (s && Array.isArray(s.builds) && s.builds.every((b) => b && typeof b.id === "string" && typeof b.qs === "string")) held = s.builds;
     } catch (e) {}
-    if (!held.length) held = [{ id: newId(), qs: "" }];
     return held;
   }
-  let cur = null;
-  try { cur = sessionStorage.getItem(CUR); } catch (e) {}
-  function setCur(id) {
-    cur = id;
-    try { sessionStorage.setItem(CUR, id); } catch (e) {}
-  }
-  // This tab's build in a list just read: its index (the first build, if another tab dropped it).
-  function current(l) {
-    let i = l.findIndex((b) => b.id === cur);
-    if (i < 0) {
-      i = 0;
-      setCur(l[0].id);
-    }
-    return i;
-  }
-  // A change: read the list again, apply it, prune, write it. More than MAX only when a shared link
-  // arrived on a full list: empty builds go, never one with something in it, nor this tab's.
-  function change(fn) {
-    const l = list().map((b) => ({ id: b.id, qs: b.qs }));
-    fn(l);
+  // A build now holds qs: the one with this id, or a new one if none has it (a link from elsewhere, or a
+  // build pruned meanwhile). More than MAX only when a link arrived on a full list: empty builds go,
+  // never one with something in it, nor the one just written.
+  function keep(id, qs) {
+    const l = list().map((b) => Object.assign({}, b));
+    const b = l.find((x) => x.id === id);
+    if (b) {
+      b.qs = qs;
+      b.t = Date.now();
+    } else l.push({ id: id, qs: qs, t: Date.now() });
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
-      if (l[i].id !== cur && empty(l[i].qs)) l.splice(i, 1);
+      if (l[i].id !== id && empty(l[i].qs)) l.splice(i, 1);
     }
     held = l;
     try { localStorage.setItem(KEY, JSON.stringify({ builds: l })); } catch (e) {}
   }
-  // This tab's build now holds qs: kept by its id, or added back if another tab dropped it meanwhile.
-  function keep(qs) {
-    change((l) => {
-      const b = l.find((x) => x.id === cur);
-      if (b) b.qs = qs;
-      else l.push({ id: cur, qs: qs });
-    });
+  // The build this tab last showed, for a page whose URL has none (a fresh visit): only ever READ, to
+  // bring it back when the reader opens the builder, never written through.
+  let tab = null;
+  try { tab = sessionStorage.getItem(CUR); } catch (e) {}
+  function setTab(id) {
+    tab = id;
+    try { sessionStorage.setItem(CUR, id); } catch (e) {}
   }
-
-  // On load: a build in the URL is one already kept (this tab is on it now), this tab's own build
-  // edited (Back and reload only: it is the same tab), or a build of its own — in this tab's empty
-  // build, or a new one — so it never overwrites one. Arriving from elsewhere on the site with a build
-  // no kept one matches is a build of its own too: another tab may have changed the one this tab was on.
-  {
-    const l = list();
-    const i = current(l);
-    const arrived = pageBuild();
-    if (arrived !== null) {
-      const nav = (performance.getEntriesByType("navigation")[0] || {}).type;
-      const same = l.find((b) => b.qs === arrived);
-      if (same) setCur(same.id);
-      else if (nav === "back_forward" || nav === "reload" || empty(l[i].qs)) keep(arrived);
-      else {
-        setCur(newId());
-        keep(arrived);
-      }
-    }
+  // The build this page is on: the URL's; with none, the tab's last, else the one changed most recently.
+  function mine() {
+    const l = list(), p = pageBuild();
+    if (p && p.id) return l.find((x) => x.id === p.id) || { id: p.id, qs: p.qs };
+    return l.find((x) => x.id === tab) || l.slice().sort((x, y) => (y.t || 0) - (x.t || 0))[0] || null;
   }
 
   // A request for this state with another build (or an action on it), through htmx like a link's: the
@@ -117,31 +98,61 @@ function mount() {
   // (hx-sync) but sends none of its fields — the URL is the whole state.
   function request(params) {
     const u = new URL(location.href);
-    ["gear", "gear_class", "add", "p"].forEach((k) => { if (k in params || k === "add") u.searchParams.delete(k); });
+    ["gear", "gear_class", "gear_id", "add", "p"].forEach((k) => { if (k in params || k === "add") u.searchParams.delete(k); });
     for (const k in params) [].concat(params[k]).forEach((v) => u.searchParams.append(k, v));
     window.htmx.ajax("GET", u.pathname + "?" + u.searchParams.toString(), { source: "#results", target: "#results", swap: "innerHTML" });
   }
-  function buildParams(qs) {
-    const q = new URLSearchParams(empty(qs) ? "gear=" : qs);
-    return { gear: q.getAll("gear").length ? q.getAll("gear") : [""], gear_class: q.getAll("gear_class") };
+  function buildParams(b) {
+    const q = new URLSearchParams(empty(b.qs) ? "gear=" : b.qs);
+    return { gear: q.getAll("gear").length ? q.getAll("gear") : [""], gear_class: q.getAll("gear_class"), gear_id: [b.id] };
   }
-  const kept = () => { const l = list(); return l[current(l)].qs; };
+
+  // What the page shows is the build its URL names: written as that build. A build with no id came
+  // from elsewhere (a shared link; a page made without a script): it is a kept build already if one
+  // holds exactly it, otherwise a build of its own — it never overwrites one. It then gets its id in the
+  // address (a replace) and in the page's links (the same state asked again, which the server answers
+  // with HX-Replace-Url).
+  function adopt() {
+    const p = pageBuild();
+    if (!p) return;
+    if (p.id) {
+      keep(p.id, p.qs);
+      setTab(p.id);
+      return;
+    }
+    const same = empty(p.qs) ? null : list().find((b) => b.qs === p.qs);
+    const id = same ? same.id : newId();
+    if (!same) keep(id, p.qs);
+    setTab(id);
+    const u = new URL(location.href);
+    u.searchParams.set("gear_id", id);
+    try { history.replaceState(history.state, "", u.pathname + "?" + u.searchParams.toString()); } catch (e) {}
+    request({ gear_id: [id] });
+  }
+  adopt();
+
   // An add, named by the reader: a drop on a slot, or a row's "+". When the URL holds no build, this
   // tab's kept one goes with it, so a "+" on a fresh visit adds to that build, not to a new empty one.
   function add(value) {
     const params = { add: value };
-    if (pageBuild() === null && !empty(kept())) Object.assign(params, buildParams(kept()));
+    if (pageBuild() === null) {
+      const m = mine();
+      // the kept build, or a new one named now, so its answer already carries its id
+      Object.assign(params, m ? buildParams(m) : { gear_id: [newId()] });
+    }
     request(params);
   }
   function select(i) {
-    const l = list();
-    setCur(l[i].id);
-    request(buildParams(l[i].qs));
+    const b = list()[i];
+    if (!b) return;
+    setTab(b.id);
+    request(buildParams(b));
   }
   function addBuild() {
-    setCur(newId());
-    keep("");
-    request(buildParams(""));
+    const id = newId();
+    keep(id, "");
+    setTab(id);
+    request(buildParams({ id: id, qs: "" }));
   }
 
   // The design's dots, number and arrows. Drawn after every answer, since the pane is the server's, and
@@ -149,9 +160,12 @@ function mount() {
   function render() {
     const b = body();
     if (!b) return;
-    const l = list(), at = current(l);
+    // Nothing kept yet is one empty build, as the design draws its first state ("#1", "+").
+    const kept = list(), m = mine();
+    const l = kept.length ? kept : [{ id: "", qs: "" }];
+    const at = kept.length ? (m ? l.findIndex((x) => x.id === m.id) : -1) : 0;
     const num = b.querySelector("[data-gear-number]");
-    if (num) num.textContent = " #" + (at + 1);
+    if (num) num.textContent = at >= 0 ? " #" + (at + 1) : "";
     const dots = b.querySelector("[data-gear-dots]");
     if (dots) {
       dots.replaceChildren();
@@ -166,19 +180,19 @@ function mount() {
         d.addEventListener("click", fn);
         dots.append(d);
       };
-      l.forEach((x, i) => dot("#" + (i + 1), i === at, items(x.qs) > 0, "Build #" + (i + 1) + " · " + items(x.qs) + " items", () => select(i)));
+      l.forEach((x, i) => dot("#" + (i + 1), i === at, items(x.qs) > 0, "Build #" + (i + 1) + " · " + items(x.qs) + " items", () => { if (i !== at) select(i); }));
       if (l.length < MAX) dot("+", false, false, "A new build", addBuild);
     }
     // With no build in the URL the server counts 0; the strip and the phone button show the kept one.
-    if (pageBuild() === null && !empty(l[at].qs)) {
+    if (pageBuild() === null && m && !empty(m.qs)) {
       const total = (b.textContent.match(/\d+\/(\d+) slots/) || [])[1];
       if (total) ["gear-strip-count", "gear-count"].forEach((id) => {
         const c = document.getElementById(id);
-        if (c) c.textContent = " · " + items(l[at].qs) + "/" + total;
+        if (c) c.textContent = " · " + items(m.qs) + "/" + total;
       });
     }
     const prev = b.querySelector("[data-gear-prev]"), next = b.querySelector("[data-gear-next]");
-    const can = [at > 0, at + 1 < l.length || l.length < MAX];
+    const can = [at > 0, (at >= 0 && at + 1 < l.length) || l.length < MAX];
     [prev, next].forEach((el, i) => {
       if (!el) return;
       el.setAttribute("aria-disabled", String(!can[i]));
@@ -189,12 +203,11 @@ function mount() {
   render();
   window.addEventListener("storage", (e) => { if (e.key === KEY) render(); });
 
-  // Every answer redraws the pane and its counts (out of band): the build it holds is this tab's build
-  // now. After the settle, once every part of the answer is in.
+  // Every answer redraws the pane and its counts (out of band): what it shows is the build its URL
+  // names. After the settle, once every part of the answer is in.
   document.addEventListener("htmx:afterSettle", (e) => {
     if (!e.detail.target || e.detail.target.id !== "results") return;
-    const b = pageBuild();
-    if (b !== null) keep(b);
+    adopt();
     render();
     // A refused add says why in the pane: open it (the sheet on a phone), or nobody sees the reason.
     if (body() && body().querySelector('[role="status"]')) {
@@ -218,8 +231,9 @@ function mount() {
     const t = e.target.closest ? e.target : e.target.parentElement;
     if (!t) return;
     // Opening the builder on a URL with no build brings back this tab's kept one.
-    if (t.closest("[data-gear-open]") && pageBuild() === null && !empty(kept())) {
-      request(buildParams(kept()));
+    if (t.closest("[data-gear-open]") && pageBuild() === null) {
+      const m = mine();
+      if (m && !empty(m.qs)) request(buildParams(m));
     }
     // The filters' strip folds the builder; it opens the filters too, as the design's toggle does.
     if (t.closest(".filters-strip-gear")) {
@@ -244,10 +258,10 @@ function mount() {
     }
     const prev = t.closest("[data-gear-prev]"), next = t.closest("[data-gear-next]");
     if (prev || next) {
-      const l = list(), i = current(l);
+      const l = list(), m = mine(), i = m ? l.findIndex((x) => x.id === m.id) : -1;
       if (prev && i > 0) select(i - 1);
       if (next) {
-        if (i + 1 < l.length) select(i + 1);
+        if (i >= 0 && i + 1 < l.length) select(i + 1);
         else if (l.length < MAX) addBuild();
       }
     }

@@ -193,6 +193,29 @@ func TestTheBuildRidesOnEveryLinkButTheCanonical(t *testing.T) {
 	}
 }
 
+// The browser's id for a build rides in the form and on every link, and never in the share link or
+// the canonical (verify round 2, F4).
+func TestTheBuildsIDRidesOnTheLinksButNotTheShareLink(t *testing.T) {
+	body := get(t, gearRouter(t, gearCorpus()), http.MethodGet, "/armory?gear=test-head:1&gear_id=abc123", nil, "").Body.String()
+	if !strings.Contains(body, `<input type="hidden" name="gear_id" value="abc123">`) {
+		t.Error("the id does not ride in the form")
+	}
+	if !strings.Contains(body, `href="/armory?gear=test-head:1&amp;gear_id=abc123&amp;add=3"`) {
+		t.Error("a + must carry the id")
+	}
+	if !strings.Contains(body, `href="`+base+`/armory?gear=test-head:1" data-gear-copy`) {
+		t.Error("the share link must not carry the sender's id")
+	}
+	if !strings.Contains(body, `<link rel="canonical" href="`+base+`/armory">`) {
+		t.Error("the canonical must not carry the build")
+	}
+	// "Any class" on a build of a class alone: the id keeps it a build, so nothing stale comes back (F6).
+	rr := get(t, gearRouter(t, gearCorpus()), http.MethodGet, "/armory?gear_id=abc123&gear_class=", map[string]string{"HX-Request": "true", "HX-Current-URL": "http://x/armory?gear_class=test-class&gear_id=abc123"}, "")
+	if push := rr.Header().Get("HX-Push-Url"); push != "/armory?gear_id=abc123" {
+		t.Errorf("Any class pushes %q, want the build with its id and no class", push)
+	}
+}
+
 // A state with no build is the list as it was: no builder in its URLs, the pane folded.
 func TestAStateWithNoBuildIsTheListAsItWas(t *testing.T) {
 	body := get(t, gearRouter(t, gearCorpus()), http.MethodGet, "/armory?rarity=epic", nil, "").Body.String()

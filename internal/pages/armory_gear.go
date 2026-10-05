@@ -26,13 +26,17 @@ func buildGear(f items.Filters, page int, res builds.Result, refusal string, row
 		Open: b.Present || refusal != "", Present: b.Present,
 		Filled: res.Filled, Total: len(res.Slots), Conflicts: res.Conflicts,
 		SumNote: res.Sum, Refusal: refusal,
-		ClearURL: at(builds.Build{Class: b.Class, Present: true}),
-		// The build alone: the link to send opens the Armory as it opens for anyone, with this build.
-		ShareURL: base + armoryURL(items.Filters{}, 1, b),
+		ClearURL: at(builds.Build{Class: b.Class, ID: b.ID, Present: true}),
+		// The build alone: the link to send opens the Armory as it opens for anyone, with this build —
+		// and without this browser's id for it (builds.Build.Shared).
+		ShareURL: base + armoryURL(items.Filters{}, 1, b.Shared()),
 		AddURLs:  map[int32]string{}, Dim: map[int32]bool{},
 	}
 	for _, v := range b.Values()[builds.ParamGear] {
 		g.Hidden = append(g.Hidden, templates.HiddenInput{Name: builds.ParamGear, Value: v})
+	}
+	if b.ID != "" {
+		g.Hidden = append(g.Hidden, templates.HiddenInput{Name: builds.ParamID, Value: b.ID})
 	}
 
 	var conflicts []string

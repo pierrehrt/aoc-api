@@ -780,13 +780,20 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
 - **The island** (`gear.js`, § JavaScript islands) does three things only:
   - dragging a row onto a slot, which sends the "+" request with the slot;
   - copying the share link;
-  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs}` and shared by
-    the browser's tabs. The URL holds the tab's current one; which one that is lives in the tab
-    (`sessionStorage`). **Every change re-reads the list and touches only its own build, by id.**
-    A tab that wrote back its whole copy erased what another tab had kept (verify round 1, F1). A
-    shared link arrives as a build of its own and never overwrites one; only Back and reload in the
-    same tab edit the tab's build. Opening the strip on a URL with no build brings the tab's kept one
-    back.
+  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t}` and shared
+    by the browser's tabs.
+  - **Which build a page is, is in its URL: `gear_id`.** The server carries it like the build itself
+    (`builds.Build.ID`): every link, the form's hidden inputs. It is left out of the share link
+    (`Build.Shared`) and of the canonical. So a page only ever writes the build its URL names, and
+    nothing is guessed. Back, reload, a history jump and another tab each change that one build.
+  - Rounds 1 and 2 guessed, by a tab's memory, by "the first build", and by the kind of navigation.
+    Each guess let one tab write over another's build (F1, F4). A build that arrives without an id
+    (a shared link, or a page made without a script) is a kept build if one holds exactly it, and
+    otherwise a build of its own. It gets its id with one replace request.
+  - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
+    it back when a page with no build opens the strip.
+- **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates
+  itself): a padding that the truncating cell clipped left a 17px target (verify round 2, F5).
 - **Measured against the prototype** at 1440 × 900 in the same browser: the pane, its header, title,
   class picker, slot rows (30px) and share link are identical. The slot numbers are `faint`, the
   noted AA lift. While a row is dragged they turn `muted`: `faint` is 4.34:1 and 3.98:1 on the two
