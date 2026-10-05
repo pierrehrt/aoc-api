@@ -797,6 +797,14 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     undo. Any other load (a bookmark, a link, the address bar) with another state of a kept build is a
     build of its own. An id this browser does not keep is added. The cost, accepted: an undo by Back
     alone, with no action after it, is not kept.
+  - **A stale view never writes** (AOC-073: a restored tab's "+" erased another tab's edit).
+    - Each kept build has a version `v` and a last writer `w` (the tab's name, in `sessionStorage`).
+    - A page remembers the version it last saw of each build, and what it last showed of it.
+    - An answer that leaves the build as the page showed it (a filter, a sort, a page) writes nothing.
+    - A change writes only if the version is still the one seen, and the page's view is not stale.
+      A view is stale when it loaded an older state that another tab had written over.
+    - Otherwise the change becomes a build of its own. A duplicated or restored tab inherits its
+      tab's name; the version check tells it apart.
   - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
     it back when a page with no build opens the strip.
 - **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates
