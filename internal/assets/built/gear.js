@@ -171,6 +171,12 @@ function mount() {
       save();
     }
     render();
+    // A refused add says why in the pane: open it (the sheet on a phone), or nobody sees the reason.
+    if (body() && body().querySelector('[role="status"]')) {
+      const id = window.matchMedia("(min-width: 64rem)").matches ? "gear-open" : "gear-sheet";
+      const c = document.getElementById(id);
+      if (c) c.checked = true;
+    }
   });
 
   document.addEventListener("click", (e) => {

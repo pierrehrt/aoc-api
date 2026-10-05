@@ -180,6 +180,14 @@ func TestComputeReadsAFixedNumberOfTimes(t *testing.T) {
 	}
 }
 
+func TestAnEmptyBuildDoesNotDeriveTheHands(t *testing.T) {
+	f := newFake()
+	compute(t, f, "q=x")
+	if f.calls["hands"] != 0 || f.calls["items"] != 0 {
+		t.Errorf("an Armory request with no build read hands %d and items %d times, want 0", f.calls["hands"], f.calls["items"])
+	}
+}
+
 func add(t *testing.T, f *fakeDB, raw string, a builds.Add) (string, string) {
 	t.Helper()
 	b, refusal, err := builds.NewService(f).Add(context.Background(), parse(t, raw), a)

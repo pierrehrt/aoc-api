@@ -36,6 +36,11 @@ func TestParseReadsSlotsTheClassAndPresence(t *testing.T) {
 	if b := parse(t, "gear="); !b.Present || len(b.Entries) != 0 {
 		t.Errorf("gear= is an open, empty builder: got %+v", b)
 	}
+	// The class picker is in the Armory's form: every filter change sends gear_class, empty when none is
+	// picked. That is no build — it must not open the builder on every change.
+	if b := parse(t, "rarity=epic&gear_class="); b.Present || len(b.Values()) != 0 {
+		t.Errorf("an empty gear_class made a build: %+v", b)
+	}
 	if got := parse(t, "gear=").Values().Encode(); got != "gear=" {
 		t.Errorf("an open, empty builder keeps its one parameter: %q", got)
 	}

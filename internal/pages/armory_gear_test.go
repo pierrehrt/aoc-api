@@ -203,6 +203,11 @@ func TestAStateWithNoBuildIsTheListAsItWas(t *testing.T) {
 	if !strings.Contains(body, `<link rel="canonical" href="`+base+`/armory?rarity=epic">`) {
 		t.Error("canonical changed")
 	}
+	// A filter change sends the form, class picker included, empty: still no build.
+	rr := get(t, gearRouter(t, gearCorpus()), http.MethodGet, "/armory?rarity=epic&gear_class=", map[string]string{"HX-Request": "true", "HX-Current-URL": "http://x/armory"}, "")
+	if push := rr.Header().Get("HX-Push-Url"); push != "/armory?rarity=epic" {
+		t.Errorf("a filter change with no class picked pushes %q, want /armory?rarity=epic", push)
+	}
 }
 
 // Each row that goes in a slot carries its "+" (a link, so it works without a script) and what the

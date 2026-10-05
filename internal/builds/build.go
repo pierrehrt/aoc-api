@@ -28,9 +28,10 @@ type Build struct {
 	// Entries hold at most one item per slot. Compute and Add return them in the slots' order, so
 	// one build has one URL.
 	Entries []Entry
-	// Present says the URL named the builder at all — a `gear` or `gear_class` parameter, even an
-	// empty one. The page opens its pane on load for a present build; `gear=` alone is an open,
-	// empty builder.
+	// Present says the URL names a build: a `gear` parameter, even an empty one, or a class. The page
+	// opens its pane on load for a present build; `gear=` alone is an open, empty builder. An EMPTY
+	// `gear_class` is not a build: the class picker sits in the Armory's form, so every filter change
+	// sends one, and it would open the builder on every change.
 	Present bool
 }
 
@@ -55,14 +56,12 @@ var slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 // not name.
 func Parse(q url.Values) (Build, error) {
 	var b Build
-	_, gear := q[ParamGear]
-	_, class := q[ParamClass]
-	b.Present = gear || class
-
 	b.Class = strings.TrimSpace(q.Get(ParamClass))
 	if b.Class != "" && !slugRe.MatchString(b.Class) {
 		return Build{}, fmt.Errorf("%w: %s must be a class slug, got %q", httpx.ErrInvalid, ParamClass, b.Class)
 	}
+	_, gear := q[ParamGear]
+	b.Present = gear || b.Class != ""
 	seen := map[string]bool{}
 	for _, raw := range q[ParamGear] {
 		for _, v := range strings.Split(raw, ",") {

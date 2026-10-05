@@ -40,7 +40,8 @@
       </span>
       {{/* The gear builder's sheet (AOC-051; Pierre, 2026-10-05: on phones too). */}}
       <span class="inline-flex">
-        <input type="checkbox" id="gear-sheet" class="peer sr-only">
+        {{/* Opened by the server when an add was refused, so a phone shows why (the pane's own rule). */}}
+        <input type="checkbox" id="gear-sheet" class="peer sr-only"{{if .Data.Gear.Refusal}} checked{{end}}>
         <label for="gear-sheet" data-gear-open class="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-[6px] border border-line-control px-3 text-[12.5px] font-semibold tracking-[0.03em] text-paper peer-focus-visible:ring-2 peer-focus-visible:ring-link">Builder<span id="gear-count">{{template "armory_gear_count" $d}}</span></label>
       </span>
     </div>
