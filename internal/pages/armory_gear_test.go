@@ -70,7 +70,7 @@ func TestABuildRendersWholeWithoutJavaScript(t *testing.T) {
 	body := get(t, gearRouter(t, gearCorpus()), http.MethodGet, "/armory?gear=test-head:1&gear=test-off:3&gear_class=test-other", nil, "").Body.String()
 	for _, want := range []string{
 		`<input type="checkbox" id="gear-open" class="sr-only max-lg:hidden" aria-label="Open the gear builder" checked>`, // open on load
-		`<input type="hidden" name="gear" value="test-head:1">`, `<input type="hidden" name="gear" value="test-off:3">`, // in the form
+		`<input type="hidden" name="gear" value="test-head:1">`, `<input type="hidden" name="gear" value="test-off:3">`,   // in the form
 		`<option value="test-other" selected>Test Other · Test Archetype</option>`,
 		`href="/armory/test-item-1"`, `href="/armory/test-item-3"`,
 		`>&#43;12.5</span> <span class="text-[12.5px] text-paper-2">Test Might</span>`, // 10.00 + 2.50, exact (html/template writes + as &#43;)

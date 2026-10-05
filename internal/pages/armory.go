@@ -94,7 +94,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	if added && !templates.IsHTMX(r) {
 		// An add without a script: the state it made, at its own URL, so the address bar never keeps
 		// an action and a reload never adds twice. htmx gets the same URL in HX-Push-Url below.
-		http.Redirect(w, r, armoryURL(f, page, gear.Build), http.StatusSeeOther)
+		http.Redirect(w, r, armoryURL(f, page, gear.Build), http.StatusSeeOther) // #nosec G710 -- armoryURL always starts with the literal "/armory": a path on this site, never another host (TestAnAddIsA303ToTheStatesOwnURL)
 		return
 	}
 
