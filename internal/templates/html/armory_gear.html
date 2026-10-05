@@ -30,7 +30,7 @@
       {{range $g.Classes}}<option value="{{.Slug}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
       {{end}}
     </select>
-    <button type="submit" class="no-js-only h-7 flex-none rounded-[5px] border border-line-control px-2 text-[12px] font-medium text-muted hover:border-link">Apply</button>
+    <button type="submit" class="no-js-only h-7 flex-none rounded-[5px] max-lg:h-9 border border-line-control px-2 text-[12px] font-medium text-muted hover:border-link">Apply</button>
   </div>
   {{if $g.Conflicts}}<a href="{{$g.DropConflictsURL}}" hx-get="{{$g.DropConflictsURL}}" hx-target="#results" hx-push-url="true" class="self-start rounded-[5px] border border-warn-line bg-warn px-2 py-1 font-mono text-[11px] font-medium text-link-hover hover:border-link max-lg:py-[10px]">remove {{$g.Conflicts}} conflicting</a>{{end}}
   {{with $g.Refusal}}<p role="status" class="rounded-[5px] border border-warn-line bg-warn px-2 py-1 font-mono text-[11px] leading-[1.5] text-link-hover">{{.}}</p>{{end}}
@@ -60,7 +60,7 @@
   {{/* "Combined stats" folds through #gear-stats-folded, which sits outside this redrawn body (armory.html),
        so a fold survives every answer — a <details> here would open again on each one. */}}
   <div class="flex-none">
-    <label for="gear-stats-folded" class="flex cursor-pointer items-center gap-[7px] px-[14px] pb-1.5 pt-3 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint hover:text-paper">
+    <label for="gear-stats-folded" class="flex cursor-pointer items-center gap-[7px] px-[14px] pb-1.5 pt-3 max-lg:min-h-9 font-mono text-[11px] font-medium uppercase tracking-[0.05em] text-faint hover:text-paper">
       <span aria-hidden="true" class="gear-caret w-[9px] flex-none text-link"></span>Combined stats
     </label>
     <div class="gear-stats">
