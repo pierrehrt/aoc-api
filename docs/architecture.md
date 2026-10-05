@@ -780,10 +780,13 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
 - **The island** (`gear.js`, § JavaScript islands) does three things only:
   - dragging a row onto a slot, which sends the "+" request with the slot;
   - copying the share link;
-  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage`. The URL holds the current
-    one. A shared link arrives as a build of its own and never overwrites one; Back, reload and a
-    same-site arrival edit the current one. Opening the strip on a URL with no build brings the
-    kept one back.
+  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs}` and shared by
+    the browser's tabs. The URL holds the tab's current one; which one that is lives in the tab
+    (`sessionStorage`). **Every change re-reads the list and touches only its own build, by id.**
+    A tab that wrote back its whole copy erased what another tab had kept (verify round 1, F1). A
+    shared link arrives as a build of its own and never overwrites one; only Back and reload in the
+    same tab edit the tab's build. Opening the strip on a URL with no build brings the tab's kept one
+    back.
 - **Measured against the prototype** at 1440 × 900 in the same browser: the pane, its header, title,
   class picker, slot rows (30px) and share link are identical. The slot numbers are `faint`, the
   noted AA lift. While a row is dragged they turn `muted`: `faint` is 4.34:1 and 3.98:1 on the two
