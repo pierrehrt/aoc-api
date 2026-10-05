@@ -32,7 +32,12 @@ const sitemapProtocolMax = 50000
 // ⚠️ /_smoke is ALSO noindex, and disallowing a crawl hides a noindex from Google — the reason the
 // Railway host is redirected rather than disallowed. Accepted here: the smoke page is linked from
 // nowhere, so the "indexed without a snippet" case needs an outside link to a page due for deletion.
-var robotsDisallow = []string{"/_smoke", "/v1/", "/health"}
+//
+// /armory?*add= (AOC-051): the gear builder's "+" is an action, not a page. Each answer is a build URL
+// carrying 50 more "+" links, so a crawler following them would fetch builds × filters × pages for
+// ever; the canonical keeps those out of the index but not out of the crawl. Wildcards are Google's
+// and Bing's robots syntax. The links also carry rel="nofollow".
+var robotsDisallow = []string{"/_smoke", "/v1/", "/health", "/armory?*add="}
 
 func (h *Handler) robots(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder

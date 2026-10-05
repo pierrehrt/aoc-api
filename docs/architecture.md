@@ -739,13 +739,19 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     form, one handler, one history and one URL per state, so the machinery above carries the build
     with no second copy of it (`DECISIONS.md` 2026-10-05).
 - **`add` is an action.** "+" sends `add=<id>`; a drop sends `add=<slot>:<id>`. `builds.Service.Add`
-  places the item, or refuses it with a reason the pane shows. The answer is the new state's URL: a
+  places the item, or refuses it with a reason the pane shows. It returns the computed result from
+  the one load it made. The "+" links are `rel="nofollow"`, and robots.txt disallows
+  `/armory?*add=`: every answer is a build page with 50 more "+" links, so a crawler following them
+  would never end. The canonical keeps build URLs out of the index; this keeps them out of the
+  crawl. The answer is the new state's URL: a
   303 for a plain GET, `HX-Push-Url` for htmx. So no address keeps an action and a reload never
   adds twice. The page's script never copies `add` into the form (`aocFormFrom`).
 - **The rules** (`builds.Service`):
   - fit is `item_equip_locations`;
   - a two-hander (`item_types.two_handed`) takes every other hand, but for its
-    `item_types.other_hand_type_id` (bow → ammunition, Pierre, 2026-10-05);
+    `item_types.other_hand_type_id` (bow → ammunition, Pierre, 2026-10-05). The empty hand beside a
+    bow says "Ammunition only, beside …". A two-hander being added is never kept out of a hand: it
+    takes them all;
   - the hands are derived: the slots a one-handed weapon fits (`ListBuildHands`), so no slot slug is
     written in code;
   - a class cannot wear an item that lists other classes, or whose armour weight is above its
@@ -758,7 +764,9 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
   reads `sign * value * 100` as an integer). Spell effects and DPS are not summed. Each line is
   written with `templates.GearValue`/`GearLabel`, the two halves of `StatText`.
 - **One answer redraws it.** `armory_update` carries the pane (`#gear-body`), the strip's and the
-  phone button's counts out of band. "+", ×, clear, "remove N conflicting" and the class picker are
+  phone button's counts out of band. The class picker sends the form itself (`hx-include="closest
+  form"`), so the page's `htmx:beforeRequest` copies nothing from its bare `/armory` path into the
+  form. It did, and the search box (which no answer redraws) went blank (AOC-051 review #1). "+", ×, clear, "remove N conflicting" and the class picker are
   links and a form field through the page's existing htmx flow. The list's rows carry the "+" (a
   link: it works without JavaScript; shown on hover and focus where a pointer hovers, always on a
   touch screen) and, when a class is picked, the design's dimming of what it cannot wear (`Wears`,

@@ -220,7 +220,11 @@ function aocRangeFromBounds(box) {
 // which may be a draft not yet sent (Cancel restores the state, and leaves a draft a draft).
 var aocQ = document.getElementById("q"), aocStateQ = aocQ.defaultValue;
 document.addEventListener("htmx:beforeRequest", function (e) {
-  if (e.detail.elt !== aocScroll) aocFormFrom(e.detail.requestConfig.path);
+  // A control that sends the form itself — the filter pane, the gear builder's class picker (AOC-051)
+  // — IS the form's state; its request path is a bare /armory (the values join it later), and copying
+  // that into the form would blank every field, the search box included, which no answer redraws.
+  var elt = e.detail.elt;
+  if (elt !== aocScroll && !(elt.getAttribute && elt.getAttribute("hx-include") === "closest form")) aocFormFrom(e.detail.requestConfig.path);
   aocStateQ = aocQ.value;
   // A newer request supersedes a pane held during a press: its answer will draw the pane, and the
   // held one must not be drawn over the state this request names (delta verify 7, R2).

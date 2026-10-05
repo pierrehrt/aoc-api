@@ -67,7 +67,7 @@ func newFake() *fakeDB {
 	add(3, "Blade", typeBlade, false, []string{"test-main", "test-off"}, nil, stat("Test Grace", 300))
 	add(4, "Greatblade", typeGreat, true, []string{"test-main"}, nil)
 	bow := add(5, "Bow", typeBow, true, []string{"test-main"}, nil)
-	bow.row.OtherHandTypeID = i32(typeArrows)
+	bow.row.OtherHandTypeID, bow.row.OtherHandTypeSlug, bow.row.OtherHandTypeName = i32(typeArrows), str("test-arrows"), str("Test Arrows")
 	f.items[5] = *bow
 	add(6, "Arrows", typeArrows, false, []string{"test-off"}, nil)
 	add(7, "Shield", typeShield, false, []string{"test-off"}, nil)
@@ -76,6 +76,7 @@ func newFake() *fakeDB {
 	heavy := add(10, "Plate Hat", 0, false, []string{"test-head"}, nil)
 	heavy.row.ArmourWeightOrder = i32(40)
 	f.items[10] = *heavy
+	add(11, "Twinblade", typeGreat, true, []string{"test-main", "test-off"}, nil) // a two-hander that fits either hand
 	return f
 }
 

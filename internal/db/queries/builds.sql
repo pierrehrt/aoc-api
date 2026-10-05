@@ -36,12 +36,13 @@ SELECT slug, sort_order FROM armour_weights ORDER BY sort_order;
 -- still allows in the other hand), the armour weight's place in the order, and the base lines.
 SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token,
        i.item_type_id, COALESCE(it.two_handed, false)::boolean AS two_handed,
-       it.other_hand_type_id,
+       it.other_hand_type_id, oh.slug AS other_hand_type_slug, oh.name AS other_hand_type_name,
        aw.sort_order AS armour_weight_order,
        i.armor, i.critigation
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types oh ON oh.id = it.other_hand_type_id
 LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
 WHERE i.item_id = ANY(sqlc.arg('item_ids')::integer[]);
 

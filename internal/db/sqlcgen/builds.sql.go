@@ -232,12 +232,13 @@ func (q *Queries) ListBuildItemStats(ctx context.Context, itemIds []int32) ([]Li
 const listBuildItems = `-- name: ListBuildItems :many
 SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token,
        i.item_type_id, COALESCE(it.two_handed, false)::boolean AS two_handed,
-       it.other_hand_type_id,
+       it.other_hand_type_id, oh.slug AS other_hand_type_slug, oh.name AS other_hand_type_name,
        aw.sort_order AS armour_weight_order,
        i.armor, i.critigation
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
+LEFT JOIN item_types oh ON oh.id = it.other_hand_type_id
 LEFT JOIN armour_weights aw ON aw.id = i.armour_weight_id
 WHERE i.item_id = ANY($1::integer[])
 `
@@ -250,6 +251,8 @@ type ListBuildItemsRow struct {
 	ItemTypeID        *int32
 	TwoHanded         bool
 	OtherHandTypeID   *int32
+	OtherHandTypeSlug *string
+	OtherHandTypeName *string
 	ArmourWeightOrder *int32
 	Armor             *int32
 	Critigation       *int32
@@ -274,6 +277,8 @@ func (q *Queries) ListBuildItems(ctx context.Context, itemIds []int32) ([]ListBu
 			&i.ItemTypeID,
 			&i.TwoHanded,
 			&i.OtherHandTypeID,
+			&i.OtherHandTypeSlug,
+			&i.OtherHandTypeName,
 			&i.ArmourWeightOrder,
 			&i.Armor,
 			&i.Critigation,

@@ -52,6 +52,10 @@ func buildGear(f items.Filters, page int, res builds.Result, refusal string, row
 			row.Note = "⚠ does not go here"
 		case builds.StatusUnknown:
 			row.Note = "unknown item " + strconv.Itoa(int(s.ItemID))
+		case builds.StatusEmpty:
+			if s.Allows != nil && s.HeldBy != nil {
+				row.Note = s.Allows.Name + " only, beside " + s.HeldBy.Name // bow → ammunition (Pierre)
+			}
 		case builds.StatusHeld:
 			if s.ItemID != 0 {
 				row.Note = "⚠ " + s.HeldBy.Name + " needs both hands"

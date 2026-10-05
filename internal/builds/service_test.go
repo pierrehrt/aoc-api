@@ -114,7 +114,12 @@ func TestAnEmptyHandBesideATwoHanderIsHeld(t *testing.T) {
 }
 
 func TestABowStillTakesWhatItAllowsInTheOtherHand(t *testing.T) {
-	res := compute(t, newFake(), "gear=test-main:5&gear=test-off:6")
+	// Empty, the hand beside a bow is not held: it takes the bow's ammunition and nothing else.
+	res := compute(t, newFake(), "gear=test-main:5")
+	if s := res.Slots[4]; s.Status != builds.StatusEmpty || s.HeldBy == nil || s.Allows == nil || s.Allows.Name != "Test Arrows" {
+		t.Errorf("the empty hand beside a bow: %+v, want empty, allowing Test Arrows", s)
+	}
+	res = compute(t, newFake(), "gear=test-main:5&gear=test-off:6")
 	if got := status(res)["test-off"]; got != builds.StatusEquipped {
 		t.Errorf("arrows beside the bow: %s, want equipped", got)
 	}
@@ -190,11 +195,34 @@ func TestAnEmptyBuildDoesNotDeriveTheHands(t *testing.T) {
 
 func add(t *testing.T, f *fakeDB, raw string, a builds.Add) (string, string) {
 	t.Helper()
-	b, refusal, err := builds.NewService(f).Add(context.Background(), parse(t, raw), a)
+	res, refusal, err := builds.NewService(f).Add(context.Background(), parse(t, raw), a)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	return b.Values().Encode(), refusal
+	return res.Build.Values().Encode(), refusal
+}
+
+// Add answers with the computed build, from the one load it made.
+func TestAddReturnsTheComputedBuildFromOneLoad(t *testing.T) {
+	f := newFake()
+	res, refusal, err := builds.NewService(f).Add(context.Background(), parse(t, "gear=test-head:1"), builds.Add{ItemID: 2})
+	if err != nil || refusal != "" {
+		t.Fatal(err, refusal)
+	}
+	if status(res)["test-ring-left"] != builds.StatusEquipped || len(res.Stats) == 0 || res.Stats[0].Value != "12.50" {
+		t.Errorf("the result is not computed: %+v", res.Stats)
+	}
+	if f.calls["slots"] != 1 || f.calls["items"] != 1 {
+		t.Errorf("an add loaded slots %d and items %d times, want once each", f.calls["slots"], f.calls["items"])
+	}
+}
+
+// A two-hander dropped on a hand another two-hander holds takes every hand itself, rather than being
+// refused as if it were a shield.
+func TestATwoHanderDroppedOnAHeldHandReplacesTheOther(t *testing.T) {
+	if got, r := add(t, newFake(), "gear=test-main:4", builds.Add{Slot: "test-off", ItemID: 11}); got != "gear=test-off%3A11" || r != "" {
+		t.Errorf("a twinblade dropped on the hand the greatblade holds: %q %q", got, r)
+	}
 }
 
 func TestAddPutsAnItemInItsFirstFreeSlot(t *testing.T) {

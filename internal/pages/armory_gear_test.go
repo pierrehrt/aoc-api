@@ -158,7 +158,11 @@ func TestARefusedAddSaysWhyAndChangesNothing(t *testing.T) {
 	if !strings.Contains(body, `aria-label="Open the gear builder" checked>`) {
 		t.Error("a refusal must open the builder, or nobody sees it")
 	}
-	// htmx: the same state, so the entry is replaced, not pushed.
+	// htmx: the same state, so the entry is replaced, not pushed — however the address orders its build.
+	rr = get(t, h, http.MethodGet, "/armory?gear=test-off:3&gear=test-head:1&add=test-off:1", map[string]string{"HX-Request": "true", "HX-Current-URL": "http://x/armory?gear=test-off:3&gear=test-head:1"}, "")
+	if rr.Header().Get("HX-Replace-Url") != "/armory?gear=test-head:1&gear=test-off:3" {
+		t.Errorf("a hand-ordered build is another state: replace %q push %q", rr.Header().Get("HX-Replace-Url"), rr.Header().Get("HX-Push-Url"))
+	}
 	rr = get(t, h, http.MethodGet, "/armory?gear=test-head:1&add=test-off:1", map[string]string{"HX-Request": "true", "HX-Current-URL": "http://x/armory?gear=test-head:1"}, "")
 	if rr.Header().Get("HX-Replace-Url") != "/armory?gear=test-head:1" || rr.Header().Get("HX-Push-Url") != "" {
 		t.Errorf("refused htmx add: replace %q push %q", rr.Header().Get("HX-Replace-Url"), rr.Header().Get("HX-Push-Url"))
@@ -217,8 +221,8 @@ func TestRowsWithASlotCarryThePlusAndTheDragData(t *testing.T) {
 	if !strings.Contains(body, `<tr data-row data-gear-id="3" data-gear-slots="test-main test-off"`) {
 		t.Error("item 3's row lacks its drag data")
 	}
-	if !strings.Contains(body, `href="/armory?gear=test-head:1&amp;add=3" hx-get="/armory?gear=test-head:1&amp;add=3"`) {
-		t.Error("item 3's + must add to this state's build")
+	if !strings.Contains(body, `href="/armory?gear=test-head:1&amp;add=3" rel="nofollow" hx-get="/armory?gear=test-head:1&amp;add=3"`) {
+		t.Error("item 3's + must add to this state's build, and say nofollow: it is an action (robots.txt too)")
 	}
 	if regexp.MustCompile(`data-gear-id="4"|add=4"`).MatchString(body) {
 		t.Error("item 4 goes in no slot and has a + or drag data")

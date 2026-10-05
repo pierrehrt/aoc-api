@@ -58,19 +58,19 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		h.invalidSearch(w, r, err)
 		return
 	}
+	var gear builds.Result
 	refusal, added := "", false
 	if a, ok, err := builds.ParseAdd(r.URL.Query()); err != nil {
 		h.invalidSearch(w, r, err)
 		return
 	} else if ok {
-		if gb, refusal, err = h.builds.Add(r.Context(), gb, a); err != nil {
+		// Add answers with what the builder shows for the build it made: one load, not two.
+		if gear, refusal, err = h.builds.Add(r.Context(), gb, a); err != nil {
 			h.gearFail(w, r, err)
 			return
 		}
 		added = refusal == ""
-	}
-	gear, err := h.builds.Compute(r.Context(), gb)
-	if err != nil {
+	} else if gear, err = h.builds.Compute(r.Context(), gb); err != nil {
 		h.gearFail(w, r, err)
 		return
 	}
@@ -197,7 +197,9 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
 		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
 		canon := armoryURL(f, page, gear.Build)
-		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == canon {
+		// Compared with the build's entries in one order (canonicalOf has no database to put them in
+		// the slots'), so a hand-written ?gear=b&gear=a is the same state as its canonical a, b.
+		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == armoryURL(f, page, bySlot(gear.Build)) {
 			w.Header().Set("HX-Replace-Url", canon)
 		} else {
 			w.Header().Set("HX-Push-Url", canon)
@@ -303,7 +305,15 @@ func canonicalOf(r *http.Request, address, firstTab string) string {
 		f.Sort = items.SortILvl
 	}
 	f.Limit, f.Offset, f.WithFacets = armoryPageSize, (page-1)*armoryPageSize, true
-	return armoryURL(f, page, b)
+	return armoryURL(f, page, bySlot(b))
+}
+
+// bySlot is a build with its entries in slot-slug order: the one order canonicalOf can put them in
+// without the database, for comparing two addresses of the same build.
+func bySlot(b builds.Build) builds.Build {
+	b.Entries = append([]builds.Entry(nil), b.Entries...)
+	sort.Slice(b.Entries, func(i, j int) bool { return b.Entries[i].Slot < b.Entries[j].Slot })
+	return b
 }
 
 // armoryURL builds the list's own URLs from the whole state: only what differs from the default is

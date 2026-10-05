@@ -3,6 +3,7 @@ package builds
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -39,7 +40,9 @@ const (
 	StatusUnknown   = "unknown"    // the URL names an id no item has (a 400 on /v1)
 	StatusWrongSlot = "wrong_slot" // the item does not go in this slot
 	StatusHeld      = "held"       // a two-hander in another hand takes this one (empty or not)
-	StatusConflict  = "conflict"   // the picked class cannot wear it
+	// An empty hand beside a two-hander that still allows a type there (bow → ammunition) is
+	// StatusEmpty, with HeldBy and Allows set: it takes that type and nothing else.
+	StatusConflict = "conflict" // the picked class cannot wear it
 )
 
 // Result is everything the builder shows for a build.
@@ -78,8 +81,10 @@ type SlotRow struct {
 	Status string     `json:"status"`
 	ItemID int32      `json:"item_id,omitempty"` // as the URL gave it, even when no item has it
 	Item   *ItemRef   `json:"item,omitempty"`
-	// HeldBy is the two-hander taking this hand, when Status is held.
-	HeldBy *ItemRef `json:"held_by,omitempty"`
+	// HeldBy is the two-hander taking this hand: when Status is held, or when the hand is empty and
+	// takes only what HeldBy allows there (Allows).
+	HeldBy *ItemRef    `json:"held_by,omitempty"`
+	Allows *items.Term `json:"allows,omitempty"`
 }
 
 // ItemRef is an item in a slot.
@@ -116,7 +121,7 @@ func (w wearRule) wears(classes []string, weightOrder *int32) bool {
 	if w.class == "" {
 		return true
 	}
-	if len(classes) > 0 && !contains(classes, w.class) {
+	if len(classes) > 0 && !slices.Contains(classes, w.class) {
 		return false
 	}
 	return w.ceiling == nil || weightOrder == nil || *weightOrder <= *w.ceiling
@@ -124,13 +129,12 @@ func (w wearRule) wears(classes []string, weightOrder *int32) bool {
 
 // world is what one build needs from the database, loaded in a fixed number of queries.
 type world struct {
-	slots  []slot
-	index  map[string]int // slot slug → position
-	class  *sqlcgen.ListBuildClassesRow
-	all    []sqlcgen.ListBuildClassesRow
-	items  map[int32]*item
-	wear   wearRule
-	nhands int
+	slots []slot
+	index map[string]int // slot slug → position
+	class *sqlcgen.ListBuildClassesRow
+	all   []sqlcgen.ListBuildClassesRow
+	items map[int32]*item
+	wear  wearRule
 }
 
 type slot struct {
@@ -149,7 +153,7 @@ func (it *item) ref() *ItemRef {
 	return &ItemRef{ID: it.row.ItemID, Slug: it.row.Slug, Name: it.row.Name, RarityColourToken: deref(it.row.RarityColourToken), TwoHanded: it.row.TwoHanded}
 }
 
-func (it *item) fits(slot string) bool { return contains(it.slots, slot) }
+func (it *item) fits(slot string) bool { return slices.Contains(it.slots, slot) }
 
 // load reads the slots, the classes and the build's items (and any extra ids, for Add). A slot or
 // class slug no row has is a 400: the URL names something that does not exist.
@@ -168,11 +172,7 @@ func (s *Service) load(ctx context.Context, b Build, extra ...int32) (*world, er
 		}
 	}
 	for i, l := range locs {
-		h := containsID(hands, l.ID)
-		if h {
-			w.nhands++
-		}
-		w.slots = append(w.slots, slot{slug: l.Slug, name: l.Name, hand: h})
+		w.slots = append(w.slots, slot{slug: l.Slug, name: l.Name, hand: slices.Contains(hands, l.ID)})
 		w.index[l.Slug] = i
 	}
 	for _, e := range b.Entries {
@@ -322,7 +322,11 @@ func (w *world) compute(b Build) Result {
 		id, ok := b.Item(sl.slug)
 		switch {
 		case !ok:
-			if two != nil {
+			switch {
+			case two != nil && two.row.OtherHandTypeID != nil:
+				// Empty, and it takes exactly what the two-hander allows there (bow → ammunition).
+				row.HeldBy, row.Allows = two.ref(), &items.Term{Slug: deref(two.row.OtherHandTypeSlug), Name: deref(two.row.OtherHandTypeName)}
+			case two != nil:
 				row.Status, row.HeldBy = StatusHeld, two.ref()
 			}
 		case w.items[id] == nil:
@@ -382,40 +386,47 @@ func hundredths(c int64) (string, int16) {
 	return strconv.FormatInt(c/100, 10) + "." + frac, sign
 }
 
-// Add puts an item in a build by the rules, and returns the build it makes — or the unchanged build
-// and the reason it was refused. The rules:
+// Add puts an item in a build by the rules, and returns what the builder shows for the build it makes
+// (Result.Build) — or for the unchanged build, with the reason it was refused. Computed from the world
+// it loaded once, so an add costs one load, not two. The rules:
 //   - an item goes only in a slot its equip locations list;
 //   - the picked class must be able to wear it;
 //   - a hand taken by a two-hander in another hand takes nothing but what that two-hander allows
-//     there (bow → ammunition);
+//     there (bow → ammunition) — or another two-hander, which takes every hand itself;
 //   - a two-hander empties every other hand, but for what it allows there;
 //   - with no slot named, the first fitting slot that is free, in the slots' order; if none is, the
 //     first fitting one that can be taken, replacing what is in it.
-func (s *Service) Add(ctx context.Context, b Build, a Add) (Build, string, error) {
+func (s *Service) Add(ctx context.Context, b Build, a Add) (Result, string, error) {
 	w, err := s.load(ctx, b, a.ItemID)
 	if err != nil {
-		return Build{}, "", err
+		return Result{}, "", err
 	}
 	if a.Slot != "" {
 		if _, ok := w.index[a.Slot]; !ok {
-			return Build{}, "", fmt.Errorf("%w: %s: there is no slot %q", httpx.ErrInvalid, ParamAdd, a.Slot)
+			return Result{}, "", fmt.Errorf("%w: %s: there is no slot %q", httpx.ErrInvalid, ParamAdd, a.Slot)
 		}
 	}
 	b = w.normalize(b)
+	out, refusal := w.add(b, a)
+	return w.compute(out), refusal, nil
+}
+
+// add is Add's rules over a loaded world: the build it makes, or the build unchanged and why.
+func (w *world) add(b Build, a Add) (Build, string) {
 	it := w.items[a.ItemID]
 	switch {
 	case it == nil:
-		return b, fmt.Sprintf("There is no item %d.", a.ItemID), nil
+		return b, fmt.Sprintf("There is no item %d.", a.ItemID)
 	case len(it.slots) == 0:
-		return b, it.row.Name + " goes in no equipment slot.", nil
+		return b, it.row.Name + " goes in no equipment slot."
 	case !w.wears(it):
-		return b, fmt.Sprintf("A %s cannot wear %s.", w.class.Name, it.row.Name), nil
+		return b, fmt.Sprintf("A %s cannot wear %s.", w.class.Name, it.row.Name)
 	}
 
 	var candidates []string
 	if a.Slot != "" {
 		if !it.fits(a.Slot) {
-			return b, fmt.Sprintf("%s does not go in the %s slot.", it.row.Name, w.slots[w.index[a.Slot]].name), nil
+			return b, fmt.Sprintf("%s does not go in the %s slot.", it.row.Name, w.slots[w.index[a.Slot]].name)
 		}
 		candidates = []string{a.Slot}
 	} else {
@@ -425,10 +436,14 @@ func (s *Service) Add(ctx context.Context, b Build, a Add) (Build, string, error
 			}
 		}
 	}
-	// A hand is open to this item unless a two-hander in ANOTHER hand takes it. A two-hander in the
-	// very slot is simply replaced.
+	// A hand is open to this item unless a two-hander in ANOTHER hand takes it (twoHander never looks
+	// at the slot itself: what is there is replaced). A two-hander being added is never kept out — it
+	// takes every hand, and the loop below empties the others.
 	open := func(sl string) bool {
-		two := w.twoHander(b.Without(sl), sl)
+		if it.row.TwoHanded {
+			return true
+		}
+		two := w.twoHander(b, sl)
 		return two == nil || allowedBeside(two, it)
 	}
 	pick := ""
@@ -448,8 +463,7 @@ func (s *Service) Add(ctx context.Context, b Build, a Add) (Build, string, error
 	}
 	if pick == "" {
 		c := candidates[0]
-		two := w.twoHander(b.Without(c), c)
-		return b, fmt.Sprintf("The %s slot is taken: %s needs both hands.", w.slots[w.index[c]].name, two.row.Name), nil
+		return b, fmt.Sprintf("The %s slot is taken: %s needs both hands.", w.slots[w.index[c]].name, w.twoHander(b, c).row.Name)
 	}
 
 	out := b.With(pick, a.ItemID)
@@ -465,25 +479,7 @@ func (s *Service) Add(ctx context.Context, b Build, a Add) (Build, string, error
 			}
 		}
 	}
-	return w.normalize(out), "", nil
-}
-
-func contains(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
-}
-
-func containsID(xs []int32, x int32) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
+	return w.normalize(out), ""
 }
 
 func deref(s *string) string {
