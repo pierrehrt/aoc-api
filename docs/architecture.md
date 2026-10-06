@@ -27,7 +27,7 @@ internal/pages/        the HTML handlers (AOC-024)
 internal/assets/       the committed, content-hashed CSS/JS/images and their handler (AOC-024)
 migrations/            goose files (AOC-005 onwards)
 scripts/               operational scripts: backup, the backup alarm, cloudflare-cache.sh
-web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx, the gear.js island) — not served
+web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx, the gear.js and tip.js islands) — not served
 docs/                  this file, api-routes.md, database-schema.sql, runbook-restore.md
 workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
@@ -372,8 +372,9 @@ once before adding a page.
 web/src/app.css          Tailwind input      ─┐
 web/src/htmx.min.js      vendored HTMX        │ make assets
 web/src/gear.js          an island, as written│ (AOC-051)
+web/src/tip.js           an island, as written│ (AOC-074)
                                               ▼
-internal/assets/built/   app.css, htmx.min.js, gear.js   COMMITTED, embedded, content-hashed
+internal/assets/built/   app.css, htmx.min.js, gear.js, tip.js   COMMITTED, embedded, content-hashed
 internal/templates/html/ base (the shell) · home · smoke · echo
 internal/templates/      View + Engine (parse once at boot)
 internal/pages/          handlers: build a View, render a template
@@ -438,6 +439,20 @@ gitignored or stale.
   reach the build.
 - **`localStorage` is guarded** (`try`/`catch` on every access) and only ever holds a reader's own
   conveniences: with storage blocked, the page still works on what its URL holds.
+
+**The second island is `web/src/tip.js`** (AOC-074): the design's hover card. An item's name carries
+its tooltip image as `data-tip`, in a list row (`armory_rows.html`) and in a builder slot
+(`armory_gear.html`, via `builds.ItemRef.TooltipImage`). The island shows that image beside the
+cursor, placed by the prototype's own arithmetic (`tipAt`).
+- **No `data-island` mount**, the one difference from the pattern. Its names sit in the list and in
+  the builder's pane, so it reacts, by delegation, to any `[data-tip]`, and only the Armory draws them
+  or loads the script.
+- It acts only where the pointer hovers (`(hover: hover) and (pointer: fine)`).
+- The card shows once its image has loaded: never an empty box, and never for a name without a
+  tooltip or a failed image.
+- It hides on leave, a drag, a click, a scroll and an htmx swap.
+- Its look is `.tip-card` in `app.css` (a plain rule, so no `@source`). It holds no storage.
+- Without it, the name is still the link to the item page, which shows the tooltip in full.
 
 ### The shell (AOC-046)
 

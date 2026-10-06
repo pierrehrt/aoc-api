@@ -43,7 +43,7 @@ func buildGear(f items.Filters, page int, res builds.Result, refusal string, row
 	for i, s := range res.Slots {
 		row := templates.GearRow{N: i + 1, Slot: s.Slot.Slug, Name: s.Slot.Name, Status: s.Status, ItemID: s.ItemID}
 		if s.Item != nil {
-			row.ItemName, row.ItemSlug, row.Colour = s.Item.Name, s.Item.Slug, s.Item.RarityColourToken
+			row.ItemName, row.ItemSlug, row.Colour, row.Tip = s.Item.Name, s.Item.Slug, s.Item.RarityColourToken, s.Item.TooltipImage
 		}
 		if s.ItemID != 0 {
 			row.RemoveURL = at(b.Without(s.Slot.Slug))

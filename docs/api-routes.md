@@ -306,7 +306,8 @@ parameters the page takes** and the same service (`internal/builds`), so the two
   "class": {"slug": "…", "name": "…", "short_name": "…", "archetype": "…"},
   "slots": [
     {"slot": {"slug": "head", "name": "Head"}, "status": "equipped", "item_id": 273,
-     "item": {"id": 273, "slug": "…", "name": "…", "rarity_colour_token": "rarity-rare", "two_handed": false}},
+     "item": {"id": 273, "slug": "…", "name": "…", "rarity_colour_token": "rarity-rare", "two_handed": false,
+              "tooltip_image": "https://img.aoc-codex.app/armory/…"}},
     {"slot": {"slug": "off-hand", "name": "Off Hand"}, "status": "held",
      "held_by": {"id": 177, "…": "…", "two_handed": true}}
   ],
@@ -318,6 +319,8 @@ parameters the page takes** and the same service (`internal/builds`), so the two
 }
 ```
 
+- **`item`** (and `held_by`) carries, additively since AOC-074, **`tooltip_image`**: the item's tooltip
+  (`items.tooltip_image`), absent when it has none. The page shows it beside the cursor.
 - **`slots`** is every equipment slot, in order (`equip_locations`, 14 today). A slot's `status`:
   - `empty`;
   - `equipped` — worn and summed;

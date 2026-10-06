@@ -46,7 +46,8 @@
          builder's class cannot wear is dimmed, as the design does. */}}
     <tr data-row{{if .EquipLocations}} data-gear-id="{{.ID}}" data-gear-slots="{{range $i, $s := .EquipLocations}}{{if $i}} {{end}}{{$s.Slug}}{{end}}"{{end}} class="align-top hover:bg-ink-hover lg:align-middle{{if index $.Gear.Dim .ID}} opacity-[.34]{{end}}">
       <td class="relative border-b border-line-row py-[9px] pl-4 pr-3 text-[13.5px] lg:truncate{{if index $.Gear.AddURLs .ID}} max-lg:pr-12{{end}}">
-        <a href="/armory/{{.Slug}}" class="text-[13.5px] font-medium text-paper hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}>{{.Name}}</a>
+        {{- /* data-tip: the item's tooltip, shown beside the cursor by tip.js (AOC-074, the design's hover). */}}
+        <a href="/armory/{{.Slug}}" class="text-[13.5px] font-medium text-paper hover:underline"{{if .RarityColourToken}} style="color: var(--color-{{.RarityColourToken}})"{{end}}{{with .TooltipImage}} data-tip="{{.}}"{{end}}>{{.Name}}</a>
         {{- /* The builder's "+": a link, so it works without JavaScript; shown on hover and focus where
              there is a pointer, always on a touch screen (app.css .gear-add). Not in the design: the
              non-drag way to add, and a phone's only one (DECISIONS.md 2026-10-05). */}}

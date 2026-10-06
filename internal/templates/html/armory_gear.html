@@ -45,7 +45,7 @@
       <span class="truncate text-[12px] text-muted">{{.Name}}</span>
       {{/* The cell takes its content's size: inheriting 16px, its line box made every row 35px, not 30. */}}
       <span class="gear-item min-w-0 truncate max-lg:self-stretch max-lg:flex max-lg:items-center {{if .ItemSlug}}text-[12.5px]{{else}}font-mono text-[11.5px]{{end}}"{{with .Note}} title="{{.}}"{{end}}>
-        {{- if .ItemSlug}}<a href="/armory/{{.ItemSlug}}" class="text-[12.5px] font-medium hover:underline max-lg:block max-lg:min-w-0 max-lg:truncate max-lg:leading-9 {{if eq .Status "equipped"}}text-paper{{else}}text-link-hover{{end}}"{{if eq .Status "equipped"}}{{with .Colour}} style="color: var(--color-{{.}})"{{end}}{{end}}>{{.ItemName}}</a>{{with .Note}} <span class="font-mono text-[11px] text-link-hover">{{.}}</span>{{end}}
+        {{- if .ItemSlug}}<a href="/armory/{{.ItemSlug}}" class="text-[12.5px] font-medium hover:underline max-lg:block max-lg:min-w-0 max-lg:truncate max-lg:leading-9 {{if eq .Status "equipped"}}text-paper{{else}}text-link-hover{{end}}"{{if eq .Status "equipped"}}{{with .Colour}} style="color: var(--color-{{.}})"{{end}}{{end}}{{with .Tip}} data-tip="{{.}}"{{end}}>{{.ItemName}}</a>{{with .Note}} <span class="font-mono text-[11px] text-link-hover">{{.}}</span>{{end}}
         {{- else if .Note}}<span class="font-mono text-[11.5px] {{if eq .Status "unknown"}}text-link-hover{{else}}text-faint{{end}}">{{.Note}}</span>
         {{- else}}<span class="gear-empty font-mono text-[11.5px] text-faint">—</span>{{end -}}
       </span>

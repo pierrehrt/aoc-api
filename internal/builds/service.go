@@ -94,6 +94,9 @@ type ItemRef struct {
 	Name              string `json:"name"`
 	RarityColourToken string `json:"rarity_colour_token,omitempty"`
 	TwoHanded         bool   `json:"two_handed"`
+	// TooltipImage is the item's tooltip (items.tooltip_image), absent when it has none. The page shows
+	// it beside the cursor on the slot's item name (AOC-074).
+	TooltipImage string `json:"tooltip_image,omitempty"`
 }
 
 // Wears says whether the picked class can wear an item, from what a list row knows of it: its class
@@ -150,7 +153,7 @@ type item struct {
 }
 
 func (it *item) ref() *ItemRef {
-	return &ItemRef{ID: it.row.ItemID, Slug: it.row.Slug, Name: it.row.Name, RarityColourToken: deref(it.row.RarityColourToken), TwoHanded: it.row.TwoHanded}
+	return &ItemRef{ID: it.row.ItemID, Slug: it.row.Slug, Name: it.row.Name, RarityColourToken: deref(it.row.RarityColourToken), TwoHanded: it.row.TwoHanded, TooltipImage: deref(it.row.TooltipImage)}
 }
 
 func (it *item) fits(slot string) bool { return slices.Contains(it.slots, slot) }
