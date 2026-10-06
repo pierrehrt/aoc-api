@@ -805,14 +805,22 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
       An answer equal to the kept build only records its version.
     - A change writes only if the kept version is still this tab's. A page from the tab's history
       (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
-    - Otherwise the change becomes a build of its own: another tab wrote the build since.
+    - Otherwise the change becomes a build of its own: another tab wrote the build since, or (storage
+      full, below) this tab could not keep its record of it.
     - The record is re-read at every use, like the list (verify round 2, F5). A page Chrome restores
       from its back/forward cache keeps what it read when it was left, so a copy in memory took the
-      tab's own undo for another tab's write. Memory serves only once storage refuses a write,
-      blocked or full (verify round 3, F6: a full storage still reads, and handed back a record
-      older than the page's own).
-    - A write records the version the list holds after it: the new one, or the one still kept if a
-      full storage refused it. So the next action is judged against what is really kept.
+      tab's own undo for another tab's write.
+    - Each entry of the record stands alone (verify round 4, F7). An entry storage refuses (blocked,
+      or full) stays the page's own. It is saved as soon as storage takes it, but never over an
+      entry storage holds, which a later page of the tab wrote. A version stamp has a fixed length,
+      so replacing an entry never grows the record, and it fits even in a full storage.
+    - A write records the version the list holds after it. That is the new one, or the one still kept
+      if a full storage refused it, so the next action is judged against what is really kept (round
+      3, F6).
+    - **Accepted, with storage full** (`DECISIONS.md` 2026-10-06): a build first seen while
+      `sessionStorage` is full is known to that page alone. A later page's action on it, the tab's
+      own undo included, is a build of its own. Nothing is lost. Only a script outside the site can
+      fill the quota, so there the bar is safety, not an exact undo.
     - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
       `sessionStorage`, name included, so the twins took each other's writes for their own. The
       version record is inherited too, but each twin's moves on with its own writes.

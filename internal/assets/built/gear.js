@@ -65,36 +65,53 @@ function mount() {
   // ⭐ Optimistic concurrency (AOC-073, AOC-051 verify round 4 O1): every write gives a build a new
   // version `v`, a stamp never reused. This TAB keeps the version it last saw or wrote of each build
   // (`seen`, in sessionStorage): when it loaded it, chose it, or wrote it. An action's answer writes a
-  // build only if its version is still this tab's; otherwise another tab wrote it since, and the answer
-  // becomes a build of its own (fork), leaving the other tab's work untouched. A page from the tab's
-  // history (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
-  // Before this, a restored tab's next "+" erased what another tab had added.
+  // build only if its version is still this tab's; otherwise another tab wrote it since (or, storage
+  // full, this tab could not keep its record: below), and the answer becomes a build of its own (fork),
+  // leaving the other tab's work untouched. A page from the tab's history (Back, a reload, a restore)
+  // showing an older state is judged by the same test when it acts. Before this, a restored tab's next
+  // "+" erased what another tab had added.
   // ⚠️ Not a tab name and "who wrote last" (verify round 1, F1): a duplicate inherits sessionStorage,
   // name included, so the twins took each other's writes for their own. The record is inherited too,
   // but each twin's moves on with its own writes, so they tell each other apart.
   // ⚠️ The record is re-read at every use, like the list (verify round 2, F5): a page Chrome restores
   // from its back/forward cache still holds what it read when it was left, older than what the tab's
-  // later pages wrote, and took the tab's own undo for another tab's write. Memory only once storage
-  // refuses a write, blocked or full (verify round 3, F6: a full storage still reads, and handed back a
-  // record older than this page's own).
+  // later pages wrote, and took the tab's own undo for another tab's write.
+  // ⚠️ An entry storage refuses (blocked, or full) stays this page's own (`unsaved`) and is saved as
+  // soon as storage takes it, but never over an entry storage holds, which a later page of this tab
+  // wrote. Each entry stands alone (verify round 4, F7: round 3 held the whole record in memory once one
+  // entry was refused, so every later save was refused too, and then wrote old entries back over newer
+  // ones). A stamp has a fixed length, so replacing an entry never grows the record: it fits even in a
+  // full storage. Accepted (DECISIONS.md 2026-10-06): a build first seen while storage is full is known
+  // to that page alone, so a later page's action on it, the tab's own undo included, is a build of its
+  // own. Nothing is lost; with storage full the bar is safety, not an exact undo.
   // A write happens only when THIS page's action changed its build from what this page last showed
   // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
   // writes nothing and forks nothing, so it can never stamp a version under another tab.
-  let seenHeld = {}; // the record as this page last read or wrote it
-  let seenMemory = false; // storage refused a write: from then on the record lives in seenHeld
+  let stored = {}; // the record as storage last gave or took it
+  const unsaved = {}; // this page's entries storage refused
   function seen() {
-    if (!seenMemory) {
-      try {
-        const s = JSON.parse(sessionStorage.getItem(SEEN));
-        if (s && typeof s === "object") seenHeld = s;
-      } catch (e) {}
-    }
-    return seenHeld;
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SEEN));
+      if (s && typeof s === "object") stored = s;
+    } catch (e) {}
+    return Object.assign({}, unsaved, stored);
   }
+  const stamp = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8).padEnd(6, "0");
   const ver = (b) => b.v || "";
+  const put = (r) => {
+    try {
+      sessionStorage.setItem(SEEN, JSON.stringify(r));
+      stored = r;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
   const see = (id, v) => {
-    seenHeld = Object.assign({}, seen(), { [id]: v });
-    try { sessionStorage.setItem(SEEN, JSON.stringify(seenHeld)); } catch (e) { seenMemory = true; }
+    seen();
+    if (put(Object.assign({}, unsaved, stored, { [id]: v }))) Object.keys(unsaved).forEach((k) => delete unsaved[k]);
+    else if (put(Object.assign({}, stored, { [id]: v }))) delete unsaved[id];
+    else unsaved[id] = v;
   };
   const shown = {};
   const look = (b) => {
@@ -109,16 +126,17 @@ function mount() {
     const l = list().map((b) => Object.assign({}, b));
     let b = l.find((x) => x.id === id);
     // the same build already: nothing to write, no new version
-    if (!b) l.push((b = { id: id, qs: qs, t: Date.now(), v: newId() }));
-    else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: newId() });
+    if (!b) l.push((b = { id: id, qs: qs, t: Date.now(), v: stamp() }));
+    else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: stamp() });
     shown[id] = norm(qs);
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
       if (l[i].id !== id && empty(l[i].qs)) l.splice(i, 1);
     }
     held = l;
     try { localStorage.setItem(KEY, JSON.stringify({ builds: l })); } catch (e) {}
-    // The version the list now holds: the new one, or the one still kept if a full storage refused the
-    // write (verify round 3, F6), so the next action is judged against what is really there.
+    // The version the list now holds, so the next action is judged against what is really there (verify
+    // round 3, F6): the new one; the one still kept if a full storage refused the write; or, for a new
+    // build the list could not take, the new one, which the next answer adds again (`adopt`: no build).
     see(id, ver(list().find((x) => x.id === id) || b));
   }
   // The build this tab last showed, for a page whose URL has none (a fresh visit): only ever READ, to
