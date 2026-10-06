@@ -17,9 +17,11 @@
 {{if .View.OGImage}}<meta property="og:image" content="{{.View.OGImage}}">
 <meta name="twitter:card" content="{{if .View.Card}}{{.View.Card}}{{else}}summary_large_image{{end}}">{{end}}
 {{with .View.JSONLD}}<script type="application/ld+json">{{.}}</script>
-{{end}}<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+{{end}}{{/* IBM Plex from our own assets (AOC-075): no third party on the first paint (DECISIONS.md 2026-10-06).
+     Here, not in app.css, because the template resolves each file's hashed name; swap draws the text at
+     once in the fallback and the face replaces it when it lands. */}}
+<style>{{range fontFaces}}@font-face{font-family:"{{.Family}}";font-style:normal;font-weight:{{.Weight}};font-display:swap;src:url({{asset .File}}) format("woff2");unicode-range:{{.Range}}}
+{{end}}</style>
 <link rel="stylesheet" href="{{asset "app.css"}}">
 {{/* Two settings on top of htmx's defaults.
      - refreshOnHistoryMiss (AOC-063): Back to a state htmx kept no snapshot of (it keeps ten) made it

@@ -198,7 +198,8 @@ assets: $(TAILWIND)
 	@cp web/src/og-card.png internal/assets/built/og-card.png
 	@cp web/src/gear.js internal/assets/built/gear.js
 	@cp web/src/tip.js internal/assets/built/tip.js
-	@for f in internal/assets/built/app.css internal/assets/built/htmx.min.js internal/assets/built/og-card.png internal/assets/built/gear.js internal/assets/built/tip.js; do \
+	@cp web/src/fonts/*.woff2 internal/assets/built/
+	@for f in internal/assets/built/app.css internal/assets/built/htmx.min.js internal/assets/built/og-card.png internal/assets/built/gear.js internal/assets/built/tip.js internal/assets/built/*.woff2; do \
 	  if [ ! -s "$$f" ]; then echo "asset build produced an EMPTY $$f — that is a failure, not a pass"; exit 1; fi; \
 	done
 	@echo "assets built:"; ls -l internal/assets/built/ | tail -n +2 | awk '{printf "  %-22s %s bytes\n", $$9, $$5}'
