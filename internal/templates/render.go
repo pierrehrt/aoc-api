@@ -100,6 +100,9 @@ var fragmentProbes = map[string]any{
 	"armory_invalid":          InvalidSearch{Reason: "probe"},
 	"armory_slot":             armoryProbe().Result.Items[0],
 	"armory_type":             armoryProbe().Result.Items[0],
+	// The gear builder (AOC-051).
+	"armory_gear":       armoryProbe(),
+	"armory_gear_count": armoryProbe(),
 }
 
 // New parses every template ONCE and fails loudly if any of them is broken.

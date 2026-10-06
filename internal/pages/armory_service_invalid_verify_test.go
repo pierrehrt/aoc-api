@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -38,7 +39,8 @@ func TestAServiceRefusalIsA400OnTheArmory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("templates.New: %v", err)
 	}
-	site := pages.New(tpl, set, base, items.NewService(refusingItems{newFakeItems(3)}))
+	q := refusingItems{newFakeItems(3)}
+	site := pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 	h := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, site.Routes, set.Handler())
 	for _, hdr := range []map[string]string{nil, {"HX-Request": "true"}} {
 		rr := get(t, h, http.MethodGet, "/armory?q=test", hdr, "")

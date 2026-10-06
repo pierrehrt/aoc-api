@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -57,7 +58,8 @@ func TestADatabaseConnectionResetIsStillAPageFailure(t *testing.T) {
 		"read reset":  &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)},
 		"broken pipe": &net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", syscall.EPIPE)},
 	} {
-		h := pages.New(tpl, set, base, items.NewService(dbResetItems{newFakeItems(10), dbErr}))
+		q := dbResetItems{newFakeItems(10), dbErr}
+		h := pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 		router := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 		for _, htmx := range []bool{true, false} {
 			buf.Reset()

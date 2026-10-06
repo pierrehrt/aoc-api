@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
@@ -70,7 +71,7 @@ func siteAndAPI(t *testing.T) http.Handler {
 	q := sqlcgen.New(pool)
 	svc := items.NewService(q)
 	api := items.NewHandler(svc, items.NewTaxonomyService(q))
-	site := pages.New(tpl, set, base, svc)
+	site := pages.New(tpl, set, base, svc, builds.NewService(q))
 	return httpx.NewRouterWithAPI(httpx.Build{Version: "test", Commit: "test", Env: "test"}, site.Routes, set.Handler(),
 		func(v1 chi.Router) { v1.Mount("/items", api.Routes()) })
 }

@@ -87,20 +87,22 @@ func TestRobotsTxtKeepsCrawlersOutOfMachineryOnly(t *testing.T) {
 	if sitemap != "https://aoc-codex.app/sitemap.xml" {
 		t.Errorf("Sitemap = %q, want the absolute canonical URL", sitemap)
 	}
+	// A rule matches as Google reads it: a prefix, where `*` is any run of characters.
 	blocked := func(path string) bool {
 		for _, d := range disallow {
-			if d != "" && strings.HasPrefix(path, d) {
+			if d != "" && regexp.MustCompile("^"+strings.ReplaceAll(regexp.QuoteMeta(d), `\*`, ".*")).MatchString(path) {
 				return true
 			}
 		}
 		return false
 	}
-	for _, p := range []string{"/_smoke", "/_smoke/echo", "/v1/items", "/health"} {
+	// The gear builder's "+" (AOC-051) is an action: every one leads to another build page with 50 more.
+	for _, p := range []string{"/_smoke", "/_smoke/echo", "/v1/items", "/health", "/armory?add=3", "/armory?q=x&add=test-head:3"} {
 		if !blocked(p) {
 			t.Errorf("%s is crawlable; it is machinery, not content", p)
 		}
 	}
-	for _, p := range []string{"/", "/armory", "/armory/test-item-1", "/sitemap.xml", "/assets/app.css"} {
+	for _, p := range []string{"/", "/armory", "/armory/test-item-1", "/sitemap.xml", "/assets/app.css", "/armory?rarity=epic", "/armory?gear=test-head:1"} {
 		if blocked(p) {
 			t.Errorf("%s is disallowed; it is content (or what renders it)", p)
 		}

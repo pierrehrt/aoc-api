@@ -4,7 +4,7 @@
 > path, so a change to routes, schema or package structure updates it in the same commit
 > (`bin/docs-check api` enforces this).
 >
-> Created by **AOC-002**. Last updated 2026-09-14.
+> Created by **AOC-002**. Last updated 2026-10-06 (AOC-073, the gear builder's kept builds across tabs).
 
 ## What this service is
 
@@ -21,17 +21,18 @@ internal/httpx/        the HTTP edge: middleware, error mapping, the cache polic
 internal/version/      build identity: the VERSION file, the commit (AOC-015)
 internal/db/           pgx pool + sqlc output + queries/ (AOC-005)
 internal/items/        the Armory bounded area: schema, importer, the /v1 read surface (AOC-010/011/012)
+internal/builds/       the gear builder: a build's rules and sum, /v1/builds/compute (AOC-051)
 internal/templates/    html/template engine: parse once, View contract, fragments (AOC-024)
 internal/pages/        the HTML handlers (AOC-024)
 internal/assets/       the committed, content-hashed CSS/JS/images and their handler (AOC-024)
 migrations/            goose files (AOC-005 onwards)
 scripts/               operational scripts: backup, the backup alarm, cloudflare-cache.sh
-web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx) — not served
+web/src/               build INPUTS for the assets (Tailwind CSS, vendored htmx, the gear.js island) — not served
 docs/                  this file, api-routes.md, database-schema.sql, runbook-restore.md
 workers/img/           the Cloudflare Worker serving img.aoc-codex.app (AOC-041) - see Object storage
 ```
 
-`internal/db`, `internal/httpx` and `internal/items` carry a `doc.go` saying what belongs in each and
+`internal/db`, `internal/httpx`, `internal/items` and `internal/builds` carry a `doc.go` saying what belongs in each and
 what does not — the cheapest defence against the layout eroding into a pile of helpers. The other
 packages (`version`, `templates`, `pages`, `assets`) state it in their package comment instead.
 
@@ -370,8 +371,9 @@ once before adding a page.
 ```
 web/src/app.css          Tailwind input      ─┐
 web/src/htmx.min.js      vendored HTMX        │ make assets
+web/src/gear.js          an island, as written│ (AOC-051)
                                               ▼
-internal/assets/built/   app.css, htmx.min.js   COMMITTED, embedded, content-hashed
+internal/assets/built/   app.css, htmx.min.js, gear.js   COMMITTED, embedded, content-hashed
 internal/templates/html/ base (the shell) · home · smoke · echo
 internal/templates/      View + Engine (parse once at boot)
 internal/pages/          handlers: build a View, render a template
@@ -416,6 +418,26 @@ checksum mismatch fails the build, because a build tool that changes silently is
 starts looking different for reasons nobody can find. The binary downloads to `.tools/`
 (gitignored); the **output is committed**, and `bin/gate api` fails if it is missing, empty,
 gitignored or stale.
+
+### JavaScript islands (AOC-051)
+
+**An island is a script for what only a script can do, on one page, and nothing else.** The first is
+`web/src/gear.js`, the gear builder's. The pattern every later island copies:
+
+- **One file, no framework, no bundler.** A plain ES module, copied as it is by `make assets` and
+  served hashed like every asset. The page loads it with `<script type="module" src="{{asset …}}">`.
+  It mounts on one element marked `data-island="<name>"`, and does nothing on a page without one.
+- **It decides nothing.** Rules live in a service (`internal/<domain>`), and the island's markup is
+  the server's HTML. The island sends what the reader did, as the request a link would make, and
+  draws only what a browser alone holds. Every control it does not own is a link or a form field,
+  so the page works without it.
+- **It survives htmx.** The server redraws the parts it owns on every answer, so the island listens
+  on `document` (delegation) and redraws its own parts after each settle. It never holds markup the
+  server drew.
+- **Its classes are scanned.** `app.css` sources it (`@source "./gear.js"`), so the utilities it sets
+  reach the build.
+- **`localStorage` is guarded** (`try`/`catch` on every access) and only ever holds a reader's own
+  conveniences: with storage blocked, the page still works on what its URL holds.
 
 ### The shell (AOC-046)
 
@@ -531,8 +553,8 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
   parts were measured against the prototype in the same browser: rows 16px on a 21px pitch,
   checkbox 13px/3px, chips' font, padding, border and radius, and the sliders' 2px margin and 15px
   pitch are identical.
-- **Not built → not shown**: the design's source tabs and tree (AOC-050), gear builder (AOC-051) and
-  account (EP-06) are absent until they ship. **The exception is the header's tabs** (Pierre,
+- **Not built → not shown**: what the design draws before it is built is absent until it ships —
+  today the account (EP-06), and the builder's Save (EP-08) and Merge stats (AOC-072). **The exception is the header's tabs** (Pierre,
   2026-10-01): AA's, Feats, DJ/Raids and More are shown, and each leads to a "Coming Soon" page.
   `pages.siteNav` marks them `Soon`; that gives each a route, `noindex`, and keeps it out of
   `sitemapStatic`. So every nav link still answers 200 (`TestEveryNavLinkIsARegisteredRoute`), and
@@ -703,6 +725,118 @@ is the visual source of truth, distilled from `discovery/design/armory-2026-10-0
     assistive technology all do; a script that sets a value and fires only `input` is not a move.
   - It is an enhancement only, like the item page's back link, and moves to a hashed asset the day a
     CSP arrives.
+
+**The gear builder** (AOC-051) is the design's pane right of the filters. A 34px strip, "GEAR BUILDER ·
+n/14", opens to a 352px pane. It rides on the Armory's own URL, so it is the page's state like a
+filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` calls too.
+
+- **The URL.** `gear=<slot>:<item id>` (repeated) and `gear_class=<class>` sit beside the list's
+  filters. `armoryURL` adds `builds.Build.Values()` to every link, and `canonicalOf` reads them, so
+  a pager, a pill or a tab never drops the build. The canonical never carries it: build URLs are
+  not indexed apart from the list. The build rides in the form as hidden `gear` inputs at the top
+  of the pane, and as the class `<select>`, so a filter change keeps it.
+  - Why not a page of its own (`/armory/builder`, the ticket's first plan): one route keeps one
+    form, one handler, one history and one URL per state, so the machinery above carries the build
+    with no second copy of it (`DECISIONS.md` 2026-10-05).
+- **`add` is an action.** "+" sends `add=<id>`; a drop sends `add=<slot>:<id>`. `builds.Service.Add`
+  places the item, or refuses it with a reason the pane shows. It returns the computed result from
+  the one load it made. The "+" links are `rel="nofollow"`, and robots.txt disallows
+  `/armory?*add=`: every answer is a build page with 50 more "+" links, so a crawler following them
+  would never end. The canonical keeps build URLs out of the index; this keeps them out of the
+  crawl. The answer is the new state's URL: a
+  303 for a plain GET, `HX-Push-Url` for htmx. So no address keeps an action and a reload never
+  adds twice. The page's script never copies `add` into the form (`aocFormFrom`).
+- **The rules** (`builds.Service`):
+  - fit is `item_equip_locations`;
+  - a two-hander (`item_types.two_handed`) takes every other hand, but for its
+    `item_types.other_hand_type_id` (bow → ammunition, Pierre, 2026-10-05). The empty hand beside a
+    bow says "Ammunition only, beside …". A two-hander being added is never kept out of a hand: it
+    takes them all;
+  - the hands are derived: the slots a one-handed weapon fits (`ListBuildHands`), so no slot slug is
+    written in code;
+  - a class cannot wear an item that lists other classes, or whose armour weight is above its
+    `max_armour_weight` when one is recorded;
+  - with no slot named, "+" puts the item in the first fitting slot that is free, else the first it
+    fits.
+  A URL that breaks a rule still renders: the row is marked and not summed.
+- **The sum** is the item page's base lines (Armor, Critigation Amount) and every `item_stats` line,
+  added per (stat, unit, damage type, PvP) in exact hundredths, never a float (`ListBuildItemStats`
+  reads `sign * value * 100` as an integer). Spell effects and DPS are not summed. Each line is
+  written with `templates.GearValue`/`GearLabel`, the two halves of `StatText`.
+- **One answer redraws it.** `armory_update` carries the pane (`#gear-body`), the strip's and the
+  phone button's counts out of band. The class picker sends the form itself (`hx-include="closest
+  form"`), so the page's `htmx:beforeRequest` copies nothing from its bare `/armory` path into the
+  form. It did, and the search box (which no answer redraws) went blank (AOC-051 review #1). "+", ×, clear, "remove N conflicting" and the class picker are
+  links and a form field through the page's existing htmx flow. The list's rows carry the "+" (a
+  link: it works without JavaScript; shown on hover and focus where a pointer hovers, always on a
+  touch screen) and, when a class is picked, the design's dimming of what it cannot wear (`Wears`,
+  the same rule as a slot's conflict).
+- **Folds.** Open and folded are an unnamed checkbox (`#gear-open`), checked on load when the URL
+  carries a build (`gear=` alone is an open, empty one) or a refusal. Open, it folds the filters
+  (CSS `:has()`): they show as a strip of their own (`.filters-strip-gear`), which folds the builder.
+  "Combined stats" folds through `#gear-stats-folded`, which sits outside the redrawn body, so a fold
+  survives every answer. A `<details>` would reopen on each one. On a phone the builder is a third
+  CSS-only sheet, opened by "Builder · n/14".
+- **The island** (`gear.js`, § JavaScript islands) does three things only:
+  - dragging a row onto a slot, which sends the "+" request with the slot;
+  - copying the share link;
+  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t, v}` and shared
+    by the browser's tabs.
+  - **Which build a page is, is in its URL: `gear_id`.** The server carries it like the build itself
+    (`builds.Build.ID`): every link, the form's hidden inputs. It is left out of the share link
+    (`Build.Shared`) and of the canonical. So a page only ever writes the build its URL names, and
+    nothing is guessed. Back, reload, a history jump and another tab each change that one build.
+  - Rounds 1 and 2 guessed, by a tab's memory, by "the first build", and by the kind of navigation.
+    Each guess let one tab write over another's build (F1, F4). A build that arrives without an id
+    (a shared link, or a page made without a script) is a kept build if one holds exactly it, and
+    otherwise a build of its own. It gets its id with one replace request.
+  - **Opening a page never writes a kept build; only a reader's action does** (verify round 3, F7: a
+    bookmark of an older state erased every edit since). An answer to an action writes its build. A
+    load whose state equals the kept build selects it. A load from the tab's own history (Back,
+    Forward, reload) shows the older state and writes nothing: the next action writes it, which is
+    undo. Any other load (a bookmark, a link, the address bar) with another state of a kept build is a
+    build of its own. An id this browser does not keep is added. The cost, accepted: an undo by Back
+    alone, with no action after it, is not kept.
+  - **A stale view never writes** (AOC-073: a restored tab's "+" erased another tab's edit).
+    - Every write gives a kept build a new version `v`, a stamp never reused.
+    - Each tab keeps the version it last saw or wrote of each build (`aoc-gear-seen`, in
+      `sessionStorage`). A page also remembers what it last showed of its build.
+    - An answer that leaves the build as the page showed it (a filter, a sort, a page) writes nothing.
+      An answer equal to the kept build only records its version.
+    - A change writes only if the kept version is still this tab's. A page from the tab's history
+      (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
+    - Otherwise the change becomes a build of its own: another tab wrote the build since, or (storage
+      full, below) this tab could not keep its record of it.
+    - The record is re-read at every use, like the list (verify round 2, F5). A page Chrome restores
+      from its back/forward cache keeps what it read when it was left, so a copy in memory took the
+      tab's own undo for another tab's write.
+    - Each entry of the record stands alone (verify round 4, F7). An entry storage refuses (blocked,
+      or full) stays the page's own. It is saved as soon as storage takes it, but never over an
+      entry storage holds, which a later page of the tab wrote. A version stamp has a fixed length,
+      so replacing an entry never grows the record, and it fits even in a full storage.
+    - A write records the version the list holds after it. That is the new one, or the one still kept
+      if a full storage refused it, so the next action is judged against what is really kept (round
+      3, F6).
+    - **Accepted, with storage full** (`DECISIONS.md` 2026-10-06): a build first seen while
+      `sessionStorage` is full is known to that page alone. A later page showing an older state of
+      it forks on its next action, the tab's own undo included. Nothing is lost. Only a script
+      outside the site can fill the quota, so there the bar is safety, not an exact undo.
+    - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
+      `sessionStorage`, name included, so the twins took each other's writes for their own. The
+      version record is inherited too, but each twin's moves on with its own writes.
+    - The cost, accepted: two tabs editing one build end with two builds, not one holding both edits.
+  - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
+    it back when a page with no build opens the strip.
+- **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates
+  itself): a padding that the truncating cell clipped left a 17px target (verify round 2, F5).
+- **Measured against the prototype** at 1440 × 900 in the same browser: the pane, its header, title,
+  class picker, slot rows (30px) and share link are identical. The slot numbers are `faint`, the
+  noted AA lift. While a row is dragged they turn `muted`: `faint` is 4.34:1 and 3.98:1 on the two
+  drop colours, and the theme test measures every pair.
+- **The table is at least 1000px wide** and scrolls inside its pane below that, as the design's does
+  (its grid never goes under ~1,024px). At 860 the Source column fell to ~25px, and its header ran
+  into PRICE whenever the pane was under ~900px. That was already true at 1280px; the builder's
+  34px strip made it true at 1440.
 
 **The item page** (`/armory/{slug}`, AOC-048) is one `items.Service.Get` — the `/v1/items/{slug}` call
 — rendered through `templates.NewItemData`, which groups the sources for display and does nothing
@@ -988,6 +1122,11 @@ Four shapes that are not obvious, each of which a simpler schema would have got 
    **What takes both hands is a fact about the TYPE**: `item_types.two_handed` — true for 2HB, 2HE,
    staff, bow, polearm, thrown; false for 1HB, 1HE, dagger, talisman, crossbow (Pierre); NULL for
    types with no main-hand item. The gear builder reads it; nothing lists weapon types in code.
+   **What a two-hander still lets into the other hand** is the type's `other_hand_type_id` (AOC-051,
+   migration `20261005120000`): bow → ammunition, and nothing for any other (Pierre, 2026-10-05: *"with
+   bow yes need amo … throw weapon no amo"*). A `CHECK … two_handed IS TRUE` keeps it on two-handers.
+   `IS TRUE`, because a CHECK that comes out NULL passes, and `two_handed` is NULL on a type that is
+   no weapon.
    `TestEveryWeaponFollowsPierresHands` (corpus) checks every weapon's fit against its own rows;
    `TestTheWeaponMigrationAndTheImporterAgree` runs the migration's UPDATE, read from the file,
    against what the importer writes.

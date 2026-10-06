@@ -16,6 +16,9 @@ import (
 type fakeItems struct {
 	rows  []sqlcgen.ListItemsRow
 	slots []sqlcgen.ListItemPageEquipLocationsRow // the rows' slots, when a test needs them (AOC-062)
+	// The gear builder's view of the same rows (AOC-051), when a test needs it: classes and stats.
+	gearClasses map[int32][]string
+	gearStats   map[int32][]sqlcgen.ListBuildItemStatsRow
 }
 
 func newFakeItems(n int) *fakeItems {
@@ -158,8 +161,15 @@ func (f *fakeItems) ListItemPageEquipLocations(_ context.Context, ids []int32) (
 	}
 	return out, nil
 }
-func (f *fakeItems) ListItemPageClasses(context.Context, []int32) ([]sqlcgen.ListItemPageClassesRow, error) {
-	return nil, nil
+func (f *fakeItems) ListItemPageClasses(_ context.Context, ids []int32) ([]sqlcgen.ListItemPageClassesRow, error) {
+	// None, unless a gear builder test gives rows classes (AOC-051): the same classes its builder reads.
+	var out []sqlcgen.ListItemPageClassesRow
+	for _, id := range ids {
+		for _, c := range f.gearClasses[id] {
+			out = append(out, sqlcgen.ListItemPageClassesRow{ItemID: id, Slug: c, Name: c})
+		}
+	}
+	return out, nil
 }
 
 // Item 5 is sold by a vendor and drops nowhere (1,378 such items in the corpus): the phone row's

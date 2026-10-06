@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
@@ -55,7 +56,8 @@ func corpusRouter(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := pages.New(tpl, set, base, items.NewService(sqlcgen.New(pool)))
+	q := sqlcgen.New(pool)
+	h := pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 	return httpx.NewRouterWithSite(httpx.Build{Version: "test", Commit: "test", Env: "test"}, h.Routes, set.Handler()), pool
 }
 

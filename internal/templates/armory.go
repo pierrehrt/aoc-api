@@ -42,6 +42,9 @@ type ArmoryData struct {
 
 	// The sources panel (AOC-068), built by the handler from items.Tree; the template only prints.
 	Sources Sources
+
+	// The gear builder (AOC-051), built by the handler from builds.Service; the template only prints.
+	Gear Gear
 }
 
 // Sources is the panel on the left: the main categories under the search, and the active one's tree.
@@ -279,5 +282,6 @@ func armoryProbe() ArmoryData {
 			},
 			Selected: "Test Section › Test Place", Picked: true, Coords: "1,2",
 		},
+		Gear: gearProbe(),
 	}
 }

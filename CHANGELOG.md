@@ -8,6 +8,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-06
+
+The gear builder. Fill the equipment slots from the Armory, see the build's combined stats, and
+share it as a link.
+
+### Added
+
+- The gear builder beside the Armory list: the 14 equipment slots, filled with a row's "+" or, with
+  JavaScript, by dragging a row onto a slot. The pane and its totals update without a reload, the
+  address holds the build, and Back undoes the last change (AOC-051)
+- The build's combined stats, labelled a raw sum: no set bonuses, no diminishing returns (AOC-051)
+- The rules are the server's. An item that does not fit a slot is refused and the page says why. A
+  two-hander empties and locks the other hand, except that a bow still takes its ammunition there.
+  With a class picked, what it cannot wear is marked, left out of the sum and removed in one click,
+  and its rows are dimmed in the list (AOC-051)
+- Several builds (#1 to #5) kept in the browser and shared by its tabs. "share armor link" copies a
+  build's link, which opens as a build of its own and never overwrites one (AOC-051)
+- An empty builder shows its empty slots, and an unknown item in a link shows as "unknown item N".
+  With JavaScript off the builder works from links. On a phone it opens as a full-screen sheet from
+  "Builder · n/14" (AOC-051)
+- `GET /v1/builds/compute`: a build's slots, their statuses and the sums, from the parameters the
+  page takes and the same service, so the two cannot disagree. A malformed build is a 400. Without
+  a build, `/armory` and `/v1/items` are unchanged (AOC-051)
+- Two tabs never erase each other's edits. A tab restored from "Recently closed", a duplicated tab
+  or a reloaded one whose build another tab changed since puts its next change in a build of its
+  own (AOC-073)
+
+### Migration
+
+- `20261005120000_two_hander_other_hand`: `item_types.other_hand_type_id`, what a two-hander still
+  allows in the other hand, set for the bow alone (ammunition). It is run against production
+  **before** this deploy with `scripts/release-migrate.sh`; 0.6.0 runs unchanged on it (a nullable
+  column no query of 0.6.0 reads). The importer never writes `item_types`, so `import` needs no
+  redeploy (AOC-051).
+
 ## [0.6.0] - 2026-10-02
 
 The Armory's sources panel. The main categories sit under the search, and on the left a tree

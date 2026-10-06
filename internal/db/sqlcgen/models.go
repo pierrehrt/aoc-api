@@ -194,6 +194,7 @@ type ItemType struct {
 	DefaultEquipLocationID *int32
 	IsEquipment            *bool
 	TwoHanded              *bool
+	OtherHandTypeID        *int32
 }
 
 type Map struct {

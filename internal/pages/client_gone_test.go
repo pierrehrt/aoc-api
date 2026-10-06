@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/pierrehrt/aoc-api/internal/assets"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/db/sqlcgen"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
@@ -42,7 +43,8 @@ func TestAnAbortedArmoryRequestIsNotAPageFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := pages.New(tpl, set, base, items.NewService(ctxAware{newFakeItems(10)}))
+	q := ctxAware{newFakeItems(10)}
+	h := pages.New(tpl, set, base, items.NewService(q), builds.NewService(q))
 	router := httpx.NewRouterWithSite(httpx.Build{Version: "1.2.3", Commit: "abc1234", Env: "test"}, h.Routes, set.Handler())
 
 	var buf bytes.Buffer

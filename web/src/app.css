@@ -29,6 +29,8 @@
    and nothing else. Three consecutive builds are byte-identical. */
 @import "tailwindcss" source(none);
 @source "../../internal/templates/html/**/*.html";
+/* The gear builder's island draws its own controls (AOC-051), so its classes are scanned too. */
+@source "./gear.js";
 
 /* The 30-second contract (reference/ux-principles.md): someone reads this on a phone,
    on hotel wifi, three minutes before a pull. Dark by default because that is what the
@@ -84,6 +86,15 @@
   --color-rarity-legendary: #cd975b;
   --color-rarity-epic: #b874dd;
   --color-rarity-rare: #56aee6;
+  /* The gear builder (AOC-051), the prototype's own values. */
+  --color-ink-strip-hover: #181514; /* its folded strip under the pointer */
+  --color-ink-field: #181614;       /* the class picker; a build's dot that holds items */
+  --color-ink-drop: #1c1810;        /* a slot that takes the row being dragged */
+  --color-ink-drop-over: #252012;   /* … with the row over it */
+  --color-line-equipped: #4a3d29;   /* the left bar of a slot with an item worn */
+  --color-line-conflict: #a0663f;   /* … of one that is not counted (a conflict, a wrong slot) */
+  --color-warn: #191509;            /* "remove N conflicting", a refusal */
+  --color-warn-line: #443b2a;
 }
 
 /* The filter sheet (AOC-049, design 1b). Below lg the rail is hidden (`hidden lg:block` on the
@@ -146,7 +157,49 @@ html.js .no-js-only { display: none !important; }
   .armory:has(#sources-collapsed:checked) .sources-pane { display: none; }
   .sources-strip { display: none; }
   .armory:has(#sources-collapsed:checked) .sources-strip { display: flex; }
+  /* The gear builder (AOC-051) is a strip until #gear-open is ticked. Open, it folds the filters: they
+     show as a strip of their own, which folds the builder (the design's two toggles). */
+  .gear-strip { display: flex; }
+  .armory:has(#gear-open:checked) .gear-strip { display: none; }
+  .armory:has(#gear-open:checked) .gear-pane { display: flex; }
+  .armory:has(#gear-open:checked) .filters-pane,
+  .armory:has(#gear-open:checked) .filters-strip { display: none; }
+  .armory:has(#gear-open:checked) .filters-strip-gear { display: flex; }
 }
+/* The gear builder's sheet on a phone (AOC-051), the filter sheet's rule. */
+@media (width < 64rem) {
+  .armory:has(#gear-sheet:checked) .gear-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-ink-header);
+  }
+  body:has(#gear-sheet:checked) { overflow: hidden; }
+}
+/* A row's "+" (AOC-051): on hover and focus where there is a pointer that hovers; always where there is
+   none (a touch screen, where it is the only way to add). */
+@media (hover: hover) {
+  .gear-add { opacity: 0; }
+  tr:hover .gear-add, .gear-add:focus-visible { opacity: 1; }
+}
+/* "Combined stats" folds (AOC-051): its caret, ▾ open and ▸ folded, as the design draws it. */
+.gear-caret::before { content: "▾"; }
+.gear-pane:has(#gear-stats-folded:checked) .gear-caret::before { content: "▸"; }
+.gear-pane:has(#gear-stats-folded:checked) .gear-stats { display: none; }
+/* A drag in progress (gear.js marks each slot): the design's "drop to equip" and "does not fit". */
+.gear-slot[data-drop] { transition: opacity .12s, background-color .12s; }
+.gear-slot[data-drop="ok"] { background: var(--color-ink-drop); border-left-color: var(--color-link); }
+.gear-slot[data-drop="over"] { background: var(--color-ink-drop-over); border-left-color: var(--color-link-hover); }
+.gear-slot[data-drop="no"] { opacity: .3; }
+/* faint is under AA on the two drop colours (4.34:1, 3.98:1); the slot's number turns muted there. */
+.gear-slot[data-drop="ok"] .text-faint, .gear-slot[data-drop="over"] .text-faint { color: var(--color-muted); }
+.gear-slot[data-drop="ok"] .gear-empty, .gear-slot[data-drop="over"] .gear-empty { color: var(--color-link); }
+.gear-slot[data-drop="ok"] .gear-empty::after, .gear-slot[data-drop="over"] .gear-empty::after { content: "drop to equip"; }
+.gear-slot[data-drop="no"] .gear-empty::after { content: "does not fit"; }
+.gear-slot[data-drop] .gear-empty { font-size: 0; }
+.gear-slot[data-drop] .gear-empty::after { font-size: 11.5px; }
 
 /* Respect a reader who has asked for less motion. Non-negotiable, and cheap. */
 @media (prefers-reduced-motion: reduce) {

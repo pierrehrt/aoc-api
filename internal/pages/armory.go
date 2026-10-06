@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
@@ -50,6 +51,53 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 	}
 	f.WithFacets = true
 
+	// The gear builder (AOC-051): the build rides on the same URL as the list, and `add` is an action
+	// on it — builds.Service places the item, or says why not.
+	gb, err := builds.Parse(r.URL.Query())
+	if err != nil {
+		h.invalidSearch(w, r, err)
+		return
+	}
+	var gear builds.Result
+	refusal, added := "", false
+	if a, ok, err := builds.ParseAdd(r.URL.Query()); err != nil {
+		h.invalidSearch(w, r, err)
+		return
+	} else if ok {
+		// Add answers with what the builder shows for the build it made: one load, not two.
+		if gear, refusal, err = h.builds.Add(r.Context(), gb, a); err != nil {
+			h.gearFail(w, r, err)
+			return
+		}
+		added = refusal == ""
+	} else if gear, err = h.builds.Compute(r.Context(), gb); err != nil {
+		h.gearFail(w, r, err)
+		return
+	}
+
+	// The sources panel (AOC-068): the tabs and the active one's tree, counted under every other
+	// filter. A tab no tab has names nothing: 404, like a page past the end.
+	tabs, err := h.items.Tabs(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own
+	// canonical). Before any link is built from f, "Clear the search" included (round 2, O1).
+	firstTab := ""
+	if len(tabs) > 0 {
+		firstTab = tabs[0].Slug
+	}
+	if f.Tab == firstTab {
+		f.Tab = ""
+	}
+	if added && !templates.IsHTMX(r) {
+		// An add without a script: the state it made, at its own URL, so the address bar never keeps
+		// an action and a reload never adds twice. htmx gets the same URL in HX-Push-Url below.
+		http.Redirect(w, r, armoryURL(f, page, gear.Build), http.StatusSeeOther) // #nosec G710 -- armoryURL always starts with the literal "/armory": a path on this site, never another host (TestAnAddIsA303ToTheStatesOwnURL)
+		return
+	}
+
 	res, err := h.items.List(r.Context(), f)
 	if errors.Is(err, httpx.ErrInvalid) {
 		// The service refuses what the parser cannot see on its own: a 400, never a 500 and an
@@ -77,25 +125,10 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ⭐ Every link on the page is built from the whole state (items.Filters.Values), so no filter can
-	// fall out of a pager, a sort or a chip.
-	here := func(g items.Filters) string { return armoryURL(g, 1) }
-	// The sources panel (AOC-068): the tabs and the active one's tree, counted under every other
-	// filter. A tab no tab has names nothing: 404, like a page past the end.
-	tabs, err := h.items.Tabs(r.Context())
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	// The first tab is the default: one state, one URL (verify round 1, F5: ?tab=pve had its own
-	// canonical). Before any link is built from f, "Clear the search" included (round 2, O1).
-	firstTab := ""
-	if len(tabs) > 0 {
-		firstTab = tabs[0].Slug
-	}
-	if f.Tab == firstTab {
-		f.Tab = ""
-	}
+	// ⭐ Every link on the page is built from the whole state (items.Filters.Values, and the gear
+	// builder's build), so no filter — and no piece of the build — can fall out of a pager, a sort or
+	// a chip.
+	here := func(g items.Filters) string { return armoryURL(g, 1, gear.Build) }
 	withoutQuery := f
 	withoutQuery.Query = ""
 	var sources templates.Sources
@@ -125,6 +158,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		Chips:    chips,
 		ClearAll: clearAll,
 		Sources:  sources,
+		Gear:     buildGear(f, page, gear, refusal, res.Items, h.baseURL),
 	}
 	for i, k := range items.Sorts {
 		g := f
@@ -137,7 +171,7 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 			d.SortLabel, d.NextSort = sortLabels[k], here(next)
 		}
 	}
-	d.URL = armoryURL(f, page)
+	d.URL = armoryURL(f, page, gear.Build)
 	if n := int64(len(res.Items)); n > 0 {
 		d.RowsFrom = int64(f.Offset) + 1
 		d.RowsTo = int64(f.Offset) + int64(armoryPageSize)
@@ -146,13 +180,13 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if page > 1 {
-		d.Prev = armoryURL(f, page-1)
+		d.Prev = armoryURL(f, page-1, gear.Build)
 	}
 	if page < pages {
-		d.Next = armoryURL(f, page+1)
+		d.Next = armoryURL(f, page+1, gear.Build)
 	}
 	for _, n := range pagerWindow(page, pages) {
-		d.Pager = append(d.Pager, templates.PageLink{N: n, URL: armoryURL(f, n), Current: n == page})
+		d.Pager = append(d.Pager, templates.PageLink{N: n, URL: armoryURL(f, n, gear.Build), Current: n == page})
 	}
 
 	if templates.IsHTMX(r) {
@@ -162,8 +196,10 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		// for a new state: an answer for the URL the reader is already on (a Cancel back to it, say)
 		// replaces the entry, so Back never lands on the same page twice (AOC-065 delta verify 5).
 		// The answer is no-store, so a header that depends on HX-Current-URL caches nowhere.
-		canon := armoryURL(f, page)
-		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == canon {
+		canon := armoryURL(f, page, gear.Build)
+		// Compared with the build's entries in one order (canonicalOf has no database to put them in
+		// the slots'), so a hand-written ?gear=b&gear=a is the same state as its canonical a, b.
+		if canonicalOf(r, r.Header.Get("HX-Current-URL"), firstTab) == armoryURL(f, page, bySlot(gear.Build)) {
 			w.Header().Set("HX-Replace-Url", canon)
 		} else {
 			w.Header().Set("HX-Push-Url", canon)
@@ -182,11 +218,16 @@ func (h *Handler) armory(w http.ResponseWriter, r *http.Request) {
 		title = fmt.Sprintf("“%s” — Armory", f.Query)
 		desc = fmt.Sprintf("%s match “%s” in the Age of Conan armory.", itemCount(res.Total), f.Query)
 	}
+	if t, dsc, ok := gearTitle(gear); ok {
+		title, desc = t, dsc
+	}
 	if page > 1 {
 		title = fmt.Sprintf("%s — page %d", title, page)
 	}
-	// The canonical is this state without a redundant p=1, so the first page has one URL.
-	v := h.view(title, desc, armoryURL(f, page))
+	// The canonical is this state without a redundant p=1, so the first page has one URL — and
+	// without the build: a build is a reader's own, and its endless URLs are never indexed apart
+	// from the list they sit on (AOC-051).
+	v := h.view(title, desc, armoryURL(f, page, builds.Build{}))
 	v.App = true // the validated design's full-window app, from lg up (AOC-065)
 	h.render(w, r, "armory", v, d)
 }
@@ -208,6 +249,16 @@ func (h *Handler) invalidSearch(w http.ResponseWriter, r *http.Request, err erro
 		return
 	}
 	httpx.RejectHTML(w, r, http.StatusBadRequest, "That search is not valid: "+reason)
+}
+
+// gearFail answers what builds.Service refused (a slot or class no row has: a 400 naming it) or
+// could not do (a 500).
+func (h *Handler) gearFail(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, httpx.ErrInvalid) {
+		h.invalidSearch(w, r, err)
+		return
+	}
+	h.fail(w, r, err)
 }
 
 // itemCount is "1 item", "7 items" — the meta description said "1 items" (AOC-047 verify round 3).
@@ -239,6 +290,11 @@ func canonicalOf(r *http.Request, address, firstTab string) string {
 	if f.Tab == firstTab {
 		f.Tab = ""
 	}
+	// The build is part of the state (AOC-051): an address with another build is another state.
+	b, err := builds.Parse(u.Query())
+	if err != nil {
+		return ""
+	}
 	page := 1
 	if p := u.Query().Get("p"); p != "" {
 		if page, err = strconv.Atoi(p); err != nil || page < 1 {
@@ -249,14 +305,26 @@ func canonicalOf(r *http.Request, address, firstTab string) string {
 		f.Sort = items.SortILvl
 	}
 	f.Limit, f.Offset, f.WithFacets = armoryPageSize, (page-1)*armoryPageSize, true
-	return armoryURL(f, page)
+	return armoryURL(f, page, bySlot(b))
+}
+
+// bySlot is a build with its entries in slot-slug order: the one order canonicalOf can put them in
+// without the database, for comparing two addresses of the same build.
+func bySlot(b builds.Build) builds.Build {
+	b.Entries = append([]builds.Entry(nil), b.Entries...)
+	sort.Slice(b.Entries, func(i, j int) bool { return b.Entries[i].Slot < b.Entries[j].Slot })
+	return b
 }
 
 // armoryURL builds the list's own URLs from the whole state: only what differs from the default is
 // in the query string, so the same state always has the same URL (and the canonical never carries
-// p=1 or the page's default sort).
-func armoryURL(f items.Filters, page int) string {
+// p=1 or the page's default sort). The gear builder's build rides along (AOC-051): its parameters
+// are its own (builds.Param*), never one of the list's.
+func armoryURL(f items.Filters, page int, g builds.Build) string {
 	v := f.Values()
+	for k, vs := range g.Values() {
+		v[k] = vs
+	}
 	// A list means any of its values, in any order, so one state has ONE URL: each list sorted
 	// (AOC-064 verify F4 — ?rarity=rare&rarity=epic and ?rarity=epic&rarity=rare were two canonicals).
 	for _, k := range []string{"rarity", "equip_location", "armour_weight", "class", "currency", "set", "place"} {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/items"
 )
 
@@ -40,7 +41,7 @@ func pickOf(t *testing.T, raw, group string) items.SourceNode {
 	return s
 }
 
-func here(g items.Filters) string { return armoryURL(g, 1) }
+func here(g items.Filters) string { return armoryURL(g, 1, builds.Build{}) }
 
 func TestTheTabsKeepTheFiltersAndDropThePick(t *testing.T) {
 	tabs, tree := fakeTree()

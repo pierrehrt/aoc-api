@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pierrehrt/aoc-api/internal/builds"
 	"github.com/pierrehrt/aoc-api/internal/httpx"
 	"github.com/pierrehrt/aoc-api/internal/items"
 	"github.com/pierrehrt/aoc-api/internal/templates"
@@ -29,13 +30,15 @@ type Handler struct {
 	baseURL string
 	// items is THE armory service — the same *items.Service the JSON handlers hold (CLAUDE.md 5b).
 	items *items.Service
+	// builds is THE gear builder service — the same *builds.Service /v1/builds/compute holds (AOC-051).
+	builds *builds.Service
 	// sitemapMax is how many URLs one sitemap file may hold: the protocol's 50,000. A field, not a
 	// package global, so a test can prove the boundary on its own handler without racing another.
 	sitemapMax int
 }
 
-func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string, svc *items.Service) *Handler {
-	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc, sitemapMax: sitemapProtocolMax}
+func New(tpl *templates.Engine, assets templates.AssetResolver, baseURL string, svc *items.Service, gear *builds.Service) *Handler {
+	return &Handler{tpl: tpl, assets: assets, baseURL: strings.TrimRight(baseURL, "/"), items: svc, builds: gear, sitemapMax: sitemapProtocolMax}
 }
 
 func (h *Handler) canonical(path string) string { return h.baseURL + path }
