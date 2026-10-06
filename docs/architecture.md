@@ -4,7 +4,7 @@
 > path, so a change to routes, schema or package structure updates it in the same commit
 > (`bin/docs-check api` enforces this).
 >
-> Created by **AOC-002**. Last updated 2026-10-05 (AOC-051, the gear builder).
+> Created by **AOC-002**. Last updated 2026-10-06 (AOC-073, the gear builder's kept builds across tabs).
 
 ## What this service is
 
@@ -780,7 +780,7 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
 - **The island** (`gear.js`, § JavaScript islands) does three things only:
   - dragging a row onto a slot, which sends the "+" request with the slot;
   - copying the share link;
-  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t}` and shared
+  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t, v}` and shared
     by the browser's tabs.
   - **Which build a page is, is in its URL: `gear_id`.** The server carries it like the build itself
     (`builds.Build.ID`): every link, the form's hidden inputs. It is left out of the share link
@@ -797,6 +797,34 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     undo. Any other load (a bookmark, a link, the address bar) with another state of a kept build is a
     build of its own. An id this browser does not keep is added. The cost, accepted: an undo by Back
     alone, with no action after it, is not kept.
+  - **A stale view never writes** (AOC-073: a restored tab's "+" erased another tab's edit).
+    - Every write gives a kept build a new version `v`, a stamp never reused.
+    - Each tab keeps the version it last saw or wrote of each build (`aoc-gear-seen`, in
+      `sessionStorage`). A page also remembers what it last showed of its build.
+    - An answer that leaves the build as the page showed it (a filter, a sort, a page) writes nothing.
+      An answer equal to the kept build only records its version.
+    - A change writes only if the kept version is still this tab's. A page from the tab's history
+      (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
+    - Otherwise the change becomes a build of its own: another tab wrote the build since, or (storage
+      full, below) this tab could not keep its record of it.
+    - The record is re-read at every use, like the list (verify round 2, F5). A page Chrome restores
+      from its back/forward cache keeps what it read when it was left, so a copy in memory took the
+      tab's own undo for another tab's write.
+    - Each entry of the record stands alone (verify round 4, F7). An entry storage refuses (blocked,
+      or full) stays the page's own. It is saved as soon as storage takes it, but never over an
+      entry storage holds, which a later page of the tab wrote. A version stamp has a fixed length,
+      so replacing an entry never grows the record, and it fits even in a full storage.
+    - A write records the version the list holds after it. That is the new one, or the one still kept
+      if a full storage refused it, so the next action is judged against what is really kept (round
+      3, F6).
+    - **Accepted, with storage full** (`DECISIONS.md` 2026-10-06): a build first seen while
+      `sessionStorage` is full is known to that page alone. A later page's action on it, the tab's
+      own undo included, is a build of its own. Nothing is lost. Only a script outside the site can
+      fill the quota, so there the bar is safety, not an exact undo.
+    - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
+      `sessionStorage`, name included, so the twins took each other's writes for their own. The
+      version record is inherited too, but each twin's moves on with its own writes.
+    - The cost, accepted: two tabs editing one build end with two builds, not one holding both edits.
   - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
     it back when a page with no build opens the strip.
 - **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates

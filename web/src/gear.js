@@ -43,15 +43,16 @@ function mount() {
   }
   const items = (qs) => new URLSearchParams(qs).getAll("gear").filter((v) => v !== "").length;
   const empty = (qs) => !qs || (items(qs) === 0 && !new URLSearchParams(qs).get("gear_class"));
+  const norm = (qs) => (empty(qs) ? "" : qs);
 
-  // The builds kept in this browser: [{id, qs, t}], shared by every tab through localStorage.
+  // The builds kept in this browser: [{id, qs, t, v}], shared by every tab through localStorage.
   // ⭐ WHICH build a page is, is in its URL: `gear_id`, carried by every link like the build itself
   // (AOC-051 verify round 2, F4). So a page only ever writes the build its URL names, and nothing is
   // guessed: Back, reload, a history jump and another tab each change that build alone. Guessing — by
   // a tab's memory, by "the first one", by the kind of navigation — let one tab write over another's
   // build in rounds 1 and 2. Every write re-reads the list first (F1). Every access is guarded: with
   // storage blocked or full, the builder still works on the one build its URL holds.
-  const CUR = "aoc-gear-current";
+  const CUR = "aoc-gear-current", SEEN = "aoc-gear-seen";
   const newId = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).slice(0, 24);
   let held = []; // the list as this tab last read it: all there is when storage is blocked
   function list() {
@@ -61,21 +62,82 @@ function mount() {
     } catch (e) {}
     return held;
   }
+  // ⭐ Optimistic concurrency (AOC-073, AOC-051 verify round 4 O1): every write gives a build a new
+  // version `v`, a stamp never reused. This TAB keeps the version it last saw or wrote of each build
+  // (`seen`, in sessionStorage): when it loaded it, chose it, or wrote it. An action's answer writes a
+  // build only if its version is still this tab's; otherwise another tab wrote it since (or, storage
+  // full, this tab could not keep its record: below), and the answer becomes a build of its own (fork),
+  // leaving the other tab's work untouched. A page from the tab's history (Back, a reload, a restore)
+  // showing an older state is judged by the same test when it acts. Before this, a restored tab's next
+  // "+" erased what another tab had added.
+  // ⚠️ Not a tab name and "who wrote last" (verify round 1, F1): a duplicate inherits sessionStorage,
+  // name included, so the twins took each other's writes for their own. The record is inherited too,
+  // but each twin's moves on with its own writes, so they tell each other apart.
+  // ⚠️ The record is re-read at every use, like the list (verify round 2, F5): a page Chrome restores
+  // from its back/forward cache still holds what it read when it was left, older than what the tab's
+  // later pages wrote, and took the tab's own undo for another tab's write.
+  // ⚠️ An entry storage refuses (blocked, or full) stays this page's own (`unsaved`) and is saved as
+  // soon as storage takes it, but never over an entry storage holds, which a later page of this tab
+  // wrote. Each entry stands alone (verify round 4, F7: round 3 held the whole record in memory once one
+  // entry was refused, so every later save was refused too, and then wrote old entries back over newer
+  // ones). A stamp has a fixed length, so replacing an entry never grows the record: it fits even in a
+  // full storage. Accepted (DECISIONS.md 2026-10-06): a build first seen while storage is full is known
+  // to that page alone, so a later page's action on it, the tab's own undo included, is a build of its
+  // own. Nothing is lost; with storage full the bar is safety, not an exact undo.
+  // A write happens only when THIS page's action changed its build from what this page last showed
+  // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
+  // writes nothing and forks nothing, so it can never stamp a version under another tab.
+  let stored = {}; // the record as storage last gave or took it
+  const unsaved = {}; // this page's entries storage refused
+  function seen() {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SEEN));
+      if (s && typeof s === "object") stored = s;
+    } catch (e) {}
+    return Object.assign({}, unsaved, stored);
+  }
+  const stamp = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8).padEnd(6, "0");
+  const ver = (b) => b.v || "";
+  const put = (r) => {
+    try {
+      sessionStorage.setItem(SEEN, JSON.stringify(r));
+      stored = r;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+  const see = (id, v) => {
+    seen();
+    if (put(Object.assign({}, unsaved, stored, { [id]: v }))) Object.keys(unsaved).forEach((k) => delete unsaved[k]);
+    else if (put(Object.assign({}, stored, { [id]: v }))) delete unsaved[id];
+    else unsaved[id] = v;
+  };
+  const shown = {};
+  const look = (b) => {
+    if (!b) return;
+    see(b.id, ver(b));
+    shown[b.id] = norm(b.qs);
+  };
   // A build now holds qs: the one with this id, or a new one if none has it (a link from elsewhere, or a
   // build pruned meanwhile). More than MAX only when a link arrived on a full list: empty builds go,
   // never one with something in it, nor the one just written.
   function keep(id, qs) {
     const l = list().map((b) => Object.assign({}, b));
-    const b = l.find((x) => x.id === id);
-    if (b) {
-      b.qs = qs;
-      b.t = Date.now();
-    } else l.push({ id: id, qs: qs, t: Date.now() });
+    let b = l.find((x) => x.id === id);
+    // the same build already: nothing to write, no new version
+    if (!b) l.push((b = { id: id, qs: qs, t: Date.now(), v: stamp() }));
+    else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: stamp() });
+    shown[id] = norm(qs);
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
       if (l[i].id !== id && empty(l[i].qs)) l.splice(i, 1);
     }
     held = l;
     try { localStorage.setItem(KEY, JSON.stringify({ builds: l })); } catch (e) {}
+    // The version the list now holds, so the next action is judged against what is really there (verify
+    // round 3, F6): the new one; the one still kept if a full storage refused the write; or, for a new
+    // build the list could not take, the new one, which the next answer adds again (`adopt`: no build).
+    see(id, ver(list().find((x) => x.id === id) || b));
   }
   // The build this tab last showed, for a page whose URL has none (a fresh visit): only ever READ, to
   // bring it back when the reader opens the builder, never written through.
@@ -110,7 +172,8 @@ function mount() {
   // ⭐ Opening a page never writes a kept build; only a reader's action does (AOC-051 verify round 3, F7:
   // a bookmark of an older state erased every edit made since, because each load wrote its URL's
   // state). So `adopt` is told which it is:
-  //   - an ANSWER to an action (a "+", a drop, a ×, the class) writes its build, by id;
+  //   - an ANSWER to an action (a "+", a drop, a ×, the class) writes its build, by id — or, if another
+  //     tab wrote that build since this tab saw it, becomes a build of its own (AOC-073);
   //   - a LOAD whose state equals the kept build only selects it; one from the tab's own history (Back,
   //     Forward, reload) shows the older state and writes nothing — the next action writes it, which
   //     is undo; any other load (a bookmark, a link, the address bar) with another state of a kept
@@ -119,7 +182,6 @@ function mount() {
   // A build arriving with no id (a shared link; a page made without a script) is a kept build if one
   // holds exactly it, otherwise a build of its own. A new id goes into the address (a replace) and into
   // the page's links (the same state asked again, which the server answers with HX-Replace-Url).
-  const norm = (qs) => (empty(qs) ? "" : qs);
   function fork(qs) {
     const same = empty(qs) ? null : list().find((b) => b.qs === qs);
     const id = same ? same.id : newId();
@@ -135,14 +197,35 @@ function mount() {
     if (!p) return;
     if (!p.id) return fork(p.qs);
     const k = list().find((x) => x.id === p.id);
-    if (!onLoad || !k) {
+    if (!k) {
+      keep(p.id, p.qs); // an id this browser does not keep: added, overwriting nothing
+      setTab(p.id);
+      return;
+    }
+    // The page shows the kept build exactly as it is: seen, nothing to write. This also ends a fork onto
+    // a build that already holds the answer (two tabs adding the same item), which otherwise asked for
+    // that build again and forked again, forever (AOC-073 F4).
+    if (norm(k.qs) === norm(p.qs)) {
+      look(k);
+      return setTab(p.id);
+    }
+    if (!onLoad) {
+      // An answer that leaves the build as this page last showed it: nothing written, nothing forked.
+      if (shown[p.id] === norm(p.qs)) return setTab(p.id);
+      // A change this page made: written, unless the build moved on elsewhere since this tab saw it.
+      if (seen()[p.id] !== ver(k)) return fork(p.qs);
       keep(p.id, p.qs);
       setTab(p.id);
       return;
     }
-    if (norm(k.qs) === norm(p.qs)) return setTab(p.id);
+    shown[p.id] = norm(p.qs); // an older state than the kept one
     const nav = (performance.getEntriesByType("navigation")[0] || {}).type;
-    if (nav === "back_forward" || nav === "reload") return setTab(p.id);
+    if (nav === "back_forward" || nav === "reload") {
+      // This tab's history: shown, not written. Its next action writes it (undo) — unless, when that
+      // action comes, the kept build is no longer at the version this tab last saw or wrote: another
+      // tab wrote it since (a restored or duplicated tab), and the action is a build of its own.
+      return setTab(p.id);
+    }
     fork(p.qs);
   }
   adopt(true);
@@ -153,6 +236,7 @@ function mount() {
     const params = { add: value };
     if (pageBuild() === null) {
       const m = mine();
+      look(m);
       // the kept build, or a new one named now, so its answer already carries its id
       Object.assign(params, m ? buildParams(m) : { gear_id: [newId()] });
     }
@@ -161,6 +245,7 @@ function mount() {
   function select(i) {
     const b = list()[i];
     if (!b) return;
+    look(b);
     setTab(b.id);
     request(buildParams(b));
   }
@@ -249,7 +334,10 @@ function mount() {
     // Opening the builder on a URL with no build brings back this tab's kept one.
     if (t.closest("[data-gear-open]") && pageBuild() === null) {
       const m = mine();
-      if (m && !empty(m.qs)) request(buildParams(m));
+      if (m && !empty(m.qs)) {
+        look(m);
+        request(buildParams(m));
+      }
     }
     // The filters' strip folds the builder; it opens the filters too, as the design's toggle does.
     if (t.closest(".filters-strip-gear")) {
