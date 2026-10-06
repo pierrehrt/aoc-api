@@ -80,17 +80,23 @@ document.addEventListener("mouseover", (e) => {
   if (el && el !== on) enter(el);
   else if (!el && on) hide();
 });
+// A move also picks up the name under the pointer when it is not the current one: after a click
+// that opened the item in another tab, or a drag, the card comes back on the next move (verify
+// round 1).
 document.addEventListener("mousemove", (e) => {
-  if (!on) return;
+  if (!hovers.matches) return;
   at.x = e.clientX;
   at.y = e.clientY;
-  place();
+  const el = e.target.closest ? e.target.closest("[data-tip]") : null;
+  if (el && el !== on) enter(el);
+  else if (on) place();
 });
 document.addEventListener("mouseout", (e) => {
   if (on && (!e.relatedTarget || !on.contains(e.relatedTarget))) hide();
 });
-// A drag onto a slot, opening the item, a scroll under the cursor, an answer redrawing the names, or
-// leaving the window: the card goes, as the design hides it on a drag and on opening.
+// A drag onto a slot, opening the item, an answer redrawing the names, or leaving the window: the card
+// goes, as the design hides it on a drag and on opening. ⚠️ Not on a scroll (verify round 1): Chrome
+// fires mouseout and mouseover when a scroll moves a name under a still cursor, so the new name's card
+// shows, as in the design, and a scroll hide ran after that mouseover and lost it.
 ["dragstart", "click", "htmx:beforeSwap"].forEach((t) => document.addEventListener(t, hide, true));
-document.addEventListener("scroll", hide, true);
 window.addEventListener("blur", hide);

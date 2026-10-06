@@ -450,7 +450,9 @@ cursor, placed by the prototype's own arithmetic (`tipAt`).
 - It acts only where the pointer hovers (`(hover: hover) and (pointer: fine)`).
 - The card shows once its image has loaded: never an empty box, and never for a name without a
   tooltip or a failed image.
-- It hides on leave, a drag, a click, a scroll and an htmx swap.
+- It hides on leave, a drag, a click, an htmx swap and when the window loses focus. The next move over
+  a name brings it back. Not on a scroll: Chrome fires `mouseout`/`mouseover` when a scroll moves a
+  name under the cursor, so that name's card shows, as in the design (verify round 1).
 - Its look is `.tip-card` in `app.css` (a plain rule, so no `@source`). It holds no storage.
 - Without it, the name is still the link to the item page, which shows the tooltip in full.
 
