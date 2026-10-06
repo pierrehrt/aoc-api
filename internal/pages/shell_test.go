@@ -20,8 +20,8 @@ func TestEveryPageCarriesTheShell(t *testing.T) {
 		body := get(t, h, http.MethodGet, path, nil, "").Body.String()
 		for _, want := range []string{
 			`<header`, `<nav aria-label="Sections"`, `<main`, `<footer`,
-			`href="/"`, // the logo goes home
-			"fonts.googleapis.com/css2?family=IBM+Plex+Sans",
+			`href="/"`,                               // the logo goes home
+			`@font-face{font-family:"IBM Plex Sans"`, // the design's fonts, from our own assets (AOC-075)
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: missing %q", path, want)

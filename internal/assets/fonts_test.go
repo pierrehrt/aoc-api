@@ -1,6 +1,7 @@
 package assets_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,12 +23,12 @@ func TestAFontIsServedAsWoff2(t *testing.T) {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, p, nil))
+	s.Handler().ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, p, nil))
 	if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "font/woff2" {
 		t.Errorf("%s: %d %q, want 200 font/woff2", p, rr.Code, rr.Header().Get("Content-Type"))
 	}
 	rr = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, assets.Prefix+"Test-Regular.00000000.woff2", nil))
+	s.Handler().ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, assets.Prefix+"Test-Regular.00000000.woff2", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("an unknown font hash answered %d, want 404", rr.Code)
 	}
