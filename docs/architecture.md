@@ -4,7 +4,7 @@
 > path, so a change to routes, schema or package structure updates it in the same commit
 > (`bin/docs-check api` enforces this).
 >
-> Created by **AOC-002**. Last updated 2026-10-05 (AOC-051, the gear builder).
+> Created by **AOC-002**. Last updated 2026-10-06 (AOC-073, the gear builder's kept builds across tabs).
 
 ## What this service is
 
@@ -780,7 +780,7 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
 - **The island** (`gear.js`, § JavaScript islands) does three things only:
   - dragging a row onto a slot, which sends the "+" request with the slot;
   - copying the share link;
-  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t}` and shared
+  - the design's several builds (#1…#5, ‹ ›, +), kept in `localStorage` as `{id, qs, t, v}` and shared
     by the browser's tabs.
   - **Which build a page is, is in its URL: `gear_id`.** The server carries it like the build itself
     (`builds.Build.ID`): every link, the form's hidden inputs. It is left out of the share link
@@ -803,9 +803,12 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
       `sessionStorage`). A page also remembers what it last showed of its build.
     - An answer that leaves the build as the page showed it (a filter, a sort, a page) writes nothing.
       An answer equal to the kept build only records its version.
-    - A change writes only if the kept version is still this tab's. A load from the tab's history
-      (Back, a reload, a restore) showing an older state is stale on the same test.
+    - A change writes only if the kept version is still this tab's. A page from the tab's history
+      (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
     - Otherwise the change becomes a build of its own: another tab wrote the build since.
+    - The record is re-read at every use, like the list (verify round 2, F5). A page Chrome restores
+      from its back/forward cache keeps what it read when it was left, so a copy in memory took the
+      tab's own undo for another tab's write. Memory serves only when storage is blocked.
     - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
       `sessionStorage`, name included, so the twins took each other's writes for their own. The
       version record is inherited too, but each twin's moves on with its own writes.

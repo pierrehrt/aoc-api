@@ -66,26 +66,33 @@ function mount() {
   // version `v`, a stamp never reused. This TAB keeps the version it last saw or wrote of each build
   // (`seen`, in sessionStorage): when it loaded it, chose it, or wrote it. An action's answer writes a
   // build only if its version is still this tab's; otherwise another tab wrote it since, and the answer
-  // becomes a build of its own (fork), leaving the other tab's work untouched. A page loaded from the
-  // tab's history (Back, a reload, a restore) showing an older state is STALE on the same test. Before
-  // this, a restored tab's next "+" erased what another tab had added.
+  // becomes a build of its own (fork), leaving the other tab's work untouched. A page from the tab's
+  // history (Back, a reload, a restore) showing an older state is judged by the same test when it acts.
+  // Before this, a restored tab's next "+" erased what another tab had added.
   // ⚠️ Not a tab name and "who wrote last" (verify round 1, F1): a duplicate inherits sessionStorage,
   // name included, so the twins took each other's writes for their own. The record is inherited too,
   // but each twin's moves on with its own writes, so they tell each other apart.
+  // ⚠️ The record is re-read at every use, like the list (verify round 2, F5): a page Chrome restores
+  // from its back/forward cache still holds what it read when it was left, older than what the tab's
+  // later pages wrote, and took the tab's own undo for another tab's write. Memory only when storage
+  // is blocked.
   // A write happens only when THIS page's action changed its build from what this page last showed
   // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
   // writes nothing and forks nothing, so it can never stamp a version under another tab.
-  let seen = {};
-  try {
-    const s = JSON.parse(sessionStorage.getItem(SEEN));
-    if (s && typeof s === "object") seen = s;
-  } catch (e) {}
+  let seenHeld = {}; // the record as this tab last read it: all there is when storage is blocked
+  function seen() {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SEEN));
+      if (s && typeof s === "object") seenHeld = s;
+    } catch (e) {}
+    return seenHeld;
+  }
   const ver = (b) => b.v || "";
   const see = (id, v) => {
-    seen[id] = v;
-    try { sessionStorage.setItem(SEEN, JSON.stringify(seen)); } catch (e) {}
+    seenHeld = Object.assign({}, seen(), { [id]: v });
+    try { sessionStorage.setItem(SEEN, JSON.stringify(seenHeld)); } catch (e) {}
   };
-  const stale = {}, shown = {};
+  const shown = {};
   const look = (b) => {
     if (!b) return;
     see(b.id, ver(b));
@@ -102,7 +109,6 @@ function mount() {
     else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: newId() });
     see(id, ver(b));
     shown[id] = norm(qs);
-    stale[id] = false;
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
       if (l[i].id !== id && empty(l[i].qs)) l.splice(i, 1);
     }
@@ -176,14 +182,13 @@ function mount() {
     // that build again and forked again, forever (AOC-073 F4).
     if (norm(k.qs) === norm(p.qs)) {
       look(k);
-      stale[p.id] = false;
       return setTab(p.id);
     }
     if (!onLoad) {
       // An answer that leaves the build as this page last showed it: nothing written, nothing forked.
       if (shown[p.id] === norm(p.qs)) return setTab(p.id);
       // A change this page made: written, unless the build moved on elsewhere since this tab saw it.
-      if (stale[p.id] || seen[p.id] !== ver(k)) return fork(p.qs);
+      if (seen()[p.id] !== ver(k)) return fork(p.qs);
       keep(p.id, p.qs);
       setTab(p.id);
       return;
@@ -191,10 +196,9 @@ function mount() {
     shown[p.id] = norm(p.qs); // an older state than the kept one
     const nav = (performance.getEntriesByType("navigation")[0] || {}).type;
     if (nav === "back_forward" || nav === "reload") {
-      // This tab's history: shown, not written. Its next action writes it (undo) — unless the kept
-      // build is no longer at the version this tab last saw or wrote: another tab wrote it since (a
-      // restored or duplicated tab), and that action is a build of its own.
-      stale[p.id] = seen[p.id] !== ver(k);
+      // This tab's history: shown, not written. Its next action writes it (undo) — unless, when that
+      // action comes, the kept build is no longer at the version this tab last saw or wrote: another
+      // tab wrote it since (a restored or duplicated tab), and the action is a build of its own.
       return setTab(p.id);
     }
     fork(p.qs);
@@ -217,7 +221,6 @@ function mount() {
     const b = list()[i];
     if (!b) return;
     look(b);
-    stale[b.id] = false;
     setTab(b.id);
     request(buildParams(b));
   }
