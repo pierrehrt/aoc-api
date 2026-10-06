@@ -74,23 +74,27 @@ function mount() {
   // but each twin's moves on with its own writes, so they tell each other apart.
   // ⚠️ The record is re-read at every use, like the list (verify round 2, F5): a page Chrome restores
   // from its back/forward cache still holds what it read when it was left, older than what the tab's
-  // later pages wrote, and took the tab's own undo for another tab's write. Memory only when storage
-  // is blocked.
+  // later pages wrote, and took the tab's own undo for another tab's write. Memory only once storage
+  // refuses a write, blocked or full (verify round 3, F6: a full storage still reads, and handed back a
+  // record older than this page's own).
   // A write happens only when THIS page's action changed its build from what this page last showed
   // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
   // writes nothing and forks nothing, so it can never stamp a version under another tab.
-  let seenHeld = {}; // the record as this tab last read it: all there is when storage is blocked
+  let seenHeld = {}; // the record as this page last read or wrote it
+  let seenMemory = false; // storage refused a write: from then on the record lives in seenHeld
   function seen() {
-    try {
-      const s = JSON.parse(sessionStorage.getItem(SEEN));
-      if (s && typeof s === "object") seenHeld = s;
-    } catch (e) {}
+    if (!seenMemory) {
+      try {
+        const s = JSON.parse(sessionStorage.getItem(SEEN));
+        if (s && typeof s === "object") seenHeld = s;
+      } catch (e) {}
+    }
     return seenHeld;
   }
   const ver = (b) => b.v || "";
   const see = (id, v) => {
     seenHeld = Object.assign({}, seen(), { [id]: v });
-    try { sessionStorage.setItem(SEEN, JSON.stringify(seenHeld)); } catch (e) {}
+    try { sessionStorage.setItem(SEEN, JSON.stringify(seenHeld)); } catch (e) { seenMemory = true; }
   };
   const shown = {};
   const look = (b) => {
@@ -107,13 +111,15 @@ function mount() {
     // the same build already: nothing to write, no new version
     if (!b) l.push((b = { id: id, qs: qs, t: Date.now(), v: newId() }));
     else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: newId() });
-    see(id, ver(b));
     shown[id] = norm(qs);
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
       if (l[i].id !== id && empty(l[i].qs)) l.splice(i, 1);
     }
     held = l;
     try { localStorage.setItem(KEY, JSON.stringify({ builds: l })); } catch (e) {}
+    // The version the list now holds: the new one, or the one still kept if a full storage refused the
+    // write (verify round 3, F6), so the next action is judged against what is really there.
+    see(id, ver(list().find((x) => x.id === id) || b));
   }
   // The build this tab last showed, for a page whose URL has none (a fresh visit): only ever READ, to
   // bring it back when the reader opens the builder, never written through.
@@ -148,7 +154,8 @@ function mount() {
   // ⭐ Opening a page never writes a kept build; only a reader's action does (AOC-051 verify round 3, F7:
   // a bookmark of an older state erased every edit made since, because each load wrote its URL's
   // state). So `adopt` is told which it is:
-  //   - an ANSWER to an action (a "+", a drop, a ×, the class) writes its build, by id;
+  //   - an ANSWER to an action (a "+", a drop, a ×, the class) writes its build, by id — or, if another
+  //     tab wrote that build since this tab saw it, becomes a build of its own (AOC-073);
   //   - a LOAD whose state equals the kept build only selects it; one from the tab's own history (Back,
   //     Forward, reload) shows the older state and writes nothing — the next action writes it, which
   //     is undo; any other load (a bookmark, a link, the address bar) with another state of a kept

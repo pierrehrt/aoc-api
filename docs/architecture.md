@@ -808,7 +808,11 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     - Otherwise the change becomes a build of its own: another tab wrote the build since.
     - The record is re-read at every use, like the list (verify round 2, F5). A page Chrome restores
       from its back/forward cache keeps what it read when it was left, so a copy in memory took the
-      tab's own undo for another tab's write. Memory serves only when storage is blocked.
+      tab's own undo for another tab's write. Memory serves only once storage refuses a write,
+      blocked or full (verify round 3, F6: a full storage still reads, and handed back a record
+      older than the page's own).
+    - A write records the version the list holds after it: the new one, or the one still kept if a
+      full storage refused it. So the next action is judged against what is really kept.
     - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
       `sessionStorage`, name included, so the twins took each other's writes for their own. The
       version record is inherited too, but each twin's moves on with its own writes.
