@@ -42,6 +42,7 @@ type GearRow struct {
 	ItemName   string
 	ItemSlug   string // the item page; "" for an id no item has
 	Colour     string // the item's rarity colour token, "" for none
+	Tip        string // the item's tooltip image, "" for none: shown beside the cursor (AOC-074)
 	Note       string // what is wrong with it, when something is: "⚠ not Barbarian"
 	RemoveURL  string // this state without the slot's item; "" when it is empty
 }

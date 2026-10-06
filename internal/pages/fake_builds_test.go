@@ -38,7 +38,7 @@ func (f *fakeItems) ListBuildItems(_ context.Context, ids []int32) ([]sqlcgen.Li
 	for _, r := range f.rows {
 		for _, id := range ids {
 			if r.ItemID == id {
-				out = append(out, sqlcgen.ListBuildItemsRow{ItemID: r.ItemID, Slug: r.Slug, Name: r.Name, RarityColourToken: r.RarityColourToken, Armor: r.Armor})
+				out = append(out, sqlcgen.ListBuildItemsRow{ItemID: r.ItemID, Slug: r.Slug, Name: r.Name, RarityColourToken: r.RarityColourToken, Armor: r.Armor, TooltipImage: r.TooltipImage})
 				break
 			}
 		}

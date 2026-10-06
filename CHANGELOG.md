@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-06
+
+An item's in-game tooltip beside the cursor when its name is hovered, as the design draws it.
+
+### Added
+
+- Hovering an item's name in the Armory list, or an equipped item's name in the gear builder, shows
+  that item's own tooltip beside the cursor. It follows the pointer, moves to the cursor's left at
+  the window's right edge, rises at the bottom, and shrinks to fit a short window. It shows only
+  once the image has loaded and never for an item without one. On a touch screen, or with
+  JavaScript off, nothing changes: the name is the link to the item page, which shows the tooltip
+  (AOC-074)
+- `/v1/builds/compute`: a slot's `item` (and `held_by`) carries `tooltip_image`, absent when the
+  item has none (AOC-074)
+
 ## [0.7.0] - 2026-10-06
 
 The gear builder. Fill the equipment slots from the Armory, see the build's combined stats, and

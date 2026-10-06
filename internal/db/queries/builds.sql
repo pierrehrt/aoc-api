@@ -33,12 +33,13 @@ SELECT slug, sort_order FROM armour_weights ORDER BY sort_order;
 
 -- name: ListBuildItems :many
 -- A build's items, with what the rules read: the type's hands (two_handed, and what a two-hander
--- still allows in the other hand), the armour weight's place in the order, and the base lines.
+-- still allows in the other hand), the armour weight's place in the order, and the base lines. And
+-- the tooltip image, which the page shows beside the cursor on a slot's item name (AOC-074).
 SELECT i.item_id, i.slug, i.name, r.colour_token AS rarity_colour_token,
        i.item_type_id, COALESCE(it.two_handed, false)::boolean AS two_handed,
        it.other_hand_type_id, oh.slug AS other_hand_type_slug, oh.name AS other_hand_type_name,
        aw.sort_order AS armour_weight_order,
-       i.armor, i.critigation
+       i.armor, i.critigation, i.tooltip_image
 FROM items i
 JOIN rarities r ON r.id = i.rarity_id
 LEFT JOIN item_types it ON it.id = i.item_type_id
