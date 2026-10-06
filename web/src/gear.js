@@ -45,14 +45,14 @@ function mount() {
   const empty = (qs) => !qs || (items(qs) === 0 && !new URLSearchParams(qs).get("gear_class"));
   const norm = (qs) => (empty(qs) ? "" : qs);
 
-  // The builds kept in this browser: [{id, qs, t}], shared by every tab through localStorage.
+  // The builds kept in this browser: [{id, qs, t, v}], shared by every tab through localStorage.
   // ⭐ WHICH build a page is, is in its URL: `gear_id`, carried by every link like the build itself
   // (AOC-051 verify round 2, F4). So a page only ever writes the build its URL names, and nothing is
   // guessed: Back, reload, a history jump and another tab each change that build alone. Guessing — by
   // a tab's memory, by "the first one", by the kind of navigation — let one tab write over another's
   // build in rounds 1 and 2. Every write re-reads the list first (F1). Every access is guarded: with
   // storage blocked or full, the builder still works on the one build its URL holds.
-  const CUR = "aoc-gear-current", TAB = "aoc-gear-tab";
+  const CUR = "aoc-gear-current", SEEN = "aoc-gear-seen";
   const newId = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).slice(0, 24);
   let held = []; // the list as this tab last read it: all there is when storage is blocked
   function list() {
@@ -62,27 +62,33 @@ function mount() {
     } catch (e) {}
     return held;
   }
-  // This tab's name, for "who wrote a build last" (AOC-073). A duplicated or restored tab inherits it
-  // with the rest of sessionStorage; the version check below tells those apart.
-  let tabName = null;
-  try {
-    tabName = sessionStorage.getItem(TAB);
-    if (!tabName) sessionStorage.setItem(TAB, (tabName = newId()));
-  } catch (e) {}
-  // ⭐ Optimistic concurrency (AOC-073, AOC-051 verify round 4 O1): every write bumps a build's version
-  // `v` and records its writer `w`. This page remembers the version it last saw of each build — when it
-  // loaded it, chose it, or wrote it — and whether its view is STALE (it shows an older state of a build
-  // another tab has written since: a restored or duplicated tab). An action's answer writes only a build
-  // whose version is still the one seen, from a view that is not stale; otherwise it becomes a build of
-  // its own (fork), and the other tab's work is untouched. Before this, a restored tab's next "+" erased
-  // what another tab had added.
+  // ⭐ Optimistic concurrency (AOC-073, AOC-051 verify round 4 O1): every write gives a build a new
+  // version `v`, a stamp never reused. This TAB keeps the version it last saw or wrote of each build
+  // (`seen`, in sessionStorage): when it loaded it, chose it, or wrote it. An action's answer writes a
+  // build only if its version is still this tab's; otherwise another tab wrote it since, and the answer
+  // becomes a build of its own (fork), leaving the other tab's work untouched. A page loaded from the
+  // tab's history (Back, a reload, a restore) showing an older state is STALE on the same test. Before
+  // this, a restored tab's next "+" erased what another tab had added.
+  // ⚠️ Not a tab name and "who wrote last" (verify round 1, F1): a duplicate inherits sessionStorage,
+  // name included, so the twins took each other's writes for their own. The record is inherited too,
+  // but each twin's moves on with its own writes, so they tell each other apart.
   // A write happens only when THIS page's action changed its build from what this page last showed
   // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
-  // writes nothing and forks nothing, so it can never bump a version under another tab.
-  const seen = {}, stale = {}, shown = {};
+  // writes nothing and forks nothing, so it can never stamp a version under another tab.
+  let seen = {};
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SEEN));
+    if (s && typeof s === "object") seen = s;
+  } catch (e) {}
+  const ver = (b) => b.v || "";
+  const see = (id, v) => {
+    seen[id] = v;
+    try { sessionStorage.setItem(SEEN, JSON.stringify(seen)); } catch (e) {}
+  };
+  const stale = {}, shown = {};
   const look = (b) => {
     if (!b) return;
-    seen[b.id] = b.v || 0;
+    see(b.id, ver(b));
     shown[b.id] = norm(b.qs);
   };
   // A build now holds qs: the one with this id, or a new one if none has it (a link from elsewhere, or a
@@ -91,15 +97,10 @@ function mount() {
   function keep(id, qs) {
     const l = list().map((b) => Object.assign({}, b));
     let b = l.find((x) => x.id === id);
-    if (b && norm(b.qs) === norm(qs)) {
-      seen[id] = b.v || 0; // the same build: nothing to write, no version to bump
-    } else if (b) {
-      b.qs = qs;
-      b.t = Date.now();
-      b.v = (b.v || 0) + 1;
-      b.w = tabName;
-    } else l.push((b = { id: id, qs: qs, t: Date.now(), v: 1, w: tabName }));
-    seen[id] = b.v || 0;
+    // the same build already: nothing to write, no new version
+    if (!b) l.push((b = { id: id, qs: qs, t: Date.now(), v: newId() }));
+    else if (norm(b.qs) !== norm(qs)) Object.assign(b, { qs: qs, t: Date.now(), v: newId() });
+    see(id, ver(b));
     shown[id] = norm(qs);
     stale[id] = false;
     for (let i = l.length - 1; l.length > MAX && i >= 0; i--) {
@@ -170,23 +171,30 @@ function mount() {
       setTab(p.id);
       return;
     }
+    // The page shows the kept build exactly as it is: seen, nothing to write. This also ends a fork onto
+    // a build that already holds the answer (two tabs adding the same item), which otherwise asked for
+    // that build again and forked again, forever (AOC-073 F4).
+    if (norm(k.qs) === norm(p.qs)) {
+      look(k);
+      stale[p.id] = false;
+      return setTab(p.id);
+    }
     if (!onLoad) {
       // An answer that leaves the build as this page last showed it: nothing written, nothing forked.
-      if (p.id in shown && shown[p.id] === norm(p.qs)) return setTab(p.id);
-      // A change this page made: written, unless the build moved on elsewhere since this page saw it.
-      if (stale[p.id] || (k.v || 0) !== (p.id in seen ? seen[p.id] : k.v || 0)) return fork(p.qs);
+      if (shown[p.id] === norm(p.qs)) return setTab(p.id);
+      // A change this page made: written, unless the build moved on elsewhere since this tab saw it.
+      if (stale[p.id] || seen[p.id] !== ver(k)) return fork(p.qs);
       keep(p.id, p.qs);
       setTab(p.id);
       return;
     }
-    look(k);
-    shown[p.id] = norm(p.qs); // what this page shows, which may be an older state than the kept one
-    if (norm(k.qs) === norm(p.qs)) return setTab(p.id);
+    shown[p.id] = norm(p.qs); // an older state than the kept one
     const nav = (performance.getEntriesByType("navigation")[0] || {}).type;
     if (nav === "back_forward" || nav === "reload") {
-      // This tab's history: shown, not written. Its next action writes it (undo) — unless another tab
-      // wrote the newer state, which this view has never seen: then that action is a build of its own.
-      stale[p.id] = !!k.w && k.w !== tabName;
+      // This tab's history: shown, not written. Its next action writes it (undo) — unless the kept
+      // build is no longer at the version this tab last saw or wrote: another tab wrote it since (a
+      // restored or duplicated tab), and that action is a build of its own.
+      stale[p.id] = seen[p.id] !== ver(k);
       return setTab(p.id);
     }
     fork(p.qs);

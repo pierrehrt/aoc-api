@@ -798,13 +798,18 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
     build of its own. An id this browser does not keep is added. The cost, accepted: an undo by Back
     alone, with no action after it, is not kept.
   - **A stale view never writes** (AOC-073: a restored tab's "+" erased another tab's edit).
-    - Each kept build has a version `v` and a last writer `w` (the tab's name, in `sessionStorage`).
-    - A page remembers the version it last saw of each build, and what it last showed of it.
+    - Every write gives a kept build a new version `v`, a stamp never reused.
+    - Each tab keeps the version it last saw or wrote of each build (`aoc-gear-seen`, in
+      `sessionStorage`). A page also remembers what it last showed of its build.
     - An answer that leaves the build as the page showed it (a filter, a sort, a page) writes nothing.
-    - A change writes only if the version is still the one seen, and the page's view is not stale.
-      A view is stale when it loaded an older state that another tab had written over.
-    - Otherwise the change becomes a build of its own. A duplicated or restored tab inherits its
-      tab's name; the version check tells it apart.
+      An answer equal to the kept build only records its version.
+    - A change writes only if the kept version is still this tab's. A load from the tab's history
+      (Back, a reload, a restore) showing an older state is stale on the same test.
+    - Otherwise the change becomes a build of its own: another tab wrote the build since.
+    - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
+      `sessionStorage`, name included, so the twins took each other's writes for their own. The
+      version record is inherited too, but each twin's moves on with its own writes.
+    - The cost, accepted: two tabs editing one build end with two builds, not one holding both edits.
   - Every write re-reads the list first. A tab's last build (`sessionStorage`) is only read, to bring
     it back when a page with no build opens the strip.
 - **On a phone a slot row is 36px**, its item link and ✕ filling that height (the link truncates
