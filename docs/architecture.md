@@ -818,9 +818,9 @@ filter. Every rule is `internal/builds` (`doc.go`), which `/v1/builds/compute` c
       if a full storage refused it, so the next action is judged against what is really kept (round
       3, F6).
     - **Accepted, with storage full** (`DECISIONS.md` 2026-10-06): a build first seen while
-      `sessionStorage` is full is known to that page alone. A later page's action on it, the tab's
-      own undo included, is a build of its own. Nothing is lost. Only a script outside the site can
-      fill the quota, so there the bar is safety, not an exact undo.
+      `sessionStorage` is full is known to that page alone. A later page showing an older state of
+      it forks on its next action, the tab's own undo included. Nothing is lost. Only a script
+      outside the site can fill the quota, so there the bar is safety, not an exact undo.
     - ⚠️ Not a tab name and "who wrote last" (verify round 1, F1). A duplicated tab inherits
       `sessionStorage`, name included, so the twins took each other's writes for their own. The
       version record is inherited too, but each twin's moves on with its own writes.

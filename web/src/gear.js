@@ -82,8 +82,8 @@ function mount() {
   // entry was refused, so every later save was refused too, and then wrote old entries back over newer
   // ones). A stamp has a fixed length, so replacing an entry never grows the record: it fits even in a
   // full storage. Accepted (DECISIONS.md 2026-10-06): a build first seen while storage is full is known
-  // to that page alone, so a later page's action on it, the tab's own undo included, is a build of its
-  // own. Nothing is lost; with storage full the bar is safety, not an exact undo.
+  // to that page alone, so a later page showing an older state of it forks on its next action, the
+  // tab's own undo included. Nothing is lost; with storage full the bar is safety, not an exact undo.
   // A write happens only when THIS page's action changed its build from what this page last showed
   // (`shown`): an answer that leaves the build as shown (a filter, a sort, a page, the id's own replace)
   // writes nothing and forks nothing, so it can never stamp a version under another tab.
@@ -212,7 +212,8 @@ function mount() {
     if (!onLoad) {
       // An answer that leaves the build as this page last showed it: nothing written, nothing forked.
       if (shown[p.id] === norm(p.qs)) return setTab(p.id);
-      // A change this page made: written, unless the build moved on elsewhere since this tab saw it.
+      // A change this page made: written, unless the build moved on elsewhere since this tab saw it (or
+      // storage full kept this tab from recording it: above).
       if (seen()[p.id] !== ver(k)) return fork(p.qs);
       keep(p.id, p.qs);
       setTab(p.id);
@@ -223,7 +224,8 @@ function mount() {
     if (nav === "back_forward" || nav === "reload") {
       // This tab's history: shown, not written. Its next action writes it (undo) — unless, when that
       // action comes, the kept build is no longer at the version this tab last saw or wrote: another
-      // tab wrote it since (a restored or duplicated tab), and the action is a build of its own.
+      // tab wrote it since (a restored or duplicated tab), or storage full kept this tab from recording
+      // it (above), and the action is a build of its own.
       return setTab(p.id);
     }
     fork(p.qs);
