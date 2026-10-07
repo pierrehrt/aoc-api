@@ -27,21 +27,27 @@
     answers there as JSON.
   - **A reader that has already gone** gets a bare `499` from `httpx.Fail`: no `Content-Type` and
     no body, since nobody is left to read it.
-  - **`net/http`'s own replies**, written before any handler runs (raw socket, local binary): `400`
-    for a malformed request line, an illegal byte in a header, a repeated `Host`, or a missing `Host`
-    on HTTP/1.1 (on HTTP/1.0 our code answers); `417` for an unknown `Expect` (no `Content-Type`,
-    empty body); `431` for headers over the limit; `501` for an unknown `Transfer-Encoding`; `505`
-    for an unsupported HTTP version. All but the 417 are `text/plain`, and none carries
-    `X-Request-Id`, `Cache-Control` or the JSON error body: exceptions to the three bullets below
-    as well.
-- **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
-- **Every response carries `Cache-Control`, set by `httpx.Cache` and by nothing else** (AOC-026):
+  - **Replies Go's `net/http` writes itself, before our router runs.** They are a class, not a
+    list: none carries `X-Request-Id`, `Cache-Control` or a JSON body, and none reaches the access
+    log. Measured examples (raw socket, local binary): `400` for a malformed request line, an
+    illegal byte in a header, a repeated `Host`, or a missing `Host` on HTTP/1.1 (on HTTP/1.0 our
+    code answers); `417` for an unknown `Expect`; `431` for headers over the limit; `501` for an
+    unknown `Transfer-Encoding`; `505` for an unsupported HTTP version; and `OPTIONS *`, answered
+    `200` with an empty body. The three bullets below describe what our router writes, so they do
+    not cover these.
+- **Every response our router writes carries `X-Request-Id`**, echoed from the request if supplied
+  and ≤ 64 chars.
+- **Every response our router writes carries `Cache-Control`, set by `httpx.Cache` and by nothing
+  else** (AOC-026):
   pages `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`, `/v1/*`
   `public, max-age=60, s-maxage=600`, assets a year and `immutable`, 404/410 a minute, `/health`,
   errors, writes and HTMX `no-store`, and anything with a session, a `Set-Cookie` or an
   `Authorization` header `private, no-store`. Full table: `docs/architecture.md` § Caching.
-- **Errors share one body shape**: `{"error": "...", "request_id": "..."}`, except the bare `499`
-  and `net/http`'s own replies above.
+- **An error body our code writes on `/v1/*`, `/health` and `/assets/*` has one shape**:
+  `{"error": "...", "request_id": "..."}`, except the fallback `Respond` writes when encoding its
+  own response fails (`{"error":"internal error"}`, no `request_id`; read in `httpx/errors.go`, not
+  measured). The bare `499` above has no body; the HTML surface's rejections are pages (the ⚠️
+  paragraph above).
 - Every list endpoint is paginated (`GET /v1/items`: `limit`/`offset`, below).
 
 ## Operational
