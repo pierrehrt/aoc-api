@@ -10,9 +10,10 @@ import (
 	"github.com/pierrehrt/aoc-api/internal/assets"
 )
 
-// Every Content-Type arm of the asset handler, pinned (AOC-028). Each body is plain text on
-// purpose: without its arm, the type would be sniffed from the bytes, and `.svg` in particular
-// sniffs to text/plain, which no browser renders as an image (measured, AOC-024 verify round 2).
+// Every Content-Type arm of the asset handler, pinned (AOC-028). Without its arm, this recorder
+// reports no type at all, and a real server would sniff one from the bytes: plain text here, and
+// `.svg` in particular sniffs to text/plain, which no browser renders as an image (measured,
+// AOC-024 verify round 2). The plain-text bodies keep any sniffing from passing for an arm.
 func TestEveryAssetKindIsServedWithItsOwnType(t *testing.T) {
 	cases := []struct{ file, want string }{
 		{"app.css", "text/css; charset=utf-8"},
