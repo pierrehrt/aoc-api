@@ -7,35 +7,41 @@
 
 - **Everything product-facing lives under `/v1/`.** A breaking change ships as `/v2/` beside it and
   the old version is marked deprecated here, never changed in place (CLAUDE.md rule 5c).
-- **On the canonical host, every `/v1/*` and `/health` response our code writes is JSON**, success
-  or failure, including 404, 405 and 500 — those are contracts a machine parses. **`/assets/*` is
-  JSON only when it rejects**: an unknown or stale hash is a JSON 404, and so is a method chi does
-  not know (`BREW` → 405). A served asset carries its own type (`text/css`, `text/javascript`,
-  `image/png`, `image/svg+xml`, `font/woff2`; every arm pinned by
-  `TestEveryAssetKindIsServedWithItsOwnType`), and the asset route takes any standard method:
-  `POST`, `PUT`, `DELETE`, `PATCH` and `OPTIONS` get the file as `GET` does (measured 2026-10-07).
-  **On the Railway host** (`aoc-armory-snapshot-production.up.railway.app`) every path but
-  `/health` is a `301` to the canonical host, written as `text/html` by `http.Redirect`
-  (`httpx/canonical.go`, AOC-025); `/health` answers there as JSON.
+- **`/v1/*` and `/health` answer in JSON on the canonical host**, success and rejection alike
+  (200, 400, 404, 405, 500): those are contracts a machine parses. **`/assets/*` is JSON only when
+  it rejects**: an unknown or stale hash is a JSON 404, and so is a method chi does not know
+  (`BREW` → 405). A served asset carries its own type (`text/css`, `text/javascript`, `image/png`,
+  `image/svg+xml`, `font/woff2`; every arm pinned by `TestEveryAssetKindIsServedWithItsOwnType`),
+  and the asset route is mounted for every method chi knows (`r.Handle`): `POST`, `PUT`, `DELETE`,
+  `PATCH` and `OPTIONS` get the file as `GET` does; live, Cloudflare refuses `TRACE` and `CONNECT`
+  before they reach us.
   ⚠️ **Since AOC-024 the site surface is not.** A rejection on an HTML path (anything outside
   those three) returns a small **HTML** page, so a person who mistypes a URL or follows a stale
   link is not handed `{"error":"not found"}` in their browser. The shape follows the **path**,
   because a path is a fact about which contract was addressed where `Accept` is a negotiation a
   proxy can get wrong. See `docs/architecture.md` § *Rejections have two shapes*.
-  ⚠️ **Some responses never reach our code.** Go's `net/http` answers a request it will not parse
-  on its own, before any handler runs. Measured over a raw socket on the local binary, 2026-10-07:
-  `400` for a malformed request line, an illegal byte in a header, or a missing or repeated
-  `Host`; `417` for an unknown `Expect` (no `Content-Type`, empty body); `431` for headers over the
-  limit; `501` for an unknown `Transfer-Encoding`; `505` for an unsupported HTTP version. All but
-  the 417 are `text/plain`, and none carries `X-Request-Id`, `Cache-Control` or the JSON error body:
-  exceptions to the JSON bullet above and to the three bullets below.
+  **Known exceptions, measured 2026-10-07**, none of them a body a client could take for data:
+  - **The Railway host** (`aoc-armory-snapshot-production.up.railway.app`) redirects every path but
+    `/health` to the canonical host (`httpx/canonical.go`, AOC-025): a `GET` or `HEAD` gets a `301`
+    as `text/html`, any other method a `308` with no `Content-Type` and an empty body. `/health`
+    answers there as JSON.
+  - **A reader that has already gone** gets a bare `499` from `httpx.Fail`: no `Content-Type` and
+    no body, since nobody is left to read it.
+  - **`net/http`'s own replies**, written before any handler runs (raw socket, local binary): `400`
+    for a malformed request line, an illegal byte in a header, a repeated `Host`, or a missing `Host`
+    on HTTP/1.1 (on HTTP/1.0 our code answers); `417` for an unknown `Expect` (no `Content-Type`,
+    empty body); `431` for headers over the limit; `501` for an unknown `Transfer-Encoding`; `505`
+    for an unsupported HTTP version. All but the 417 are `text/plain`, and none carries
+    `X-Request-Id`, `Cache-Control` or the JSON error body: exceptions to the three bullets below
+    as well.
 - **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
 - **Every response carries `Cache-Control`, set by `httpx.Cache` and by nothing else** (AOC-026):
   pages `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`, `/v1/*`
   `public, max-age=60, s-maxage=600`, assets a year and `immutable`, 404/410 a minute, `/health`,
   errors, writes and HTMX `no-store`, and anything with a session, a `Set-Cookie` or an
   `Authorization` header `private, no-store`. Full table: `docs/architecture.md` § Caching.
-- **Errors share one body shape**: `{"error": "...", "request_id": "..."}`.
+- **Errors share one body shape**: `{"error": "...", "request_id": "..."}`, except the bare `499`
+  and `net/http`'s own replies above.
 - Every list endpoint is paginated (`GET /v1/items`: `limit`/`offset`, below).
 
 ## Operational
