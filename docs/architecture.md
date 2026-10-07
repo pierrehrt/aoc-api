@@ -1067,6 +1067,15 @@ only structured copy of the armory data.
    the diff, and the gate fails when it is stale. Same rule as the built assets.
 5. ⚠️ **`make schema-dump` strips pg_dump's `\restrict` lines**, which carry a random token and
    would otherwise make the file differ on every run.
+6. ⚠️ **A failed `make schema-dump` leaves `database-schema.sql` as it was** (AOC-029). The dump
+   goes to a temporary file, which replaces the document only when the whole run succeeded. A
+   redirect straight into the document truncated it before `pg_dump` ran, so a laptop with no
+   container runtime turned it into a 13-line header that read like a real file. There is no
+   `pg_dump | grep` either: that pipe's status was grep's. An empty dump is refused by name, and
+   an interrupted run (Ctrl-C) removes its temporary files. `internal/db/schema_dump_test.go`
+   runs the real target against a fake `COMPOSE`. The other generated files were measured and
+   do not share the flaw: `sqlc generate` and the Tailwind build leave their output untouched
+   when they fail.
 
 ### The content model, and why its seeds are generated
 
