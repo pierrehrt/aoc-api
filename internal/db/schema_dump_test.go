@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +42,11 @@ func schemaDumpCmd(t *testing.T, compose string) (dir string, cmd *exec.Cmd) {
 	if err := os.WriteFile(filepath.Join(dir, "docs", "database-schema.sql"), []byte(schemaDocBefore), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd = exec.Command("make", "-f", "Makefile", "schema-dump", "COMPOSE="+compose)
+	// Bounded: a hung make fails the test instead of hanging the suite. (go.mod is 1.23, so no
+	// t.Context.)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	cmd = exec.CommandContext(ctx, "make", "-f", "Makefile", "schema-dump", "COMPOSE="+compose)
 	cmd.Dir = dir
 	// Run under `make test`, the parent's MAKEFLAGS would carry its own command-line variables
 	// into this make; this run must see only its own.
