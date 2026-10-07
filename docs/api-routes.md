@@ -7,13 +7,21 @@
 
 - **Everything product-facing lives under `/v1/`.** A breaking change ships as `/v2/` beside it and
   the old version is marked deprecated here, never changed in place (CLAUDE.md rule 5c).
-- **Every `/v1/*`, `/health` and `/assets/*` response is JSON**, success or failure, including
-  404, 405 and 500 — those are contracts a machine parses.
+- **Every `/v1/*` and `/health` response is JSON**, success or failure, including 404, 405 and 500
+  — those are contracts a machine parses. **`/assets/*` is JSON only when it rejects**: an unknown
+  or stale hash is a JSON 404. A served asset carries its own type (`text/css`, `text/javascript`,
+  `image/png`, `image/svg+xml`, `font/woff2`; every arm pinned by
+  `TestEveryAssetKindIsServedWithItsOwnType`), and the asset handler does not reject by method: a
+  `POST` gets the file, as a `GET` does (measured 2026-10-07).
   ⚠️ **Since AOC-024 the site surface is not.** A rejection on an HTML path (anything outside
   those three) returns a small **HTML** page, so a person who mistypes a URL or follows a stale
   link is not handed `{"error":"not found"}` in their browser. The shape follows the **path**,
   because a path is a fact about which contract was addressed where `Accept` is a negotiation a
   proxy can get wrong. See `docs/architecture.md` § *Rejections have two shapes*.
+  ⚠️ **One response is not ours at all.** Go's `net/http` answers a malformed request line, or an
+  illegal byte in a header, with `400 Bad Request` as `text/plain` before any of our code runs, so
+  that reply carries neither `X-Request-Id` nor `Cache-Control` (measured over a raw socket on the
+  local binary, 2026-10-07): an exception to the two bullets below.
 - **Every response carries `X-Request-Id`**, echoed from the request if supplied and ≤ 64 chars.
 - **Every response carries `Cache-Control`, set by `httpx.Cache` and by nothing else** (AOC-026):
   pages `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`, `/v1/*`
