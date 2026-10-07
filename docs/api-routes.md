@@ -45,9 +45,8 @@
   `Authorization` header `private, no-store`. Full table: `docs/architecture.md` § Caching.
 - **An error body our code writes on `/v1/*`, `/health` and `/assets/*` has one shape**:
   `{"error": "...", "request_id": "..."}`, except the fallback `Respond` writes when encoding its
-  own response fails (`{"error":"internal error"}`, no `request_id`; read in `httpx/errors.go`, not
-  measured). The bare `499` above has no body; the HTML surface's rejections are pages (the ⚠️
-  paragraph above).
+  own response fails (`{"error":"internal error"}`, no `request_id`; pinned by
+  `TestRespondFallbackIsTheDocumentedShape`). The bare `499` above has no body.
 - Every list endpoint is paginated (`GET /v1/items`: `limit`/`offset`, below).
 
 ## Operational
