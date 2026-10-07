@@ -207,6 +207,8 @@ func TestSchemaDumpInterruptedLeavesNothingBehind(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// If the test stops early, the fake's `sleep 30` must not outlive it.
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
 	waitFor(t, "the fake dump to start", func() bool { _, err := os.Stat(started); return err == nil })
 	// What Ctrl-C does: the signal goes to the whole foreground process group.
 	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT); err != nil {
