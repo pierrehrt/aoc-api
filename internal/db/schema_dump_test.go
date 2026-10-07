@@ -243,3 +243,37 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// A `kill` or a closed terminal in the middle of a dump. The recipe traps TERM and HUP as well as
+// INT, and only INT was pinned: a recipe that dropped either one from its trap still passed every
+// test above (AOC-029 verify round 1, mutation check). Without the trap the shell dies on the
+// signal without running its EXIT trap, and the raw dump stays in docs/.
+func TestSchemaDumpTerminatedLeavesNothingBehind(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGHUP} {
+		t.Run(sig.String(), func(t *testing.T) {
+			started := filepath.Join(t.TempDir(), "started")
+			compose := fakeCompose(t, `printf 'CREATE TABLE test_epsilon (\n'; touch '`+started+`'; sleep 30`)
+			dir, cmd := schemaDumpCmd(t, compose)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+			waitFor(t, "the fake dump to start", func() bool { _, err := os.Stat(started); return err == nil })
+			if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Wait(); err == nil {
+				t.Errorf("make schema-dump exited 0 after %v", sig)
+			}
+			waitFor(t, "docs/ to hold only the document", func() bool { return len(leftovers(t, dir)) == 0 })
+			got, err := os.ReadFile(filepath.Join(dir, "docs", "database-schema.sql"))
+			if err != nil {
+				t.Fatalf("the document is gone after %v: %v", sig, err)
+			}
+			if !bytes.Equal(got, []byte(schemaDocBefore)) {
+				t.Errorf("%v in the middle of a dump changed the document:\n%s", sig, got)
+			}
+		})
+	}
+}
