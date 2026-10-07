@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); thi
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-06
+
+The fonts come from the site itself: no page waits on a third party to draw.
+
+### Changed
+
+- The IBM Plex fonts are served from the site's own assets instead of Google Fonts. No page requests
+  Google any more, and the first paint waits only on the site's own stylesheet: a slow or blocked
+  font host can no longer hold a page blank, and visitors' addresses are no longer sent to Google.
+  The files are IBM's own, unmodified, with their licence. The text looks the same; the arrow in
+  "Copy link ↗" is now drawn in Plex (AOC-075)
+
 ## [0.8.0] - 2026-10-06
 
 An item's in-game tooltip beside the cursor when its name is hovered, as the design draws it.

@@ -134,6 +134,8 @@ func NewFS(fsys fs.FS, pageMap map[string]string, assets AssetResolver) (*Engine
 		"phoneLine": PhoneLine,
 		// num prints a count the design's way: 4,646 (AOC-065).
 		"num": Num,
+		// fontFaces: the @font-face rules of the shell, IBM Plex from our own assets (AOC-075).
+		"fontFaces": func() []FontFace { return FontFaces },
 	}
 
 	fragmentFiles, err := fragmentsIn(fsys, pageMap)

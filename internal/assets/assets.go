@@ -125,6 +125,8 @@ func (s *Set) Handler() http.Handler {
 			w.Header().Set("Content-Type", "image/png")
 		case ".svg":
 			w.Header().Set("Content-Type", "image/svg+xml")
+		case ".woff2": // IBM Plex, the site's own fonts (AOC-075)
+			w.Header().Set("Content-Type", "font/woff2")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(b)

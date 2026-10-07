@@ -373,8 +373,9 @@ web/src/app.css          Tailwind input      ─┐
 web/src/htmx.min.js      vendored HTMX        │ make assets
 web/src/gear.js          an island, as written│ (AOC-051)
 web/src/tip.js           an island, as written│ (AOC-074)
+web/src/fonts/*.woff2    IBM Plex, unmodified │ (AOC-075)
                                               ▼
-internal/assets/built/   app.css, htmx.min.js, gear.js, tip.js   COMMITTED, embedded, content-hashed
+internal/assets/built/   app.css, htmx.min.js, gear.js, tip.js, *.woff2   COMMITTED, embedded, content-hashed
 internal/templates/html/ base (the shell) · home · smoke · echo
 internal/templates/      View + Engine (parse once at boot)
 internal/pages/          handlers: build a View, render a template
@@ -419,6 +420,22 @@ checksum mismatch fails the build, because a build tool that changes silently is
 starts looking different for reasons nobody can find. The binary downloads to `.tools/`
 (gitignored); the **output is committed**, and `bin/gate api` fails if it is missing, empty,
 gitignored or stale.
+
+**The fonts are ours** (AOC-075). The page uses IBM Plex Sans and Mono, and since AOC-075 they are
+served from our own assets rather than Google Fonts.
+- **Why:** a third-party stylesheet blocked the first paint, so a slow or blocked Google held the page
+  blank, and every visit sent the reader's IP address to Google (`DECISIONS.md` 2026-10-06).
+- **The files:** `web/src/fonts/` holds IBM's own split woff2, unmodified, from `@ibm/plex-sans` 1.1.0
+  and `@ibm/plex-mono` 2.5.0, with the SIL OFL beside them. "Plex" is a Reserved Font Name, so we
+  never make a subset of our own.
+- **The faces:** Sans 400/500/600/700 and Mono 400/500/600, each in Latin1, Latin2 and Pi. A browser
+  fetches a file only when the page draws one of its characters (`unicode-range`); `/armory` fetches
+  six.
+- **The rules** are not in `app.css`. They are `@font-face` rules in the shell's `<style>`
+  (`base.html`), generated from `templates.FontFaces`, because the template resolves each file's
+  hashed name and an unbuilt font fails the boot probe like any asset.
+- **Loading:** `font-display: swap` draws the text at once in the fallback.
+- **Serving:** `assets.go` serves `.woff2` as `font/woff2`.
 
 ### JavaScript islands (AOC-051)
 
@@ -472,8 +489,8 @@ source and no other creator anywhere; where the data came from is said once, on 
 - **The theme is tokens**, in `web/src/app.css` `@theme static` — `static` because a token reached
   only through a database value (`var(--color-{{.ColourToken}})`) is invisible to Tailwind's scanner
   and plain `@theme` would drop it from the build (AOC-046 verify round 1; `DECISIONS.md`
-  2026-09-29). IBM Plex Sans/Mono (Google Fonts, linked
-  from `base.html`), `ink` (the page), `paper`/`muted`/`link` (text), `line` (borders), and the
+  2026-09-29). IBM Plex Sans/Mono (our own assets, declared in
+  `base.html`: § Assets, AOC-075), `ink` (the page), `paper`/`muted`/`link` (text), `line` (borders), and the
   rarity colours. `TestThemeTextTokensPassAA` reads that block and fails any text token under
   4.5:1 on ink — the design's own note records that the raw game colours fail (Epic 2.0:1, Rare
   3.1:1), so they were lightened along their hue.

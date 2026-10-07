@@ -41,8 +41,8 @@
    silently shipped without them. `static` emits every token, unconditionally (+244 bytes, measured);
    TestServedThemeCarriesEveryDeclaredToken reads the BUILT file and pins it. */
 @theme static {
-  /* The type the design set: IBM Plex Sans for prose, Plex Mono for data columns (loaded from
-     Google Fonts in base.html; the fallbacks are what renders offline). */
+  /* The type the design set: IBM Plex Sans for prose, Plex Mono for data columns (our own assets,
+     declared in base.html since AOC-075; the fallbacks draw until a face lands, or if it fails). */
   --font-sans: "IBM Plex Sans", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
